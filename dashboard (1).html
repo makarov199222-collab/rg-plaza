@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RG Plaza — Дашборд руководителя</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Golos+Text:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg:#0d0f14; --surface:#161920; --surface2:#1e2230; --border:#2a2f42;
+    --accent:#e8b84b; --blue:#3b82f6; --text:#e8eaf2; --muted:#6b7280;
+    --green:#22c55e; --purple:#a855f7; --red:#ef4444; --orange:#f97316;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;padding-bottom:40px;}
+
+  .login{position:fixed;inset:0;background:var(--bg);z-index:500;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;}
+  .login.hidden{display:none;}
+  .login-logo{font-family:'Bebas Neue',sans-serif;font-size:38px;color:var(--accent);letter-spacing:3px;margin-bottom:6px;}
+  .login-sub{font-size:11px;color:var(--muted);letter-spacing:4px;font-weight:600;margin-bottom:30px;}
+  .login-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;width:100%;max-width:340px;}
+  .login-title{font-size:14px;font-weight:700;margin-bottom:14px;text-align:center;}
+  .login-input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:13px 14px;color:var(--text);font-family:'Golos Text',sans-serif;font-size:15px;font-weight:600;outline:none;text-align:center;letter-spacing:1px;-webkit-appearance:none;}
+  .login-input:focus{border-color:var(--accent);}
+  .login-btn{width:100%;margin-top:10px;padding:13px;background:var(--accent);border:none;border-radius:10px;color:#000;font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:2px;cursor:pointer;}
+  .login-err{margin-top:10px;font-size:12px;color:var(--red);text-align:center;min-height:16px;}
+
+  header{background:var(--surface);border-bottom:2px solid var(--accent);padding:14px 20px;position:sticky;top:0;z-index:100;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+  .logo{font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--accent);letter-spacing:2px;line-height:1;}
+  .logo span{color:var(--text);font-size:11px;display:block;letter-spacing:3px;font-family:'Golos Text',sans-serif;font-weight:600;margin-top:3px;}
+  .month-pick{margin-left:auto;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:8px;font-family:'Golos Text',sans-serif;font-size:13px;font-weight:600;cursor:pointer;outline:none;}
+  .month-pick:focus{border-color:var(--accent);}
+  .refresh-btn{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--accent);font-size:13px;cursor:pointer;font-family:'Golos Text',sans-serif;font-weight:700;}
+
+  .wrap{padding:18px;max-width:1400px;margin:0 auto;}
+
+  .top-tabs{display:flex;gap:6px;margin-bottom:18px;}
+  .top-tab{flex:1;padding:11px;background:var(--surface);border:1px solid var(--border);border-radius:10px;color:var(--muted);font-family:'Golos Text',sans-serif;font-size:13px;font-weight:700;cursor:pointer;text-align:center;transition:all .2s;}
+  .top-tab.active{background:var(--accent);color:#000;border-color:var(--accent);}
+
+  .tab-page{display:none;} .tab-page.active{display:block;}
+
+  .city-section{margin-bottom:24px;}
+  .city-title{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--muted);letter-spacing:2px;margin-bottom:12px;display:flex;align-items:center;gap:10px;}
+  .city-title::before{content:'';width:24px;height:2px;background:var(--accent);}
+  .city-title::after{content:'';flex:1;height:1px;background:var(--border);}
+
+  .hero{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:18px;}
+  .hero-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;}
+  .hero-card.acc{border-color:rgba(232,184,75,.5);background:linear-gradient(135deg,var(--surface),var(--surface2));}
+  .hero-lbl{font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px;}
+  .hero-val{font-family:'Bebas Neue',sans-serif;font-size:26px;color:var(--accent);line-height:1;}
+  .hero-val.b{color:var(--blue);} .hero-val.g{color:var(--green);} .hero-val.p{color:var(--purple);} .hero-val.t{color:var(--text);}
+  .hero-sub{font-size:11px;color:var(--muted);margin-top:4px;}
+
+  .points-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:14px;margin-bottom:18px;}
+  .point-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;}
+  .point-card-head{padding:12px 16px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;}
+  .point-card-name{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--accent);letter-spacing:1.5px;}
+  .point-card-days{margin-left:auto;font-size:11px;color:var(--muted);background:var(--bg);padding:4px 10px;border-radius:6px;font-weight:700;}
+  .point-card-body{padding:14px;}
+  .pc-stats{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:12px;}
+  .pc-stat{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:9px;}
+  .pc-stat-lbl{font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px;}
+  .pc-stat-val{font-family:'Bebas Neue',sans-serif;font-size:19px;}
+  .pc-stat-val.t{color:var(--accent);} .pc-stat-val.b{color:var(--blue);} .pc-stat-val.g{color:var(--green);} .pc-stat-val.p{color:var(--purple);}
+
+  .pc-plan{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;}
+  .pc-plan-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+  .pc-plan-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;}
+  .pc-plan-title.g{color:var(--green);} .pc-plan-title.p{color:var(--purple);}
+  .pc-plan-pct{font-family:'Bebas Neue',sans-serif;font-size:17px;}
+  .pc-plan-pct.ok{color:var(--green);} .pc-plan-pct.warn{color:var(--orange);} .pc-plan-pct.bad{color:var(--red);}
+  .pc-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:5px;}
+  .pc-bar-fill{height:100%;border-radius:3px;transition:width .4s;}
+  .pc-bar-fill.g{background:var(--green);} .pc-bar-fill.p{background:var(--purple);} .pc-bar-fill.r{background:var(--red);}
+  .pc-plan-text{font-size:10px;color:var(--muted);}
+
+  .pc-chart{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:10px;}
+  .pc-chart-title{font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;}
+
+  /* Plan editor */
+  .plan-editor{background:var(--surface);border:1px solid var(--border);border-radius:14px;margin-bottom:14px;overflow:hidden;}
+  .plan-editor-head{padding:13px 16px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .plan-editor-name{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--accent);letter-spacing:1.5px;}
+  .plan-editor-city{font-size:10px;color:var(--muted);font-weight:700;background:var(--bg);padding:4px 9px;border-radius:5px;letter-spacing:.5px;text-transform:uppercase;}
+  .plan-editor-status{margin-left:auto;font-size:11px;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:5px;}
+  .plan-editor-status.saved{color:var(--green);}
+  .plan-editor-status.saving{color:var(--orange);}
+  .plan-editor-body{padding:14px;}
+  .plan-fields-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  @media (max-width: 600px) { .plan-fields-grid{grid-template-columns:1fr;} }
+  .plan-field{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:11px;}
+  .plan-field.g{border-left:3px solid var(--green);} .plan-field.p{border-left:3px solid var(--purple);}
+  .plan-field-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;}
+  .plan-field-lbl.g{color:var(--green);} .plan-field-lbl.p{color:var(--purple);}
+  .plan-field input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:9px 11px;color:var(--text);font-family:'Golos Text',sans-serif;font-size:15px;font-weight:700;outline:none;-webkit-appearance:none;}
+  .plan-field input:focus{border-color:var(--accent);}
+  .plan-field input::placeholder{color:var(--border);}
+  .plan-field.g input{color:var(--green);}
+  .plan-field.p input{color:var(--purple);}
+
+  .plan-helper{font-size:11px;color:var(--muted);margin-top:12px;line-height:1.6;padding:10px;background:var(--bg);border-radius:8px;}
+  .plan-helper b{color:var(--text);}
+
+  .empty{text-align:center;color:var(--muted);font-size:14px;padding:40px 20px;}
+  .loader{display:flex;justify-content:center;align-items:center;padding:60px;color:var(--muted);font-size:14px;}
+  .spinner{width:24px;height:24px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;margin-right:12px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .toast{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 16px;font-size:13px;color:var(--text);z-index:300;opacity:0;transition:opacity .3s;pointer-events:none;}
+  .toast.show{opacity:1;}
+  .toast.ok{border-color:var(--green);}
+  .toast.err{border-color:var(--red);}
+
+  @media (max-width: 600px) {
+    .points-grid{grid-template-columns:1fr;}
+    .hero{grid-template-columns:1fr 1fr;}
+    .hero-val{font-size:22px;}
+    header{padding:12px 14px;gap:8px;}
+    .logo{font-size:20px;}
+    .wrap{padding:14px;}
+  }
+</style>
+</head>
+<body>
+
+<div class="login" id="login">
+  <div class="login-logo">RG PLAZA</div>
+  <div class="login-sub">ДАШБОРД РУКОВОДИТЕЛЯ</div>
+  <div class="login-card">
+    <div class="login-title">Введи админ-код</div>
+    <input type="password" class="login-input" id="login-code" placeholder="Админ-код" autocomplete="off">
+    <button class="login-btn" onclick="doLogin()">ВОЙТИ</button>
+    <div class="login-err" id="login-err"></div>
+  </div>
+</div>
+
+<div id="app" style="display:none;">
+
+<header>
+  <div class="logo">RG Plaza <span>ДАШБОРД</span></div>
+  <input type="month" class="month-pick" id="month-pick" onchange="loadAll()">
+  <button class="refresh-btn" onclick="loadAll()" title="Обновить">↻</button>
+</header>
+
+<div class="wrap">
+  <div class="top-tabs">
+    <button class="top-tab active" onclick="showPage('overview')">📊 Обзор</button>
+    <button class="top-tab" onclick="showPage('plans')">🎯 Планы</button>
+  </div>
+
+  <div class="tab-page active" id="page-overview">
+    <div id="overview-content"><div class="loader"><div class="spinner"></div>Загружаю данные...</div></div>
+  </div>
+
+  <div class="tab-page" id="page-plans">
+    <div id="plans-content"><div class="loader"><div class="spinner"></div>Загружаю планы...</div></div>
+  </div>
+</div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const SUPABASE_URL = 'https://uxdgiwbkvgbnrsuxjhvp.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_bg1BRofqJsjkV_9eXzn2Pg__YJ-xRMK';
+  const ADMIN_CODE = 'rgplaza-admin-2026';
+
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  let allCharts = [];
+  let cachedData = null;
+  let saveTimers = {};
+
+  function doLogin() {
+    const code = document.getElementById('login-code').value.trim();
+    if (code === ADMIN_CODE) { sessionStorage.setItem('rgp_admin', '1'); enterApp(); }
+    else { document.getElementById('login-err').textContent = 'Неверный код'; }
+  }
+
+  function enterApp() {
+    document.getElementById('login').classList.add('hidden');
+    document.getElementById('app').style.display = 'block';
+    const now = new Date();
+    document.getElementById('month-pick').value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    loadAll();
+  }
+
+  function showPage(p) {
+    document.querySelectorAll('.tab-page').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.top-tab').forEach(x => x.classList.remove('active'));
+    document.getElementById('page-'+p).classList.add('active');
+    event.target.classList.add('active');
+    if (p === 'plans' && cachedData) renderPlans(cachedData);
+  }
+
+  function toast(msg, type) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show ' + (type||'');
+    setTimeout(() => t.classList.remove('show'), 2500);
+  }
+
+  function fm(n) { return n ? Number(n).toLocaleString('ru-RU') : '0'; }
+  function fs(n) { if (!n) return '0'; if (n>=1000000) return (n/1000000).toFixed(1).replace('.',',')+' М'; if (n>=1000) return Math.round(n/1000)+' К'; return String(n); }
+  function pdate(iso) { const [y,m,d]=iso.split('-'); return `${d}.${m}`; }
+  function getMonthRange() {
+    const v = document.getElementById('month-pick').value || new Date().toISOString().substring(0,7);
+    const [y,m] = v.split('-');
+    return { start: `${y}-${m}-01`, end: new Date(+y, +m, 0).toISOString().split('T')[0], year:+y, month:+m };
+  }
+
+  async function loadAll() {
+    document.getElementById('overview-content').innerHTML = '<div class="loader"><div class="spinner"></div>Загружаю данные...</div>';
+    document.getElementById('plans-content').innerHTML = '<div class="loader"><div class="spinner"></div>Загружаю планы...</div>';
+    allCharts.forEach(c => { try { c.destroy(); } catch(e){} });
+    allCharts = [];
+
+    const range = getMonthRange();
+    try {
+      const [pointsRes, reportsRes, plansRes] = await Promise.all([
+        sb.from('points').select('*').order('id'),
+        sb.from('daily_reports').select('*').gte('date', range.start).lte('date', range.end).order('date'),
+        sb.from('plans').select('*')
+      ]);
+      if (pointsRes.error) throw pointsRes.error;
+      if (reportsRes.error) throw reportsRes.error;
+      if (plansRes.error) throw plansRes.error;
+      cachedData = { points: pointsRes.data || [], reports: reportsRes.data || [], plans: plansRes.data || [], range };
+      renderOverview(cachedData);
+      const plansActive = document.getElementById('page-plans').classList.contains('active');
+      if (plansActive) renderPlans(cachedData);
+    } catch (e) {
+      console.error(e);
+      document.getElementById('overview-content').innerHTML = `<div class="empty">⚠ Ошибка загрузки: ${e.message || e}</div>`;
+    }
+  }
+
+  function aggregateByPoint(data) {
+    const byPoint = {};
+    data.points.forEach(p => byPoint[p.id] = {
+      point: p,
+      reports: [],
+      plan: data.plans.find(pl => pl.point_id === p.id) || { plan_phys_day: 0, plan_phys_month: 0, plan_corp_day: 0, plan_corp_month: 0 }
+    });
+    data.reports.forEach(r => { if (byPoint[r.point_id]) byPoint[r.point_id].reports.push(r); });
+    return byPoint;
+  }
+
+  function renderOverview(data) {
+    if (!data.points.length) { document.getElementById('overview-content').innerHTML = '<div class="empty">Точки не настроены</div>'; return; }
+
+    const mn = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+    const monthName = mn[data.range.month-1];
+    const byPoint = aggregateByPoint(data);
+
+    // Группируем точки по городам
+    const moscowPoints = data.points.filter(p => p.format !== 'izhevsk');
+    const izhevskPoints = data.points.filter(p => p.format === 'izhevsk');
+
+    // Общие итоги
+    let allTotal=0, allInsur=0, allPhys=0, allCorp=0, allPlanPhysM=0, allPlanCorpM=0;
+    const dateSet = new Set();
+    Object.values(byPoint).forEach(({reports, plan}) => {
+      reports.forEach(r => {
+        allTotal += +r.total_day || 0;
+        allInsur += +r.ins_day || 0;
+        allPhys += +r.phys_day || 0;
+        allCorp += +r.corp_day || 0;
+        dateSet.add(r.date);
+      });
+      allPlanPhysM += +plan.plan_phys_month || 0;
+      allPlanCorpM += +plan.plan_corp_month || 0;
+    });
+    const physPct = allPlanPhysM ? Math.round(allPhys/allPlanPhysM*100) : null;
+    const corpPct = allPlanCorpM ? Math.round(allCorp/allPlanCorpM*100) : null;
+
+    let html = `
+      <div class="hero">
+        <div class="hero-card acc">
+          <div class="hero-lbl">${monthName} ${data.range.year} — общий вал</div>
+          <div class="hero-val">${fm(allTotal)} ₽</div>
+          <div class="hero-sub">все точки · ${dateSet.size} дней</div>
+        </div>
+        <div class="hero-card">
+          <div class="hero-lbl">Физлица (план)</div>
+          <div class="hero-val g">${fm(allPhys)} ₽</div>
+          <div class="hero-sub">${physPct !== null ? `${physPct}% от ${fm(allPlanPhysM)} ₽` : 'план не задан'}</div>
+        </div>
+        <div class="hero-card">
+          <div class="hero-lbl">Корпоратив (план)</div>
+          <div class="hero-val p">${fm(allCorp)} ₽</div>
+          <div class="hero-sub">${corpPct !== null ? `${corpPct}% от ${fm(allPlanCorpM)} ₽` : 'план не задан'}</div>
+        </div>
+        <div class="hero-card">
+          <div class="hero-lbl">Страховые</div>
+          <div class="hero-val b">${fm(allInsur)} ₽</div>
+        </div>
+      </div>`;
+
+    if (moscowPoints.length) {
+      html += `<div class="city-section"><div class="city-title">Москва</div><div class="points-grid">`;
+      moscowPoints.forEach(p => html += renderPointCard(byPoint[p.id], data.range));
+      html += `</div></div>`;
+    }
+    if (izhevskPoints.length) {
+      html += `<div class="city-section"><div class="city-title">Ижевск</div><div class="points-grid">`;
+      izhevskPoints.forEach(p => html += renderPointCard(byPoint[p.id], data.range));
+      html += `</div></div>`;
+    }
+
+    document.getElementById('overview-content').innerHTML = html;
+
+    // Рендер графиков
+    setTimeout(() => {
+      data.points.forEach(p => {
+        const entry = byPoint[p.id];
+        if (!entry || !entry.reports.length) return;
+        const ctx = document.getElementById('chart-'+p.id);
+        if (!ctx) return;
+        const labels = entry.reports.map(d => pdate(d.date));
+        const physData = entry.reports.map(d => +d.phys_day || 0);
+        const corpData = entry.reports.map(d => +d.corp_day || 0);
+        const ch = new Chart(ctx, {
+          type: 'bar',
+          data: { labels, datasets: [
+            { label: 'Физлица', data: physData, backgroundColor: 'rgba(34,197,94,.7)', borderRadius: 3 },
+            { label: 'Корпоратив', data: corpData, backgroundColor: 'rgba(168,85,247,.7)', borderRadius: 3 }
+          ] },
+          options: chartCfg(true)
+        });
+        allCharts.push(ch);
+      });
+    }, 50);
+  }
+
+  function renderPointCard(entry, range) {
+    const { point, reports, plan } = entry;
+    let t=0,i=0,phys=0,c=0;
+    reports.forEach(d => { t+=+d.total_day||0; i+=+d.ins_day||0; phys+=+d.phys_day||0; c+=+d.corp_day||0; });
+
+    function progressBlock(title, cls, plan, actual) {
+      if (!plan) return `<div class="pc-plan"><div class="pc-plan-head"><div class="pc-plan-title ${cls}">${title}</div><div class="pc-plan-pct">—</div></div><div class="pc-plan-text">План не задан</div></div>`;
+      const pct = Math.round(actual/plan*100);
+      const pctCls = pct >= 90 ? 'ok' : pct >= 70 ? 'warn' : 'bad';
+      const today = new Date();
+      const daysInMonth = new Date(range.year, range.month, 0).getDate();
+      const daysPassed = (today.getFullYear() === range.year && today.getMonth()+1 === range.month) ? today.getDate() : daysInMonth;
+      const expected = Math.round(plan / daysInMonth * daysPassed);
+      return `<div class="pc-plan">
+        <div class="pc-plan-head">
+          <div class="pc-plan-title ${cls}">${title}</div>
+          <div class="pc-plan-pct ${pctCls}">${pct}%</div>
+        </div>
+        <div class="pc-bar"><div class="pc-bar-fill ${cls}" style="width:${Math.min(100,pct)}%"></div></div>
+        <div class="pc-plan-text">${fm(actual)} / ${fm(plan)} ₽ · По графику: ${fm(expected)} ₽${actual >= expected ? ' (опережение)' : ` (отставание ${fm(expected-actual)})`}</div>
+      </div>`;
+    }
+
+    return `
+      <div class="point-card">
+        <div class="point-card-head">
+          <div class="point-card-name">${point.name}</div>
+          <div class="point-card-days">${reports.length} дн.</div>
+        </div>
+        <div class="point-card-body">
+          <div class="pc-stats">
+            <div class="pc-stat"><div class="pc-stat-lbl">Всего</div><div class="pc-stat-val t">${fm(t)} ₽</div></div>
+            <div class="pc-stat"><div class="pc-stat-lbl">Страховые</div><div class="pc-stat-val b">${fm(i)} ₽</div></div>
+            <div class="pc-stat"><div class="pc-stat-lbl">Физлица</div><div class="pc-stat-val g">${fm(phys)} ₽</div></div>
+            <div class="pc-stat"><div class="pc-stat-lbl">Корпоратив</div><div class="pc-stat-val p">${fm(c)} ₽</div></div>
+          </div>
+          ${progressBlock('Физлица', 'g', plan.plan_phys_month, phys)}
+          ${progressBlock('Корпоратив', 'p', plan.plan_corp_month, c)}
+          ${reports.length ? `<div class="pc-chart"><div class="pc-chart-title">📈 Физ vs Корп по дням</div><canvas id="chart-${point.id}" height="120"></canvas></div>` : ''}
+        </div>
+      </div>`;
+  }
+
+  function chartCfg(showLegend) {
+    return {
+      responsive: true,
+      plugins: { legend: { display: !!showLegend, labels: { color: '#e8eaf2', font: { size: 10 } } } },
+      scales: {
+        x: { ticks: { color: '#6b7280', font: { size: 9 } }, grid: { color: '#2a2f42' } },
+        y: { ticks: { color: '#6b7280', font: { size: 9 }, callback: v => fs(v) }, grid: { color: '#2a2f42' } }
+      }
+    };
+  }
+
+  // ============ PLANS PAGE ============
+  function renderPlans(data) {
+    if (!data.points.length) { document.getElementById('plans-content').innerHTML = '<div class="empty">Точки не настроены</div>'; return; }
+
+    const moscowPoints = data.points.filter(p => p.format !== 'izhevsk');
+    const izhevskPoints = data.points.filter(p => p.format === 'izhevsk');
+    const byPoint = aggregateByPoint(data);
+
+    let html = `<div class="plan-helper">
+      <b>💡 Как работает:</b> для каждой точки задаётся 4 числа — план физлиц на день и месяц, и план корпоратива на день и месяц.<br>
+      Изменения сохраняются автоматически (через 1 секунду после ввода). Менеджеры точки видят актуальный план в реальном времени.<br>
+      <b>Если поле не нужно</b> — просто оставь 0 или пусто. Тогда у менеджеров не будет прогресс-бара по этому показателю.
+    </div>`;
+
+    if (moscowPoints.length) {
+      html += `<div class="city-section"><div class="city-title">Москва</div>`;
+      moscowPoints.forEach(p => html += renderPlanEditor(byPoint[p.id]));
+      html += `</div>`;
+    }
+    if (izhevskPoints.length) {
+      html += `<div class="city-section"><div class="city-title">Ижевск</div>`;
+      izhevskPoints.forEach(p => html += renderPlanEditor(byPoint[p.id]));
+      html += `</div>`;
+    }
+
+    document.getElementById('plans-content').innerHTML = html;
+  }
+
+  function renderPlanEditor(entry) {
+    const { point, plan } = entry;
+    const city = point.format === 'izhevsk' ? 'Ижевск' : 'Москва';
+    return `
+      <div class="plan-editor">
+        <div class="plan-editor-head">
+          <div class="plan-editor-name">${point.name}</div>
+          <div class="plan-editor-city">${city}</div>
+          <div class="plan-editor-status saved" id="plan-status-${point.id}">✓ сохранено</div>
+        </div>
+        <div class="plan-editor-body">
+          <div class="plan-fields-grid">
+            <div class="plan-field g">
+              <div class="plan-field-lbl g">📅 Физлица / день</div>
+              <input type="number" placeholder="0" value="${plan.plan_phys_day || ''}" data-pid="${point.id}" data-field="plan_phys_day" oninput="onPlanInput(this)">
+            </div>
+            <div class="plan-field g">
+              <div class="plan-field-lbl g">📆 Физлица / месяц</div>
+              <input type="number" placeholder="0" value="${plan.plan_phys_month || ''}" data-pid="${point.id}" data-field="plan_phys_month" oninput="onPlanInput(this)">
+            </div>
+            <div class="plan-field p">
+              <div class="plan-field-lbl p">📅 Корпоратив / день</div>
+              <input type="number" placeholder="0" value="${plan.plan_corp_day || ''}" data-pid="${point.id}" data-field="plan_corp_day" oninput="onPlanInput(this)">
+            </div>
+            <div class="plan-field p">
+              <div class="plan-field-lbl p">📆 Корпоратив / месяц</div>
+              <input type="number" placeholder="0" value="${plan.plan_corp_month || ''}" data-pid="${point.id}" data-field="plan_corp_month" oninput="onPlanInput(this)">
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function onPlanInput(input) {
+    const pid = input.dataset.pid;
+    const status = document.getElementById('plan-status-'+pid);
+    status.className = 'plan-editor-status saving';
+    status.textContent = '⌛ сохраняю...';
+    if (saveTimers[pid]) clearTimeout(saveTimers[pid]);
+    saveTimers[pid] = setTimeout(() => savePlan(pid), 1000);
+  }
+
+  async function savePlan(pid) {
+    const inputs = document.querySelectorAll(`input[data-pid="${pid}"]`);
+    const payload = { point_id: pid, updated_at: new Date().toISOString() };
+    inputs.forEach(i => { payload[i.dataset.field] = +i.value || 0; });
+    const status = document.getElementById('plan-status-'+pid);
+    try {
+      const { error } = await sb.from('plans').upsert(payload, { onConflict: 'point_id' });
+      if (error) throw error;
+      // Обновляем кэш локально
+      if (cachedData) {
+        const existing = cachedData.plans.find(p => p.point_id === pid);
+        if (existing) Object.assign(existing, payload);
+        else cachedData.plans.push(payload);
+      }
+      status.className = 'plan-editor-status saved';
+      status.textContent = '✓ сохранено';
+    } catch (e) {
+      console.error(e);
+      status.className = 'plan-editor-status';
+      status.style.color = 'var(--red)';
+      status.textContent = '⚠ ошибка';
+      toast('Ошибка сохранения плана', 'err');
+    }
+  }
+
+  (function init() {
+    if (sessionStorage.getItem('rgp_admin') === '1') enterApp();
+    else document.getElementById('login-code').focus();
+    document.getElementById('login-code').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  })();
+
+  // Авто-обновление обзора каждые 60 сек (не трогаем планы чтобы не сбить ввод)
+  setInterval(() => {
+    if (sessionStorage.getItem('rgp_admin') === '1' && document.getElementById('app').style.display !== 'none') {
+      const overviewActive = document.getElementById('page-overview').classList.contains('active');
+      if (overviewActive) loadAll();
+    }
+  }, 60000);
+</script>
+</body>
+</html>
