@@ -210,6 +210,19 @@
     color:var(--accent); letter-spacing:2px;
     margin-bottom:10px;
   }
+  .year-channel-pills{
+    display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap;
+  }
+  .year-pill{
+    flex:1; min-width:80px; padding:9px 12px;
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:8px; color:var(--text-dim);
+    font-family:var(--font); font-size:12px; font-weight:600;
+    cursor:pointer; text-align:center; transition:all .15s;
+  }
+  .year-pill:hover{border-color:var(--accent); color:var(--text);}
+  .year-pill.active{background:var(--accent); color:#000; border-color:var(--accent);}
+  .year-pill-count{display:block; font-family:var(--font-display); font-size:16px; margin-top:2px; letter-spacing:.5px;}
   .year-kpi-grid{
     display:grid; grid-template-columns:1fr 1fr; gap:8px;
     margin-bottom:14px;
@@ -853,6 +866,7 @@
   }
   function onCityChange() {
     localStorage.setItem('rgp_insmgr_city', document.getElementById('city-pick').value);
+    yearChannelFilter = 'all';  // сбрасываем фильтр при смене города
     haptic(15); loadAll();
   }
 
@@ -1467,6 +1481,8 @@
   // ====================================================================
   let currentMode = 'month';
   let yearCharts = [];
+  let yearChannelFilter = 'all';   // 'all', 'РАВТ', 'Локальные'
+  let yearRawData = null;           // сохраняем для перерисовки при смене фильтра
 
   function switchMode(mode) {
     currentMode = mode;
@@ -1502,15 +1518,31 @@
         .gte('period', yearStart).lte('period', yearEnd)
         .in('channel_id', channelIdsForCity);
 
-      renderYear(dirs || [], ravt || [], y, city);
+      yearRawData = { dirs: dirs || [], ravt: ravt || [], year: y, city };
+      renderYear();
     } catch (e) {
       document.getElementById('year-content').innerHTML = `<div class="empty">⚠ Ошибка: ${e.message || e}</div>`;
     }
   }
 
-  function renderYear(dirs, ravt, year, city) {
+  function setYearChannelFilter(filter) {
+    yearChannelFilter = filter;
+    renderYear();
+  }
+
+  function renderYear() {
+    if (!yearRawData) return;
+    let { dirs, ravt, year, city } = yearRawData;
+
     yearCharts.forEach(c => { try{c.destroy();}catch(e){} });
     yearCharts = [];
+
+    // Фильтруем по выбранному каналу
+    const availableChannels = [...new Set(channels.map(c => c.name))]; // ['РАВТ', 'Локальные']
+    if (yearChannelFilter !== 'all') {
+      const allowedChannelIds = channels.filter(c => c.name === yearChannelFilter).map(c => c.id);
+      dirs = dirs.filter(d => allowedChannelIds.includes(d.channel_id));
+    }
 
     const months = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'];
 
@@ -1605,10 +1637,42 @@
 
     // === HTML ===
     const cityLabel = city === 'moscow' ? 'Москва' : 'Ижевск';
+
+    // Подсчёт по каналам для пилюль (используем ВСЕ данные, не отфильтрованные)
+    const allDirs = yearRawData.dirs;
+    const channelCounts = { all: 0 };
+    availableChannels.forEach(ch => channelCounts[ch] = 0);
+    allDirs.forEach(d => {
+      const ch = channels.find(c => c.id === d.channel_id);
+      if (!ch) return;
+      const v = +d.incoming_count || 0;
+      channelCounts.all += v;
+      channelCounts[ch.name] = (channelCounts[ch.name] || 0) + v;
+    });
+
+    let pillsHtml = '';
+    if (availableChannels.length > 1) {
+      pillsHtml = `<div class="year-channel-pills">
+        <button class="year-pill ${yearChannelFilter==='all'?'active':''}" onclick="setYearChannelFilter('all')">
+          Все каналы<span class="year-pill-count">${channelCounts.all}</span>
+        </button>`;
+      availableChannels.forEach(chName => {
+        const icon = chName === 'РАВТ' ? '🔗' : '📍';
+        pillsHtml += `<button class="year-pill ${yearChannelFilter===chName?'active':''}" onclick="setYearChannelFilter('${chName}')">
+          ${icon} ${chName}<span class="year-pill-count">${channelCounts[chName] || 0}</span>
+        </button>`;
+      });
+      pillsHtml += `</div>`;
+    }
+
+    const filterLabel = yearChannelFilter === 'all' ? '' : ` · ${yearChannelFilter}`;
+
     let html = `
       <div class="year-section">
-        <div class="year-title">📊 Аналитика ${year} · ${cityLabel}</div>
+        <div class="year-title">📊 Аналитика ${year} · ${cityLabel}${filterLabel}</div>
       </div>
+
+      ${pillsHtml}
 
       <div class="year-kpi-grid">
         <div class="year-kpi acc">
