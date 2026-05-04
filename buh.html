@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 <style>
   :root {
     --bg:#1a1a1a; --surface:#222222; --surface2:#2a2a2a; --border:#333333;
@@ -222,6 +223,7 @@
     <button class="top-tab" onclick="showPage('fot', this)">👥 ФОТ</button>
     <button class="top-tab" onclick="showPage('loans', this)">🏦 Кредиты/Лизинги</button>
     <button class="top-tab" onclick="showPage('ravt', this)">🔄 РАВТ</button>
+    <button class="top-tab" onclick="showPage('pnl', this)">💰 Прибыль</button>
     <button class="top-tab" onclick="showPage('calendar', this)">📅 Календарь</button>
     <button class="top-tab" onclick="showPage('upload', this)">📤 Загрузить Excel</button>
   </div>
@@ -234,6 +236,7 @@
   <div class="tab-page" id="page-fot"><div id="fot-content"></div></div>
   <div class="tab-page" id="page-loans"><div id="loans-content"></div></div>
   <div class="tab-page" id="page-ravt"><div id="ravt-content"></div></div>
+  <div class="tab-page" id="page-pnl"><div id="pnl-content"></div></div>
   <div class="tab-page" id="page-calendar"><div id="calendar-content"></div></div>
   <div class="tab-page" id="page-upload"><div id="upload-content"></div></div>
 </div>
@@ -388,6 +391,7 @@
     if (p === 'fot') renderFot();
     if (p === 'loans') renderLoans();
     if (p === 'ravt') renderRavt();
+    if (p === 'pnl') renderPnl();
     if (p === 'calendar') renderCalendar();
     if (p === 'upload') renderUpload();
   }
@@ -998,6 +1002,336 @@
       if (error) throw error;
       toast('Акт удалён', 'ok');
       renderRavt();
+    } catch (e) {
+      console.error(e);
+      toast('Ошибка: '+(e.message||e), 'err');
+    }
+  }
+
+  // === ПРИБЫЛЬ ПО ПРОЕКТАМ ===
+  let pnlData = [];
+
+  async function loadPnlData() {
+    try {
+      const { data: rows, error } = await sb.from('point_pnl').select('*').order('period', { ascending: false });
+      if (error) throw error;
+      pnlData = rows || [];
+    } catch (e) {
+      console.error(e);
+      pnlData = [];
+    }
+  }
+
+  async function renderPnl() {
+    destroyCharts();
+    const c = document.getElementById('pnl-content');
+    c.innerHTML = '<div class="loader"><div class="spinner"></div>Загружаю...</div>';
+    await loadPnlData();
+
+    const periods = Array.from(new Set(pnlData.map(r => r.period))).sort().reverse();
+    const allPoints = data.points || [];
+
+    let html = `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px;">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--accent);letter-spacing:2px;margin-bottom:6px;">💰 ПРИБЫЛЬ ПО ПРОЕКТАМ</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.55;margin-bottom:14px;">
+          Финансовые результаты по проектам из <b style="color:var(--text);">сервиса Планфакт</b>. Грузи файл «Отчёт о ДДС по проектам» — система разнесёт цифры по точкам.
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:11px;">
+          <input type="file" id="pnl-file" accept=".xlsx,.xls" style="display:none;" onchange="onPnlFileSelected(event)">
+          <button onclick="document.getElementById('pnl-file').click()" style="background:var(--accent);color:#000;border:none;border-radius:8px;padding:11px 18px;font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;cursor:pointer;">📥 ЗАГРУЗИТЬ XLSX</button>
+          <select id="pnl-import-period" style="background:#141414;border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:8px;font-size:12px;outline:none;">
+            <option value="">— Период —</option>
+            ${[...Array(12).keys()].map(i => {
+              const m = i + 1;
+              const opt = `${data.year || new Date().getFullYear()}-${String(m).padStart(2,'0')}`;
+              return `<option value="${opt}">${['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'][i]} ${data.year || new Date().getFullYear()}</option>`;
+            }).join('')}
+            <option value="${data.year || new Date().getFullYear()}-YTD">YTD ${data.year || new Date().getFullYear()} (накопленно за год)</option>
+          </select>
+          <span id="pnl-file-name" style="font-size:11px;color:var(--muted);"></span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.4;">
+          💡 Если xlsx за весь год — выбирай <b style="color:var(--text);">YTD</b>. Если за конкретный месяц — выбирай месяц.<br>
+          📊 Парсер автоматически извлекает: <b style="color:var(--text);">опер.поток по точкам</b>, <b style="color:var(--text);">детализацию по СК</b>, <b style="color:var(--text);">по услугам</b>, <b style="color:var(--text);">по поставщикам стёкол</b>.
+        </div>
+      </div>
+    `;
+
+    if (pnlData.length === 0) {
+      html += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:30px;text-align:center;color:var(--muted);font-size:13px;line-height:1.6;">
+        📭 Данных пока нет.<br>
+        <span style="font-size:11px;">Загрузи xlsx из Планфакт чтобы начать.</span>
+      </div>`;
+      c.innerHTML = html;
+      return;
+    }
+
+    // Таблица по периодам
+    periods.forEach(period => {
+      const rows = pnlData.filter(r => r.period === period);
+      const totalIncome = rows.reduce((s,r) => s + (+r.income||0), 0);
+      const totalExp = rows.reduce((s,r) => s + (+r.expenses||0), 0);
+      const totalFlow = totalIncome - totalExp;
+      const periodLabel = period.endsWith('YTD') ? `${period.split('-')[0]} НАКОПЛЕННО` : (() => {
+        const [y,m] = period.split('-');
+        return `${['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'][+m-1]} ${y}`;
+      })();
+
+      html += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:11px;margin-bottom:11px;flex-wrap:wrap;">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--accent);letter-spacing:1.5px;">${periodLabel}</div>
+          <div style="font-size:11px;color:var(--muted);">${rows.length} проектов · опер.поток ${totalFlow >= 0 ? '+' : ''}${fm(totalFlow)} ₽</div>
+          <button onclick="deletePnlPeriod('${period}')" style="margin-left:auto;background:none;border:none;color:var(--crit);font-size:13px;cursor:pointer;padding:3px 8px;border-radius:5px;" title="Удалить весь период">🗑</button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:5px;">`;
+      rows.sort((a,b) => +b.operating_flow - +a.operating_flow).forEach(r => {
+        const proj = allPoints.find(p => p.id === r.point_id);
+        const name = proj?.name || r.point_id;
+        const flow = +r.operating_flow;
+        html += `<div style="background:#141414;border-radius:7px;padding:9px 12px;display:flex;align-items:center;gap:9px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:90px;">
+            <div style="font-size:13px;color:var(--text);font-weight:500;">${name}</div>
+            <div style="font-size:10px;color:var(--muted);">+${fm(+r.income||0)} − ${fm(+r.expenses||0)}</div>
+          </div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:${flow >= 0 ? 'var(--ok)' : 'var(--crit)'};letter-spacing:.4px;">${flow >= 0 ? '+' : ''}${fm(flow)} ₽</div>
+        </div>`;
+      });
+      html += `</div></div>`;
+    });
+
+    c.innerHTML = html;
+  }
+
+  async function onPnlFileSelected(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    document.getElementById('pnl-file-name').textContent = '⏳ ' + file.name;
+    const period = document.getElementById('pnl-import-period').value;
+    if (!period) { toast('Выбери период перед загрузкой', 'err'); document.getElementById('pnl-file-name').textContent = ''; event.target.value = ''; return; }
+
+    try {
+      const fileData = await file.arrayBuffer();
+      const wb = XLSX.read(fileData, { type: 'array' });
+      const ws = wb.Sheets['Статьи по проектам'] || wb.Sheets[wb.SheetNames[0]];
+      if (!ws) { toast('Лист «Статьи по проектам» не найден', 'err'); return; }
+
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+      const headers = rows[4] || [];
+
+      // Маппинг колонок → point_id
+      const colMap = {};
+      headers.forEach((h, idx) => {
+        if (!h) return;
+        const text = String(h).toLowerCase().trim();
+        if (text === 'детейлинг') colMap[idx] = 'detailing';
+        else if (text.startsWith('пойма')) colMap[idx] = 'poyma';
+        else if (text.startsWith('совхозная')) colMap[idx] = 'sovhoz';
+        else if (text.includes('калуж')) colMap[idx] = 'kaluga';
+        else if (text.includes('серпух')) colMap[idx] = 'serpuhov';
+        else if (text === 'мгт') colMap[idx] = 'mgt';
+        else if (text === 'школа') colMap[idx] = 'school';
+        else if (text === 'без проекта') colMap[idx] = 'other';
+      });
+      if (Object.keys(colMap).length === 0) { toast('Не нашёл проектов в заголовках xlsx', 'err'); return; }
+
+      const num = v => {
+        if (v === null || v === undefined || v === '-') return 0;
+        const n = parseFloat(String(v).replace(/\s/g,'').replace(',','.'));
+        return isNaN(n) ? 0 : n;
+      };
+
+      // Уровень вложенности — по отступу в первой колонке
+      const indentOf = (s) => {
+        const str = String(s || '');
+        return str.length - str.trimStart().length;
+      };
+      const nameOf = (s) => String(s || '').trim();
+
+      // Ищем строки секций
+      let incomeRow = null, expRow = null;
+      let incomeRowIdx = -1, expRowIdx = -1;
+      for (let i = 0; i < rows.length; i++) {
+        const cell = nameOf(rows[i]?.[0]).toLowerCase();
+        if (cell === 'поступления' && incomeRow === null) { incomeRow = rows[i]; incomeRowIdx = i; }
+        if (cell === 'выплаты' && expRow === null) { expRow = rows[i]; expRowIdx = i; }
+        if (incomeRow && expRow) break;
+      }
+      if (!incomeRow || !expRow) { toast('Не нашёл секций «Поступления» / «Выплаты»', 'err'); return; }
+
+      // === 1. ПОДГОТОВКА point_pnl записей (агрегаты) ===
+      const pnlRecords = [];
+      Object.entries(colMap).forEach(([colIdx, pointId]) => {
+        const income = num(incomeRow[colIdx]);
+        const expenses = num(expRow[colIdx]);
+        if (income > 0 || expenses > 0) {
+          pnlRecords.push({ point_id: pointId, period, income, expenses, source: 'planfact' });
+        }
+      });
+
+      // === 2. ПАРСИНГ СК / УСЛУГ из секции «Поступления» (revenue_breakdown) ===
+      // Идём по строкам после "Поступления" пока не дошли до "Выплаты"
+      // Ищем под-секции: «Продажа СК» (СК), «Продажа розница» (розница), «Продажа опт» (корпоратив)
+      const breakdownRecords = [];
+      let currentSection = null; // 'insurance' / 'retail' / 'corporate' / null
+
+      for (let i = incomeRowIdx + 1; i < expRowIdx; i++) {
+        const r = rows[i];
+        if (!r) continue;
+        const name = nameOf(r[0]);
+        if (!name) continue;
+        const lname = name.toLowerCase();
+        const indent = indentOf(r[0]);
+
+        // Определяем секцию по названию
+        if (lname === 'продажа ск') { currentSection = 'insurance'; continue; }
+        if (lname === 'продажа розница') { currentSection = 'retail'; continue; }
+        if (lname.startsWith('продажа опт')) { currentSection = 'corporate'; continue; }
+        // Сбрасываем при выходе на верхний уровень
+        if (indent <= 8 && lname !== 'продажа ск' && lname !== 'продажа розница' && !lname.startsWith('продажа опт')) {
+          // Если это новая верхнеуровневая статья — сбрасываем секцию
+          if (indent <= 4) currentSection = null;
+        }
+
+        // Если внутри секции — пишем как записи (но только листовые узлы со значениями)
+        if (currentSection && indent >= 16) {
+          Object.entries(colMap).forEach(([colIdx, pointId]) => {
+            const amt = num(r[colIdx]);
+            if (amt > 0) {
+              breakdownRecords.push({
+                point_id: pointId,
+                period,
+                channel: currentSection,
+                category: name,
+                amount: amt,
+                source: 'planfact',
+                data_type: 'cash'
+              });
+            }
+          });
+        }
+      }
+
+      // === 3. ПАРСИНГ РАСХОДОВ (expense_breakdown) ===
+      const expenseRecords = [];
+      // Ищем секции расходов внутри «Выплаты»
+      const expenseSections = {
+        'покупка стекла': 'glass_supplier',
+        'покупка запчастей': 'parts',
+        'аренда': 'rent',
+        'зарплата пп': 'salary',
+        'зарплата ауп': 'salary',
+        'налоги': 'tax',
+        'налоги прочие': 'tax',
+        'налоги на фот': 'tax',
+        'налог на прибыль (доходы)': 'tax',
+        'реклама': 'advertising',
+        'материальные расходы': 'materials',
+        'транспортные расходы': 'logistics',
+        'программное обеспечение': 'utilities',
+        'услуги связи, интернет': 'utilities'
+      };
+
+      let currentExpenseCat = null;
+      // Ищем где конец «Выплаты» — это следующая верхнеуровневая статья (Инвестиционный поток)
+      let expEndIdx = rows.length;
+      for (let i = expRowIdx + 1; i < rows.length; i++) {
+        const name = nameOf(rows[i]?.[0]);
+        if (name === 'Инвестиционный поток' || name === 'Финансовый поток' || name === 'Общий денежный поток') {
+          expEndIdx = i;
+          break;
+        }
+      }
+
+      for (let i = expRowIdx + 1; i < expEndIdx; i++) {
+        const r = rows[i];
+        if (!r) continue;
+        const name = nameOf(r[0]);
+        if (!name) continue;
+        const lname = name.toLowerCase();
+        const indent = indentOf(r[0]);
+
+        // Определяем категорию по названию
+        const matchedCat = Object.entries(expenseSections).find(([key]) => lname === key);
+        if (matchedCat) {
+          currentExpenseCat = matchedCat[1];
+          continue;
+        }
+        // Сброс при верхнем уровне
+        if (indent <= 4) currentExpenseCat = null;
+
+        // Записываем только листовые узлы под категорией
+        if (currentExpenseCat && indent >= 16) {
+          Object.entries(colMap).forEach(([colIdx, pointId]) => {
+            const amt = num(r[colIdx]);
+            if (amt > 0) {
+              expenseRecords.push({
+                point_id: pointId,
+                period,
+                category: currentExpenseCat,
+                subcategory: name,
+                amount: amt,
+                source: 'planfact'
+              });
+            }
+          });
+        }
+      }
+
+      // === СОХРАНЕНИЕ ===
+      // 1) point_pnl
+      const { error: delPnlErr } = await sb.from('point_pnl').delete().eq('period', period);
+      if (delPnlErr) throw delPnlErr;
+      if (pnlRecords.length > 0) {
+        const { error } = await sb.from('point_pnl').insert(pnlRecords);
+        if (error) throw error;
+      }
+
+      // 2) revenue_breakdown — удаляем только записи Планфакта за этот период (ручной ввод не трогаем)
+      const { error: delRevErr } = await sb.from('revenue_breakdown')
+        .delete()
+        .eq('period', period)
+        .eq('source', 'planfact');
+      if (delRevErr) throw delRevErr;
+      if (breakdownRecords.length > 0) {
+        // Вставляем пачками по 100 (Supabase лимит)
+        for (let i = 0; i < breakdownRecords.length; i += 100) {
+          const chunk = breakdownRecords.slice(i, i + 100);
+          const { error } = await sb.from('revenue_breakdown').insert(chunk);
+          if (error) throw error;
+        }
+      }
+
+      // 3) expense_breakdown
+      const { error: delExpErr } = await sb.from('expense_breakdown').delete().eq('period', period);
+      if (delExpErr) throw delExpErr;
+      if (expenseRecords.length > 0) {
+        for (let i = 0; i < expenseRecords.length; i += 100) {
+          const chunk = expenseRecords.slice(i, i + 100);
+          const { error } = await sb.from('expense_breakdown').insert(chunk);
+          if (error) throw error;
+        }
+      }
+
+      toast(`✅ Импорт: ${pnlRecords.length} проектов · ${breakdownRecords.length} строк выручки · ${expenseRecords.length} строк расходов`, 'ok');
+      document.getElementById('pnl-file-name').textContent = '✅ ' + file.name;
+      event.target.value = '';
+      renderPnl();
+    } catch (e) {
+      console.error(e);
+      toast('Ошибка: '+(e.message||e), 'err');
+      document.getElementById('pnl-file-name').textContent = '❌ ошибка';
+      event.target.value = '';
+    }
+  }
+
+  async function deletePnlPeriod(period) {
+    if (!confirm(`Удалить все данные за ${period}?`)) return;
+    try {
+      const { error } = await sb.from('point_pnl').delete().eq('period', period);
+      if (error) throw error;
+      toast('Период удалён', 'ok');
+      renderPnl();
     } catch (e) {
       console.error(e);
       toast('Ошибка: '+(e.message||e), 'err');
