@@ -339,6 +339,21 @@
     const period = `${range.year}-${String(range.month).padStart(2,'0')}`;
 
     try {
+      // Хелпер: если таблица не существует — возвращает пустой массив вместо краша
+      const safe = async (q) => {
+        try {
+          const r = await q;
+          if (r.error) {
+            console.warn('Soft error (продолжаем):', r.error.message);
+            return { data: [] };
+          }
+          return r;
+        } catch (e) {
+          console.warn('Soft error (продолжаем):', e.message);
+          return { data: [] };
+        }
+      };
+
       const [pointsRes, currentRes, prevRes, yearRes, plansRes, fotRes, expRes, taxRes, loansRes, dirsRes, ravtRes, channelsRes, companiesRes, breakdownRes, breakdownPrevRes, breakdownYearRes, ravtSettlementsRes, pnlRes] = await Promise.all([
         sb.from('points').select('*').order('id'),
         sb.from('daily_reports').select('*').gte('date', range.start).lte('date', range.end).order('date'),
@@ -356,8 +371,8 @@
         sb.from('revenue_breakdown').select('*').eq('period', period),
         sb.from('revenue_breakdown').select('*').eq('period', `${prevRange.year}-${String(prevRange.month).padStart(2,'0')}`),
         sb.from('revenue_breakdown').select('*').gte('period', `${range.year}-01`).lte('period', period),
-        sb.from('ravt_settlements').select('*').order('settlement_date', { ascending: false }).limit(10),
-        sb.from('point_pnl').select('*').or(`period.eq.${range.year}-YTD,period.eq.${period}`)
+        safe(sb.from('ravt_settlements').select('*').order('settlement_date', { ascending: false }).limit(10)),
+        safe(sb.from('point_pnl').select('*').or(`period.eq.${range.year}-YTD,period.eq.${period}`))
       ]);
 
       const allPoints = pointsRes.data || [];
