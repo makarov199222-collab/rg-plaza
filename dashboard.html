@@ -1134,7 +1134,6 @@
           .lte('date', date)
           .order('date', { ascending: false });
         if (error) throw error;
-        // Берём ПЕРВЫЙ (самый свежий) для каждой точки
         (monthData || []).forEach(r => {
           if (!dayReports[r.point_id]) {
             dayReports[r.point_id] = r;
@@ -1143,6 +1142,23 @@
         });
       } catch (e) { console.error(e); }
     }
+
+    // Загружаем ПОСЛЕДНИЕ ДОЛГИ по каждой точке за последние 90 дней
+    // Менеджеры периодически забывают их указывать — берём последние актуальные
+    const lastDebts = {};
+    try {
+      const since = new Date(new Date(date).getTime() - 90*24*60*60*1000).toISOString().substring(0,10);
+      const { data: debtData } = await sb.from('daily_reports')
+        .select('point_id,date,debt_total,debt_retail,debt_insurance,owe_total,owe_ravt,owe_other')
+        .gte('date', since)
+        .lte('date', date)
+        .order('date', { ascending: false });
+      (debtData || []).forEach(r => {
+        const hasDebts = (+r.debt_total > 0) || (+r.owe_total > 0);
+        if (!hasDebts) return;
+        if (!lastDebts[r.point_id]) lastDebts[r.point_id] = r;  // первая встреча = самая свежая дата
+      });
+    } catch (e) { console.error(e); }
 
     let html = `
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:14px;">
@@ -1167,19 +1183,19 @@
 
     if (moscowPoints.length) {
       html += `<div class="city-section"><div class="city-title">Москва</div>`;
-      moscowPoints.forEach(p => { html += renderPointReport(p, data, dayReports[p.id], yearData, date, actualDates[p.id]); });
+      moscowPoints.forEach(p => { html += renderPointReport(p, data, dayReports[p.id], yearData, date, actualDates[p.id], lastDebts[p.id]); });
       html += `</div>`;
     }
     if (izhevskPoints.length) {
       html += `<div class="city-section"><div class="city-title">Ижевск</div>`;
-      izhevskPoints.forEach(p => { html += renderPointReport(p, data, dayReports[p.id], yearData, date, actualDates[p.id]); });
+      izhevskPoints.forEach(p => { html += renderPointReport(p, data, dayReports[p.id], yearData, date, actualDates[p.id], lastDebts[p.id]); });
       html += `</div>`;
     }
 
     document.getElementById('myreport-content').innerHTML = html;
   }
 
-  function renderPointReport(point, data, dayReport, yearData, dateStr, actualDate) {
+  function renderPointReport(point, data, dayReport, yearData, dateStr, actualDate, lastDebt) {
     const r = dayReport || {};
     const range = data.range;
 
@@ -1217,15 +1233,23 @@
     const dRetail = +r.retail_day || 0;
     const dIns = +r.ins_day || 0;
 
-    // Долги
-    const debtTotal = +r.debt_total || 0;
-    const debtRetail = +r.debt_retail || 0;
-    const debtIns = +r.debt_insurance || 0;
-
-    // Мы должны
-    const oweTotal = +r.owe_total || 0;
-    const oweRavt = +r.owe_ravt || 0;
-    const oweOther = +r.owe_other || 0;
+    // Долги — берём из lastDebt (последний отчёт с долгами > 0) если в текущем отчёте их нет
+    // Это решает проблему «менеджер забыл указать долги в новом отчёте»
+    const debtSource = (function() {
+      const cur = dayReport || {};
+      const curHasDebts = (+cur.debt_total > 0) || (+cur.owe_total > 0);
+      if (curHasDebts) return cur;
+      if (lastDebt) return lastDebt;
+      return cur;
+    })();
+    const debtTotal = +debtSource.debt_total || 0;
+    const debtRetail = +debtSource.debt_retail || 0;
+    const debtIns = +debtSource.debt_insurance || 0;
+    const oweTotal = +debtSource.owe_total || 0;
+    const oweRavt = +debtSource.owe_ravt || 0;
+    const oweOther = +debtSource.owe_other || 0;
+    // Дата актуальных долгов (если отличается от dateStr — добавим в бейдж)
+    const debtsFromOtherDate = lastDebt && debtSource === lastDebt && lastDebt.date !== useDate;
 
     const maxSubs = +r.max_subs || 0;
     const reviews = +r.reviews || 0;
@@ -1281,6 +1305,10 @@ ${point.name} ${flow}`;
     } else if (isFallback) {
       const [_,fmo,fd] = actualDate.split('-');
       statusBadge = `<div style="font-size:10px;background:rgba(255,152,0,.15);color:var(--orange);padding:3px 8px;border-radius:4px;font-weight:700;letter-spacing:.4px;">📅 за ${fd}.${fmo} (нет свежее)</div>`;
+    }
+    if (debtsFromOtherDate) {
+      const [_,dmo,dd] = lastDebt.date.split('-');
+      statusBadge += `<div style="font-size:10px;background:rgba(33,150,243,.15);color:var(--blue);padding:3px 8px;border-radius:4px;font-weight:700;letter-spacing:.4px;">💼 долги от ${dd}.${dmo}</div>`;
     }
 
     return `
