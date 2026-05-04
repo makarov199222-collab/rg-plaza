@@ -484,6 +484,25 @@
     // Есть ли данные о расходах/ФОТ — для определения релевантности прибыли
     const hasFinanceData = fotTotal > 0 || expWithoutSalary > 0 || taxTotal > 0;
 
+    // === УМНАЯ ДЕЛЬТА к прошлому месяцу ===
+    // Если месяц неполный — сравниваем с тем же периодом прошлого месяца
+    let smartDelta = null;
+    let smartDeltaLabel = '';   // подпись типа "к Апр" или "к Апр (за 6 дн)"
+    let smartDeltaPrev = 0;
+    if (isCurrentMonth && monthCoverage < 0.5) {
+      const dayOfMonth = today.getDate();
+      const prevPeriodEnd = `${data.prevRange.year}-${String(data.prevRange.month).padStart(2,'0')}-${String(dayOfMonth).padStart(2,'0')}`;
+      smartDeltaPrev = data.prev.filter(r => r.date <= prevPeriodEnd).reduce((s,r) => s + (+r.total_day || 0), 0);
+      if (smartDeltaPrev > 0) {
+        smartDelta = Math.round((monthTotal - smartDeltaPrev) / smartDeltaPrev * 100);
+        smartDeltaLabel = `к ${MP_MONTHS_SHORT[data.prevRange.month-1]} (за ${dayOfMonth} дн)`;
+      }
+    } else if (monthsComplete && prevTotal > 0) {
+      smartDelta = monthDelta;
+      smartDeltaPrev = prevTotal;
+      smartDeltaLabel = `к ${MP_MONTHS_SHORT[data.prevRange.month-1]}`;
+    }
+
     const alerts = [];
     // Прибыль/маржа — только если есть финансовые данные
     if (monthTotal > 0 && hasFinanceData && profit < 0) {
@@ -495,21 +514,14 @@
       alerts.push({ type:'red', icon:'💼', text:`<b>ФОТ ${fotPct}%</b> от выручки — выше нормы (макс 30%)`, scrollTo:'fot' });
     }
 
-    // Сравнение с прошлым месяцем — только если месяц «достаточно полный»
-    // Для текущего месяца сравниваем с тем же периодом прошлого
-    if (isCurrentMonth && monthCoverage < 0.5) {
-      // Сравниваем за тот же период прошлого месяца
-      const dayOfMonth = today.getDate();
-      const prevPeriodEnd = `${data.prevRange.year}-${String(data.prevRange.month).padStart(2,'0')}-${String(dayOfMonth).padStart(2,'0')}`;
-      const prevSamePeriod = data.prev.filter(r => r.date <= prevPeriodEnd).reduce((s,r) => s + (+r.total_day || 0), 0);
-      if (prevSamePeriod > 100000) {
-        const sameDelta = Math.round((monthTotal - prevSamePeriod) / prevSamePeriod * 100);
-        if (sameDelta < -20) alerts.push({ type:'red', icon:'📉', text:`<b>Падение к прошлому месяцу за тот же период (${dayOfMonth} дн):</b> ${sameDelta}% (${fm(prevSamePeriod)} → ${fm(monthTotal)} ₽)`, scrollTo:'total' });
-        else if (sameDelta > 20) alerts.push({ type:'green', icon:'📈', text:`<b>Рост к прошлому месяцу за тот же период (${dayOfMonth} дн):</b> +${sameDelta}% (${fm(prevSamePeriod)} → ${fm(monthTotal)} ₽)`, scrollTo:'total' });
-      }
-    } else if (monthsComplete && monthDelta !== null) {
-      if (monthDelta < -20) alerts.push({ type:'red', icon:'📉', text:`<b>Падение к прошлому месяцу:</b> ${monthDelta}% (${fm(prevTotal)} → ${fm(monthTotal)} ₽)`, scrollTo:'total' });
-      else if (monthDelta > 20) alerts.push({ type:'green', icon:'📈', text:`<b>Рост к прошлому месяцу:</b> +${monthDelta}% (${fm(prevTotal)} → ${fm(monthTotal)} ₽)`, scrollTo:'total' });
+    // Алерты по дельте — используем smartDelta (учитывает неполный месяц)
+    if (smartDelta !== null && smartDeltaLabel.includes('за')) {
+      // Текущий неполный месяц — сравнение за тот же период
+      if (smartDelta < -20) alerts.push({ type:'red', icon:'📉', text:`<b>Падение к прошлому месяцу за тот же период:</b> ${smartDelta}% (${fm(smartDeltaPrev)} → ${fm(monthTotal)} ₽)`, scrollTo:'total' });
+      else if (smartDelta > 20) alerts.push({ type:'green', icon:'📈', text:`<b>Рост к прошлому месяцу за тот же период:</b> +${smartDelta}% (${fm(smartDeltaPrev)} → ${fm(monthTotal)} ₽)`, scrollTo:'total' });
+    } else if (smartDelta !== null) {
+      if (smartDelta < -20) alerts.push({ type:'red', icon:'📉', text:`<b>Падение к прошлому месяцу:</b> ${smartDelta}% (${fm(smartDeltaPrev)} → ${fm(monthTotal)} ₽)`, scrollTo:'total' });
+      else if (smartDelta > 20) alerts.push({ type:'green', icon:'📈', text:`<b>Рост к прошлому месяцу:</b> +${smartDelta}% (${fm(smartDeltaPrev)} → ${fm(monthTotal)} ₽)`, scrollTo:'total' });
     }
 
     // ⚠ Особенность РАВТ: долг — это рабочий капитал (стёкла на машинах в работе)
@@ -579,7 +591,7 @@
           <div class="kpi-expand-icon">+</div>
           <div class="kpi-lbl">📊 Месячная выручка</div>
           <div class="kpi-val">${fm(monthTotal)} ₽</div>
-          <div class="kpi-sub">${monthDelta !== null ? `<span class="kpi-delta ${monthDelta>=0?'up':'down'}">${monthDelta>=0?'▲':'▼'} ${Math.abs(monthDelta)}%</span> к ${MP_MONTHS_SHORT[data.prevRange.month-1]}` : 'нет данных за прошлый месяц'}</div>
+          <div class="kpi-sub">${smartDelta !== null ? `<span class="kpi-delta ${smartDelta>=0?'up':'down'}">${smartDelta>=0?'▲':'▼'} ${Math.abs(smartDelta)}%</span> ${smartDeltaLabel}` : (isCurrentMonth ? `месяц идёт · ${reportedDays} дн` : 'нет данных за прошлый месяц')}</div>
           ${expandedKpis.has('total') ? `<div class="expand-row">
             <div class="expand-item"><span>🛡 Страховые</span><span class="v b">${fm(monthIns)} ₽</span></div>
             <div class="expand-item"><span>💵 Розница</span><span class="v g">${fm(monthRetail)} ₽</span></div>
