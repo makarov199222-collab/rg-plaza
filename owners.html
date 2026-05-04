@@ -339,7 +339,7 @@
     const period = `${range.year}-${String(range.month).padStart(2,'0')}`;
 
     try {
-      const [pointsRes, currentRes, prevRes, yearRes, plansRes, fotRes, expRes, taxRes, loansRes, dirsRes, ravtRes, channelsRes, companiesRes, breakdownRes, breakdownPrevRes, breakdownYearRes, ravtSettlementsRes] = await Promise.all([
+      const [pointsRes, currentRes, prevRes, yearRes, plansRes, fotRes, expRes, taxRes, loansRes, dirsRes, ravtRes, channelsRes, companiesRes, breakdownRes, breakdownPrevRes, breakdownYearRes, ravtSettlementsRes, pnlRes] = await Promise.all([
         sb.from('points').select('*').order('id'),
         sb.from('daily_reports').select('*').gte('date', range.start).lte('date', range.end).order('date'),
         sb.from('daily_reports').select('point_id,date,total_day,owe_total,owe_ravt,owe_other').gte('date', prevRange.start).lte('date', prevRange.end),
@@ -356,11 +356,17 @@
         sb.from('revenue_breakdown').select('*').eq('period', period),
         sb.from('revenue_breakdown').select('*').eq('period', `${prevRange.year}-${String(prevRange.month).padStart(2,'0')}`),
         sb.from('revenue_breakdown').select('*').gte('period', `${range.year}-01`).lte('period', period),
-        sb.from('ravt_settlements').select('*').order('settlement_date', { ascending: false }).limit(10)
+        sb.from('ravt_settlements').select('*').order('settlement_date', { ascending: false }).limit(10),
+        sb.from('point_pnl').select('*').or(`period.eq.${range.year}-YTD,period.eq.${period}`)
       ]);
 
+      const allPoints = pointsRes.data || [];
+      // is_revenue_point по умолчанию true для совместимости со старой схемой (если миграция не применена)
+      const revenuePoints = allPoints.filter(p => p.is_revenue_point !== false && p.id !== 'detailing' && p.id !== 'school' && p.id !== 'mgt' && p.id !== 'other');
+
       cachedData = {
-        points: pointsRes.data || [],
+        points: revenuePoints,                      // основные точки (для виджетов)
+        allPoints: allPoints,                       // ВСЕ проекты включая детейлинг/школу/МГТ
         current: currentRes.data || [],
         prev: prevRes.data || [],
         year: yearRes.data || [],
@@ -377,6 +383,7 @@
         breakdownPrev: breakdownPrevRes.data || [],
         breakdownYear: breakdownYearRes.data || [],
         ravtSettlements: ravtSettlementsRes.data || [],
+        pnl: pnlRes.data || [],
         range, prevRange, period
       };
       render(cachedData);
@@ -491,6 +498,17 @@
     const taxTotal = data.taxes.reduce((s,r) => s + (+r.amount), 0);
     const profit = monthTotal - expWithoutSalary - fotTotal - taxTotal;
     const profitMargin = monthTotal > 0 ? Math.round(profit / monthTotal * 100) : 0;
+
+    // === КЭШФЛОУ из Планфакт за выбранный месяц ===
+    // Берём только основные точки (revenuePoints) чтобы не смешивать со свернутыми проектами
+    const monthPnl = (data.pnl || []).filter(p => p.period === period);
+    const revenuePointIds = new Set(data.points.map(p => p.id));    // основные точки
+    const monthPnlMain = monthPnl.filter(p => revenuePointIds.has(p.point_id));
+    const cashflowIncome = monthPnlMain.reduce((s,p) => s + (+p.income||0), 0);
+    const cashflowExp = monthPnlMain.reduce((s,p) => s + (+p.expenses||0), 0);
+    const cashflow = cashflowIncome - cashflowExp;
+    const cashflowMargin = cashflowIncome > 0 ? Math.round(cashflow / cashflowIncome * 100) : 0;
+    const hasCashflowData = monthPnlMain.length > 0 && (cashflowIncome > 0 || cashflowExp > 0);
     const fotPct = monthTotal > 0 ? Math.round(fotTotal / monthTotal * 100) : 0;
 
     // ФОТ по точкам (на основе территорий)
@@ -556,11 +574,11 @@
     }
 
     const alerts = [];
-    // Прибыль/маржа — только если есть финансовые данные
-    if (monthTotal > 0 && hasFinanceData && profit < 0) {
-      alerts.push({ type:'red', icon:'⚠️', text:`<b>Месяц убыточный:</b> расходы превысили выручку на ${fm(Math.abs(profit))} ₽`, scrollTo:'profit' });
-    } else if (monthTotal > 0 && hasFinanceData && profitMargin < 10) {
-      alerts.push({ type:'orange', icon:'📉', text:`<b>Низкая маржа:</b> прибыль всего ${profitMargin}% от выручки`, scrollTo:'profit' });
+    // Кэшфлоу — главный показатель раз в кассовом разрыве
+    if (hasCashflowData && cashflow < 0) {
+      alerts.push({ type:'red', icon:'⚠️', text:`<b>Месяц убыточный по деньгам:</b> ушло на ${fm(Math.abs(cashflow))} ₽ больше чем пришло`, scrollTo:'profit' });
+    } else if (hasCashflowData && cashflowMargin > 0 && cashflowMargin < 10) {
+      alerts.push({ type:'orange', icon:'📉', text:`<b>Низкая маржа кэшфлоу:</b> ${cashflowMargin}% от поступлений`, scrollTo:'profit' });
     }
     if (fotPct > 35 && monthTotal > 0 && hasFinanceData) {
       alerts.push({ type:'red', icon:'💼', text:`<b>ФОТ ${fotPct}%</b> от выручки — выше нормы (макс 30%)`, scrollTo:'fot' });
@@ -652,17 +670,20 @@
             ${monthBookings > 0 ? `<div class="expand-item"><span>📌 Записей всего</span><span class="v">${monthBookings}</span></div>` : ''}
           </div>` : ''}
         </div>
-        <div class="kpi ${profit >= 0 ? 'green' : 'red'} ${expandedKpis.has('profit')?'is-expanded':''}" data-anchor="profit" onclick="toggleExpand('profit', event)">
+        <div class="kpi ${hasCashflowData ? (cashflow >= 0 ? 'green' : 'red') : 'orange'} ${expandedKpis.has('profit')?'is-expanded':''}" data-anchor="profit" onclick="toggleExpand('profit', event)">
           <div class="kpi-expand-icon">+</div>
-          <div class="kpi-lbl">💎 Чистая прибыль</div>
-          <div class="kpi-val ${profit >= 0 ? 'g' : 'r'}">${fm(profit)} ₽</div>
-          <div class="kpi-sub">маржа ${profitMargin}%</div>
+          <div class="kpi-lbl">💰 Кэшфлоу <span style="font-size:8px;color:var(--muted);font-weight:500;letter-spacing:0;text-transform:none;margin-left:3px;">из Планфакт</span></div>
+          <div class="kpi-val ${hasCashflowData ? (cashflow >= 0 ? 'g' : 'r') : 'o'}">${hasCashflowData ? (cashflow >= 0 ? '+' : '') + fm(cashflow) + ' ₽' : '— нет данных'}</div>
+          <div class="kpi-sub">${hasCashflowData ? `маржа ${cashflowMargin}% · по ${monthPnlMain.length} точкам` : 'бухгалтер ещё не загрузил'}</div>
           ${expandedKpis.has('profit') ? `<div class="expand-row">
-            <div class="expand-item"><span>+ Выручка</span><span class="v g">${fm(monthTotal)} ₽</span></div>
-            <div class="expand-item"><span>− ФОТ</span><span class="v r">${fm(fotTotal)} ₽</span></div>
-            <div class="expand-item"><span>− Расходы (аренда, лизинг, кредит)</span><span class="v r">${fm(expWithoutSalary)} ₽</span></div>
-            <div class="expand-item"><span>− Налоги</span><span class="v r">${fm(taxTotal)} ₽</span></div>
-            <div class="expand-item"><b>= Чистая прибыль</b><span class="v ${profit >= 0 ? 'g' : 'r'}">${fm(profit)} ₽</span></div>
+            ${hasCashflowData ? `
+              <div class="expand-item"><span>+ Поступления</span><span class="v g">${fm(cashflowIncome)} ₽</span></div>
+              <div class="expand-item"><span>− Выплаты</span><span class="v r">${fm(cashflowExp)} ₽</span></div>
+              <div class="expand-item"><b>= Кэшфлоу</b><span class="v ${cashflow >= 0 ? 'g' : 'r'}">${cashflow >= 0 ? '+' : ''}${fm(cashflow)} ₽</span></div>
+              <div class="expand-item" style="margin-top:6px;padding-top:8px;border-top:1px dashed var(--border);"><span style="font-size:11px;line-height:1.5;color:var(--muted);">💡 <b style="color:var(--text);">Кэшфлоу</b> — это движение живых денег по банку: что пришло − что ушло. Не путать с выручкой ОВР (там сделанные работы где деньги могут быть ещё в дороге).</span><span></span></div>
+            ` : `
+              <div class="expand-item" style="grid-column:1/-1;"><span style="font-size:11px;line-height:1.55;color:var(--muted);">📭 Данные за <b style="color:var(--text);">${monthName} ${data.range.year}</b> не загружены.<br>Бухгалтеру нужно выгрузить из Планфакта «Отчёт о ДДС по проектам» за этот месяц и загрузить в кабинет бухгалтера → вкладка «💰 Прибыль».</span><span></span></div>
+            `}
           </div>` : ''}
         </div>
         <div class="kpi orange ${expandedKpis.has('fot')?'is-expanded':''}" data-anchor="fot" onclick="toggleExpand('fot', event)">
@@ -730,19 +751,48 @@
       html += `<div class="heroes">
         <div class="hero leader">
           <div class="hero-icon">🏆</div>
-          <div class="hero-lbl">Лидер месяца</div>
+          <div class="hero-lbl">Лидер по выручке (ОВР)</div>
           <div class="hero-name">${leader.name}</div>
           <div class="hero-amount">${hasFot && lEff > 0 ? lEff.toFixed(1)+'×' : fm(pointStats[leader.id].total)+' ₽'}</div>
           <div class="hero-note">${hasFot && lEff > 0 ? `окупаемость ФОТ · ${fm(pointStats[leader.id].total)} ₽ / ${fm(lFot)} ₽` : Math.round(pointStats[leader.id].total / monthTotal * 100)+'% от общей выручки'}</div>
         </div>
         <div class="hero outsider">
           <div class="hero-icon">⚡</div>
-          <div class="hero-lbl">Зона роста</div>
+          <div class="hero-lbl">Зона роста (ОВР)</div>
           <div class="hero-name">${outsider.name}</div>
           <div class="hero-amount">${hasFot && oEff > 0 ? oEff.toFixed(1)+'×' : fm(pointStats[outsider.id].total)+' ₽'}</div>
           <div class="hero-note">${hasFot && oEff > 0 ? `окупаемость ФОТ · ${fm(pointStats[outsider.id].total)} ₽ / ${fm(oFot)} ₽` : 'есть куда расти'}</div>
         </div>
       </div>`;
+    }
+
+    // Лидер / зона роста по КЭШФЛОУ (Планфакт) — отдельный блок если есть данные
+    if (hasCashflowData && monthPnlMain.length >= 2) {
+      const sortedByFlow = monthPnlMain.slice().sort((a,b) => +b.operating_flow - +a.operating_flow);
+      const cfLeader = sortedByFlow[0];
+      const cfOutsider = sortedByFlow[sortedByFlow.length - 1];
+      if (cfLeader.point_id !== cfOutsider.point_id) {
+        const lProj = data.allPoints.find(p => p.id === cfLeader.point_id);
+        const oProj = data.allPoints.find(p => p.id === cfOutsider.point_id);
+        const lFlow = +cfLeader.operating_flow;
+        const oFlow = +cfOutsider.operating_flow;
+        html += `<div class="heroes">
+          <div class="hero leader" style="border-left:3px solid var(--blue);">
+            <div class="hero-icon">💰</div>
+            <div class="hero-lbl">Лидер по деньгам (Планфакт)</div>
+            <div class="hero-name">${lProj?.name || cfLeader.point_id}</div>
+            <div class="hero-amount" style="color:${lFlow >= 0 ? 'var(--green)' : 'var(--red)'};">${lFlow >= 0 ? '+' : ''}${fm(lFlow)} ₽</div>
+            <div class="hero-note">опер.поток · поступл ${fm(+cfLeader.income||0)} − выпл ${fm(+cfLeader.expenses||0)}</div>
+          </div>
+          <div class="hero outsider" style="border-left:3px solid ${oFlow < 0 ? 'var(--red)' : 'var(--orange)'};">
+            <div class="hero-icon">💸</div>
+            <div class="hero-lbl">Худший по деньгам</div>
+            <div class="hero-name">${oProj?.name || cfOutsider.point_id}</div>
+            <div class="hero-amount" style="color:${oFlow >= 0 ? 'var(--green)' : 'var(--red)'};">${oFlow >= 0 ? '+' : ''}${fm(oFlow)} ₽</div>
+            <div class="hero-note">опер.поток · поступл ${fm(+cfOutsider.income||0)} − выпл ${fm(+cfOutsider.expenses||0)}</div>
+          </div>
+        </div>`;
+      }
     }
 
     if (sortedPoints.length > 1) {
@@ -884,6 +934,9 @@
 
     // === БЛОК «ТОП ПО УСЛУГАМ» ===
     html += renderTopServices(data, monthName);
+
+    // === БЛОК «ПРИБЫЛЬ ПО ПРОЕКТАМ» (из Планфакт) ===
+    html += renderProjectsPnl(data);
 
     html += `<div class="chart-row">
       <div class="chart-block">
@@ -1123,7 +1176,7 @@
 
     // Карточка 1: Топ услуг
     html += `<div class="top-card">
-      <div class="top-title">💰 Топ услуг розницы <span style="font-size:10px;color:var(--muted);font-weight:500;letter-spacing:0;text-transform:none;margin-left:4px;">(${pointNames.join(', ')})</span></div>
+      <div class="top-title">💰 Топ услуг розницы <span style="font-size:10px;color:var(--muted);font-weight:500;letter-spacing:0;text-transform:none;margin-left:4px;">живые деньги · ${pointNames.join(', ')}</span></div>
       <div class="top-list">`;
     topCategories.forEach((c, i) => {
       const prev = byCategoryPrev[c.cat] || 0;
@@ -1168,7 +1221,8 @@
     // Карточка 3: Топ СК
     if (topSK.length > 0) {
       html += `<div class="top-card">
-        <div class="top-title">🛡 Топ страховых компаний</div>
+        <div class="top-title">🛡 Топ страховых компаний <span style="font-size:10px;color:var(--muted);font-weight:500;letter-spacing:0;text-transform:none;margin-left:4px;">живые деньги</span></div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:9px;line-height:1.4;">💡 Цифры из Планфакта — могут включать оплаты за прошлые периоды (отсрочки СК до 30+ дней)</div>
         <div class="top-list">`;
       topSK.forEach((s, i) => {
         const pctOfTotal = totalSK > 0 ? Math.round(s.sum / totalSK * 100) : 0;
@@ -1186,6 +1240,107 @@
     }
 
     html += `</div></div>`;
+    return html;
+  }
+
+  function renderProjectsPnl(data) {
+    const pnl = data.pnl || [];
+    if (!pnl.length) return '';   // нет данных — блока нет
+
+    // Берём только YTD за текущий год (накопленно)
+    const ytdRows = pnl.filter(p => p.period === `${data.range.year}-YTD`);
+    if (!ytdRows.length) return '';
+
+    const allPoints = data.allPoints || data.points;
+
+    // Связываем PNL с проектами
+    const enriched = ytdRows.map(row => {
+      const proj = allPoints.find(p => p.id === row.point_id);
+      return {
+        ...row,
+        name: proj?.name || row.point_id,
+        is_revenue_point: proj?.is_revenue_point !== false,
+        project_type: proj?.project_type || 'other',
+        is_active: proj?.is_active !== false,
+        display_order: proj?.display_order || 100
+      };
+    });
+
+    // Делим на основные / прочие
+    const main = enriched.filter(x => x.is_revenue_point && x.is_active).sort((a,b) => +b.operating_flow - +a.operating_flow);
+    const other = enriched.filter(x => !x.is_revenue_point || !x.is_active).sort((a,b) => a.display_order - b.display_order);
+
+    const totalIncome = enriched.reduce((s,x) => s + (+x.income||0), 0);
+    const totalExpenses = enriched.reduce((s,x) => s + (+x.expenses||0), 0);
+    const totalFlow = totalIncome - totalExpenses;
+
+    let html = `<div class="section">
+      <div class="section-title">💰 Прибыль по проектам · ${data.range.year} YTD <span style="font-size:10px;color:var(--muted);font-weight:500;letter-spacing:0;text-transform:none;margin-left:6px;">из Планфакт</span></div>
+
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px;">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px;">
+          <div style="background:#141414;border-left:3px solid var(--green);border-radius:8px;padding:10px 12px;">
+            <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">📥 Поступления</div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--green);letter-spacing:.5px;">${fm(totalIncome)} ₽</div>
+          </div>
+          <div style="background:#141414;border-left:3px solid var(--red);border-radius:8px;padding:10px 12px;">
+            <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">📤 Выплаты</div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--red);letter-spacing:.5px;">${fm(totalExpenses)} ₽</div>
+          </div>
+          <div style="background:#141414;border-left:3px solid ${totalFlow >= 0 ? 'var(--accent)' : 'var(--red)'};border-radius:8px;padding:10px 12px;">
+            <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">💎 Опер.поток</div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:${totalFlow >= 0 ? 'var(--accent)' : 'var(--red)'};letter-spacing:.5px;">${totalFlow >= 0 ? '+' : ''}${fm(totalFlow)} ₽</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px;">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;color:var(--accent);letter-spacing:1.5px;margin-bottom:11px;">🏆 ОСНОВНЫЕ ПРОЕКТЫ</div>
+        <div style="display:flex;flex-direction:column;gap:6px;">`;
+
+    main.forEach(p => {
+      const flow = +p.operating_flow;
+      const profit = flow >= 0;
+      const margin = +p.income > 0 ? Math.round(flow / +p.income * 100) : null;
+      const icon = profit ? '🟢' : '🔴';
+      html += `<div style="background:#141414;border-radius:8px;padding:10px 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div style="font-size:14px;">${icon}</div>
+        <div style="flex:1;min-width:100px;">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--text);letter-spacing:1px;">${p.name}</div>
+          <div style="font-size:10px;color:var(--muted);">поступления ${fm(+p.income)} − расходы ${fm(+p.expenses)}${margin !== null ? ` · маржа ${margin}%` : ''}</div>
+        </div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:${profit ? 'var(--green)' : 'var(--red)'};letter-spacing:.5px;">${profit ? '+' : ''}${fm(flow)} ₽</div>
+      </div>`;
+    });
+
+    html += `</div></div>`;
+
+    // Прочие проекты (свёрнутые, в раскрываемом блоке)
+    if (other.length > 0) {
+      const otherFlow = other.reduce((s,x) => s + (+x.operating_flow||0), 0);
+      const isExpanded = expandedKpis.has('otherProjects');
+      html += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;cursor:pointer;" onclick="toggleExpand('otherProjects', event)">
+        <div style="display:flex;align-items:center;gap:10px;${isExpanded ? 'margin-bottom:11px;' : ''}">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;color:var(--muted);letter-spacing:1.5px;">📂 ПРОЧИЕ ПРОЕКТЫ</div>
+          <div style="font-size:11px;color:var(--muted);">${other.length} ${other.length === 1 ? 'проект' : 'проекта'} · ${otherFlow >= 0 ? '+' : ''}${fm(otherFlow)} ₽</div>
+          <div style="margin-left:auto;color:var(--muted);font-size:11px;opacity:.6;">${isExpanded ? '−' : '+'}</div>
+        </div>
+        ${isExpanded ? `<div style="display:flex;flex-direction:column;gap:5px;">${other.map(p => {
+          const flow = +p.operating_flow;
+          const typeLabel = p.project_type === 'building' ? 'Стройка/ремонт' : p.project_type === 'other' ? 'Прочее' : '';
+          const stateLabel = !p.is_active ? '⏸ свёрнут' : '';
+          return `<div style="background:#141414;border-radius:8px;padding:9px 11px;display:flex;align-items:center;gap:8px;">
+            <div style="flex:1;min-width:80px;">
+              <div style="font-size:13px;color:var(--text);font-weight:500;">${p.name}</div>
+              <div style="font-size:10px;color:var(--muted);">${[typeLabel, stateLabel].filter(Boolean).join(' · ')}${(+p.income > 0 || +p.expenses > 0) ? ` · доходы ${fm(+p.income)} расходы ${fm(+p.expenses)}` : ''}</div>
+            </div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:${flow >= 0 ? 'var(--green)' : 'var(--red)'};letter-spacing:.4px;">${flow >= 0 ? '+' : ''}${fm(flow)} ₽</div>
+          </div>`;
+        }).join('')}</div>` : ''}
+      </div>`;
+    }
+
+    html += `</div>`;
     return html;
   }
 
