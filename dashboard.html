@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 <style>
   /* RG PLAZA — стиль фирменного сайта */
   :root {
@@ -67,6 +68,50 @@
   .mp-month.future{opacity:.4;}
   .refresh-btn{background:#141414;border:1px solid var(--border);border-radius:8px;padding:9px 13px;color:var(--accent);font-size:13px;cursor:pointer;font-family:'Inter',sans-serif;font-weight:600;transition:all .15s;}
   .refresh-btn:hover{border-color:var(--accent);}
+  .export-btn{background:var(--accent);color:#000;border:none;border-radius:8px;padding:9px 13px;font-family:'Inter',sans-serif;font-size:13px;font-weight:600;cursor:pointer;}
+  .export-btn:hover{filter:brightness(1.08);}
+
+  /* Алерты сверху на дашборде */
+  .alerts{display:flex;flex-direction:column;gap:7px;margin-bottom:14px;}
+  .alert{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:11px 13px;display:flex;align-items:flex-start;gap:10px;font-size:12px;line-height:1.5;}
+  .alert.red{border-left:3px solid var(--red);} .alert.orange{border-left:3px solid var(--orange);}
+  .alert.green{border-left:3px solid var(--green);} .alert.blue{border-left:3px solid var(--blue);}
+  .alert-icon{font-size:18px;flex-shrink:0;}
+  .alert-text{flex:1;color:var(--text);}
+  .alert-text b{color:var(--accent);}
+
+  /* Финансовый блок на Обзоре */
+  .finance-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:8px;margin-bottom:14px;}
+  .fin-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:11px 13px;cursor:pointer;transition:all .15s;position:relative;}
+  .fin-card:hover{border-color:var(--accent);}
+  .fin-card.green{border-left:3px solid var(--green);}
+  .fin-card.red{border-left:3px solid var(--red);}
+  .fin-card.orange{border-left:3px solid var(--orange);}
+  .fin-card.blue{border-left:3px solid var(--blue);}
+  .fin-lbl{font-size:9px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
+  .fin-val{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:.5px;line-height:1;}
+  .fin-val.t{color:var(--text);} .fin-val.r{color:var(--red);} .fin-val.g{color:var(--green);} .fin-val.o{color:var(--orange);} .fin-val.b{color:var(--blue);} .fin-val.acc{color:var(--accent);}
+  .fin-sub{font-size:10px;color:var(--muted);margin-top:3px;}
+  .fin-expand-icon{position:absolute;top:8px;right:9px;color:var(--muted);font-size:11px;opacity:.6;transition:transform .2s;}
+  .fin-card.is-expanded .fin-expand-icon{transform:rotate(45deg);color:var(--accent);opacity:1;}
+  .fin-detail{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);font-size:11px;}
+  .fin-detail-item{display:flex;justify-content:space-between;color:var(--muted);padding:3px 0;}
+  .fin-detail-item .v{color:var(--text);font-family:'Bebas Neue',sans-serif;font-size:12px;letter-spacing:.4px;}
+  .fin-detail-item .v.r{color:var(--red);} .fin-detail-item .v.g{color:var(--green);} .fin-detail-item .v.o{color:var(--orange);}
+
+  /* Долги мини-блок */
+  .debts-mini{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;}
+  @media (max-width:600px){ .debts-mini{grid-template-columns:1fr;} }
+  .debt-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:11px 13px;cursor:pointer;transition:all .15s;}
+  .debt-card:hover{border-color:var(--accent);}
+  .debt-card.we-owe{border-left:3px solid var(--red);}
+  .debt-card.owe-us{border-left:3px solid var(--orange);}
+  .debt-title{font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1.5px;margin-bottom:5px;}
+  .debt-title.r{color:var(--red);} .debt-title.o{color:var(--orange);}
+  .debt-val{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:.5px;line-height:1;}
+  .debt-val.r{color:var(--red);} .debt-val.o{color:var(--orange);}
+  .debt-sub{font-size:10px;color:var(--muted);margin-top:4px;}
+  .refresh-btn:hover{border-color:var(--accent);}
 
   .wrap{padding:18px;max-width:1400px;margin:0 auto;}
 
@@ -91,6 +136,7 @@
 
   .points-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:14px;margin-bottom:18px;}
   .point-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+  .point-card.point-card-debt-alert{border-left:3px solid var(--red);}
   .point-card-head{padding:13px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;}
   .point-card-name{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--accent);letter-spacing:2px;}
   .point-card-days{margin-left:auto;font-size:11px;color:var(--muted);background:#141414;padding:4px 10px;border-radius:5px;font-weight:600;}
@@ -302,6 +348,7 @@
     <button class="mp-current" id="mp-current" onclick="mpOpenGrid()">—</button>
     <button class="mp-arrow" onclick="mpNext()" title="Следующий">›</button>
   </div>
+  <button class="export-btn" onclick="exportToExcel()" title="Скачать в Excel">📥 Excel</button>
   <button class="refresh-btn" onclick="loadAll()" title="Обновить">↻</button>
 </header>
 
@@ -359,6 +406,13 @@
   let allCharts = [];
   let cachedData = null;
   let saveTimers = {};
+  let expandedFinance = new Set();  // раскрытые карточки финансов на Обзоре
+
+  function toggleFinance(key, ev) {
+    if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+    if (expandedFinance.has(key)) expandedFinance.delete(key); else expandedFinance.add(key);
+    if (cachedData) renderOverview(cachedData);
+  }
 
   function doLogin() {
     const code = document.getElementById('login-code').value.trim();
@@ -471,19 +525,36 @@
     document.getElementById('plans-content').innerHTML = '<div class="loader"><div class="spinner"></div>Загружаю планы...</div>';
     allCharts.forEach(c => { try { c.destroy(); } catch(e){} });
     allCharts = [];
-    ownersExtraData = null; // сбрасываем кэш учредительского вида при смене месяца
+    ownersExtraData = null;
 
     const range = getMonthRange();
+    const yearStart = `${range.year}-01-01`;
+    const period = `${range.year}-${String(range.month).padStart(2,'0')}`;
     try {
-      const [pointsRes, reportsRes, plansRes] = await Promise.all([
+      const [pointsRes, reportsRes, plansRes, yearRes, fotRes, expRes, taxRes, dirsRes] = await Promise.all([
         sb.from('points').select('*').order('id'),
         sb.from('daily_reports').select('*').gte('date', range.start).lte('date', range.end).order('date'),
-        sb.from('plans').select('*')
+        sb.from('plans').select('*'),
+        sb.from('daily_reports').select('point_id,date,total_day,debt_total,debt_retail,debt_insurance,owe_total,owe_ravt,owe_other').gte('date', yearStart).lte('date', range.end),
+        sb.from('fot_summary').select('*').eq('period', period).maybeSingle(),
+        sb.from('expenses_monthly').select('*').eq('period', period),
+        sb.from('taxes_monthly').select('*').eq('period', period),
+        sb.from('insurance_directions').select('*').gte('period', `${range.year}-01`).lte('period', period)
       ]);
       if (pointsRes.error) throw pointsRes.error;
       if (reportsRes.error) throw reportsRes.error;
       if (plansRes.error) throw plansRes.error;
-      cachedData = { points: pointsRes.data || [], reports: reportsRes.data || [], plans: plansRes.data || [], range };
+      cachedData = {
+        points: pointsRes.data || [],
+        reports: reportsRes.data || [],
+        plans: plansRes.data || [],
+        year: yearRes.data || [],
+        fot: fotRes.data || null,
+        expenses: expRes.data || [],
+        taxes: taxRes.data || [],
+        directions: dirsRes.data || [],
+        range, period
+      };
       renderOverview(cachedData);
       const plansActive = document.getElementById('page-plans').classList.contains('active');
       if (plansActive) renderPlans(cachedData);
@@ -514,15 +585,14 @@
     if (!data.points.length) { document.getElementById('overview-content').innerHTML = '<div class="empty">Точки не настроены</div>'; return; }
 
     const mn = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+    const mnShort = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'];
     const monthName = mn[data.range.month-1];
     const byPoint = aggregateByPoint(data);
 
-    // Группируем точки по городам
     const moscowPoints = data.points.filter(p => p.format !== 'izhevsk');
     const izhevskPoints = data.points.filter(p => p.format === 'izhevsk');
 
-    // Общие итоги
-    let allTotal=0, allInsur=0, allPhys=0, allCorp=0, allPlanPhysM=0, allPlanCorpM=0;
+    let allTotal=0, allInsur=0, allPhys=0, allCorp=0, allRetail=0, allPlanPhysM=0, allPlanCorpM=0;
     const dateSet = new Set();
     Object.values(byPoint).forEach(({reports, plan}) => {
       reports.forEach(r => {
@@ -530,6 +600,7 @@
         allInsur += +r.ins_day || 0;
         allPhys += +r.phys_day || 0;
         allCorp += +r.corp_day || 0;
+        allRetail += +r.retail_day || 0;
         dateSet.add(r.date);
       });
       allPlanPhysM += +plan.plan_phys_month || 0;
@@ -537,13 +608,109 @@
     });
     const physPct = allPlanPhysM ? Math.round(allPhys/allPlanPhysM*100) : null;
     const corpPct = allPlanCorpM ? Math.round(allCorp/allPlanCorpM*100) : null;
+    const allPlanTotal = allPlanPhysM + allPlanCorpM;
+    const planPct = allPlanTotal > 0 ? Math.round(allTotal / allPlanTotal * 100) : null;
 
-    let html = `
+    // === Долги (берём последний отчёт где долги > 0 за весь год до конца месяца) ===
+    const lastDebtsByPoint = {};
+    (data.year || []).forEach(r => {
+      const hasDebts = (+r.debt_total > 0) || (+r.owe_total > 0);
+      if (!hasDebts) return;
+      if (!lastDebtsByPoint[r.point_id] || r.date > lastDebtsByPoint[r.point_id].date) lastDebtsByPoint[r.point_id] = r;
+    });
+    let totalDebt=0, totalOwe=0, totalOweRavt=0, totalOweOther=0;
+    Object.values(lastDebtsByPoint).forEach(r => {
+      totalDebt += +r.debt_total || 0;
+      totalOwe += +r.owe_total || 0;
+      totalOweRavt += +r.owe_ravt || 0;
+      totalOweOther += +r.owe_other || 0;
+    });
+
+    // === Финансы ===
+    const fot = data.fot || {};
+    const fotTotal = +fot.fot_total || 0;
+    const expWithoutSalary = (data.expenses || []).filter(r => !r.category.startsWith('salary_')).reduce((s,r) => s + (+r.amount), 0);
+    const taxTotal = (data.taxes || []).reduce((s,r) => s + (+r.amount), 0);
+    const profit = allTotal - expWithoutSalary - fotTotal - taxTotal;
+    const profitMargin = allTotal > 0 ? Math.round(profit / allTotal * 100) : 0;
+    const fotPct = allTotal > 0 ? Math.round(fotTotal / allTotal * 100) : 0;
+    const hasFinanceData = fotTotal > 0 || expWithoutSalary > 0 || taxTotal > 0;
+
+    // === Полнота месяца ===
+    const today = new Date();
+    const isCurrentMonth = today.getFullYear() === data.range.year && today.getMonth()+1 === data.range.month;
+    const isPastMonth = data.range.year < today.getFullYear() || (data.range.year === today.getFullYear() && data.range.month < today.getMonth()+1);
+    const daysInMonth = new Date(data.range.year, data.range.month, 0).getDate();
+    const monthCoverage = dateSet.size / daysInMonth;
+    const monthsComplete = isPastMonth || monthCoverage >= 0.85;
+
+    // === Алерты ===
+    const alerts = [];
+
+    // 1. Точки которые не отчитались сегодня (если текущий месяц)
+    if (isCurrentMonth) {
+      const todayStr = today.toISOString().substring(0,10);
+      const dayOfWeek = today.getDay();
+      const reportedToday = new Set();
+      data.reports.forEach(r => { if (r.date === todayStr && +r.total_day > 0) reportedToday.add(r.point_id); });
+      const notReported = data.points.filter(p => {
+        if (reportedToday.has(p.id)) return false;
+        const closedDay = +p.closed_day_of_week;
+        if (closedDay && closedDay === dayOfWeek) return false;
+        return true;
+      });
+      if (notReported.length > 0 && today.getHours() >= 11) {
+        alerts.push({ type:'orange', icon:'⏰', text:`<b>Не отчитались сегодня:</b> ${notReported.map(p => p.name).join(', ')}` });
+      }
+    }
+
+    // 2. Прибыль/маржа
+    if (allTotal > 0 && hasFinanceData && profit < 0) {
+      alerts.push({ type:'red', icon:'⚠️', text:`<b>Месяц убыточный:</b> расходы превысили выручку на ${fm(Math.abs(profit))} ₽` });
+    } else if (allTotal > 0 && hasFinanceData && profitMargin < 10) {
+      alerts.push({ type:'orange', icon:'📉', text:`<b>Низкая маржа:</b> прибыль всего ${profitMargin}% от выручки` });
+    }
+
+    // 3. План под угрозой (если на середине месяца идём ниже плана)
+    if (isCurrentMonth && allPlanTotal > 0 && monthCoverage > 0.3) {
+      const projected = allTotal / monthCoverage;
+      const projectedPct = Math.round(projected / allPlanTotal * 100);
+      if (projectedPct < 80) {
+        alerts.push({ type:'orange', icon:'🎯', text:`<b>План под угрозой:</b> при текущей скорости будет ${projectedPct}% (${fm(projected)} из ${fm(allPlanTotal)} ₽)` });
+      } else if (projectedPct >= 110) {
+        alerts.push({ type:'green', icon:'🚀', text:`<b>План будет перевыполнен:</b> прогноз ${projectedPct}% (${fm(projected)} из ${fm(allPlanTotal)} ₽)` });
+      }
+    }
+
+    // 4. ФОТ выше нормы
+    if (fotPct > 35 && allTotal > 0 && hasFinanceData) {
+      alerts.push({ type:'red', icon:'💼', text:`<b>ФОТ ${fotPct}%</b> от выручки — выше нормы (макс 30%)` });
+    }
+
+    // 5. Долги прочим
+    if (totalOweOther > allTotal * 1.5 && totalOweOther > 0 && allTotal > 100000) {
+      alerts.push({ type:'red', icon:'🚨', text:`<b>Долг прочим поставщикам ${fm(totalOweOther)} ₽</b> — это ${(totalOweOther/allTotal).toFixed(1)}× выручки. Без учёта РАВТ (взаимозачёт)` });
+    }
+
+    // === HTML ===
+    let html = '';
+
+    // Алерты сверху
+    if (alerts.length) {
+      html += `<div class="alerts">`;
+      alerts.forEach(a => {
+        html += `<div class="alert ${a.type}"><div class="alert-icon">${a.icon}</div><div class="alert-text">${a.text}</div></div>`;
+      });
+      html += `</div>`;
+    }
+
+    // Hero блок (прежний)
+    html += `
       <div class="hero">
         <div class="hero-card acc">
           <div class="hero-lbl">${monthName} ${data.range.year} — общий вал</div>
           <div class="hero-val">${fm(allTotal)} ₽</div>
-          <div class="hero-sub">все точки · ${dateSet.size} дней</div>
+          <div class="hero-sub">${planPct !== null ? `${planPct}% от плана ${fm(allPlanTotal)} ₽` : `${dateSet.size} дн с отчётами`}</div>
         </div>
         <div class="hero-card">
           <div class="hero-lbl">Физлица (план)</div>
@@ -561,14 +728,95 @@
         </div>
       </div>`;
 
+    // Финансовый блок (только если есть данные)
+    if (hasFinanceData) {
+      html += `<div class="finance-row">
+        <div class="fin-card ${profit >= 0 ? 'green' : 'red'} ${expandedFinance.has('profit')?'is-expanded':''}" onclick="toggleFinance('profit', event)">
+          <div class="fin-expand-icon">+</div>
+          <div class="fin-lbl">💎 Чистая прибыль</div>
+          <div class="fin-val ${profit >= 0 ? 'g' : 'r'}">${fm(profit)} ₽</div>
+          <div class="fin-sub">маржа ${profitMargin}%</div>
+          ${expandedFinance.has('profit') ? `<div class="fin-detail">
+            <div class="fin-detail-item"><span>+ Выручка</span><span class="v g">${fm(allTotal)}</span></div>
+            <div class="fin-detail-item"><span>− ФОТ</span><span class="v r">${fm(fotTotal)}</span></div>
+            <div class="fin-detail-item"><span>− Расходы</span><span class="v r">${fm(expWithoutSalary)}</span></div>
+            <div class="fin-detail-item"><span>− Налоги</span><span class="v r">${fm(taxTotal)}</span></div>
+          </div>` : ''}
+        </div>
+        <div class="fin-card orange ${expandedFinance.has('fot')?'is-expanded':''}" onclick="toggleFinance('fot', event)">
+          <div class="fin-expand-icon">+</div>
+          <div class="fin-lbl">👥 ФОТ</div>
+          <div class="fin-val o">${fm(fotTotal)} ₽</div>
+          <div class="fin-sub">${fotPct}% от выручки</div>
+          ${expandedFinance.has('fot') ? `<div class="fin-detail">
+            <div class="fin-detail-item"><span>Совхозная</span><span class="v">${fm(fot.fot_sovhoz)}</span></div>
+            <div class="fin-detail-item"><span>Москва</span><span class="v">${fm(fot.fot_moscow)}</span></div>
+            <div class="fin-detail-item"><span>Пойма</span><span class="v">${fm(fot.fot_poyma)}</span></div>
+            <div class="fin-detail-item"><span>Детейлинг</span><span class="v">${fm(fot.fot_detailing)}</span></div>
+          </div>` : ''}
+        </div>
+        <div class="fin-card red ${expandedFinance.has('exp')?'is-expanded':''}" onclick="toggleFinance('exp', event)">
+          <div class="fin-expand-icon">+</div>
+          <div class="fin-lbl">📦 Расходы</div>
+          <div class="fin-val r">${fm(expWithoutSalary)} ₽</div>
+          <div class="fin-sub">аренда, лизинг, кредиты</div>
+          ${expandedFinance.has('exp') ? `<div class="fin-detail">
+            ${(function(){
+              const cats = {};
+              data.expenses.filter(r => !r.category.startsWith('salary_')).forEach(r => { cats[r.category] = (cats[r.category]||0) + (+r.amount); });
+              return Object.entries(cats).sort((a,b) => b[1] - a[1]).slice(0, 6).map(([cat, sum]) =>
+                `<div class="fin-detail-item"><span>${cat}</span><span class="v">${fm(sum)}</span></div>`
+              ).join('');
+            })()}
+          </div>` : ''}
+        </div>
+        <div class="fin-card blue ${expandedFinance.has('tax')?'is-expanded':''}" onclick="toggleFinance('tax', event)">
+          <div class="fin-expand-icon">+</div>
+          <div class="fin-lbl">📋 Налоги</div>
+          <div class="fin-val b">${fm(taxTotal)} ₽</div>
+          <div class="fin-sub">${data.taxes.length} платежей</div>
+          ${expandedFinance.has('tax') ? `<div class="fin-detail">
+            ${(function(){
+              const types = {};
+              data.taxes.forEach(r => { types[r.tax_type] = (types[r.tax_type]||0) + (+r.amount); });
+              return Object.entries(types).sort((a,b) => b[1] - a[1]).map(([t, sum]) =>
+                `<div class="fin-detail-item"><span>${t}</span><span class="v">${fm(sum)}</span></div>`
+              ).join('');
+            })()}
+          </div>` : ''}
+        </div>
+      </div>`;
+    }
+
+    // Мини-блок Долги (только если есть)
+    if (totalDebt > 0 || totalOwe > 0) {
+      html += `<div class="debts-mini">`;
+      if (totalDebt > 0) {
+        html += `<div class="debt-card owe-us">
+          <div class="debt-title o">🟡 Нам должны</div>
+          <div class="debt-val o">${fm(totalDebt)} ₽</div>
+          <div class="debt-sub">по последним заказ-нарядам</div>
+        </div>`;
+      }
+      if (totalOwe > 0) {
+        html += `<div class="debt-card we-owe">
+          <div class="debt-title r">🔴 Мы должны</div>
+          <div class="debt-val r">${fm(totalOwe)} ₽</div>
+          <div class="debt-sub">РАВТ ${fm(totalOweRavt)} (взаимозачёт) + прочие ${fm(totalOweOther)}</div>
+        </div>`;
+      }
+      html += `</div>`;
+    }
+
+    // Точки
     if (moscowPoints.length) {
       html += `<div class="city-section"><div class="city-title">Москва</div><div class="points-grid">`;
-      moscowPoints.forEach(p => html += renderPointCard(byPoint[p.id], data.range));
+      moscowPoints.forEach(p => html += renderPointCard(byPoint[p.id], data.range, lastDebtsByPoint));
       html += `</div></div>`;
     }
     if (izhevskPoints.length) {
       html += `<div class="city-section"><div class="city-title">Ижевск</div><div class="points-grid">`;
-      izhevskPoints.forEach(p => html += renderPointCard(byPoint[p.id], data.range));
+      izhevskPoints.forEach(p => html += renderPointCard(byPoint[p.id], data.range, lastDebtsByPoint));
       html += `</div></div>`;
     }
 
@@ -597,10 +845,17 @@
     }, 50);
   }
 
-  function renderPointCard(entry, range) {
+  function renderPointCard(entry, range, lastDebtsByPoint) {
     const { point, reports, plan } = entry;
     let t=0,i=0,phys=0,c=0;
     reports.forEach(d => { t+=+d.total_day||0; i+=+d.ins_day||0; phys+=+d.phys_day||0; c+=+d.corp_day||0; });
+
+    // Долги точки
+    const lastDebt = lastDebtsByPoint ? lastDebtsByPoint[point.id] : null;
+    const pointDebt = lastDebt ? (+lastDebt.debt_total || 0) : 0;
+    const pointOwe = lastDebt ? (+lastDebt.owe_total || 0) : 0;
+    const pointOweOther = lastDebt ? (+lastDebt.owe_other || 0) : 0;
+    const owesAlert = t > 0 && pointOweOther > t * 1.5;
 
     function progressBlock(title, cls, plan, actual) {
       if (!plan) return `<div class="pc-plan"><div class="pc-plan-head"><div class="pc-plan-title ${cls}">${title}</div><div class="pc-plan-pct">—</div></div><div class="pc-plan-text">План не задан</div></div>`;
@@ -623,9 +878,10 @@
     }
 
     return `
-      <div class="point-card">
+      <div class="point-card${owesAlert ? ' point-card-debt-alert' : ''}">
         <div class="point-card-head">
           <div class="point-card-name">${point.name}</div>
+          ${owesAlert ? `<div style="font-size:9px;background:rgba(244,67,54,.2);color:var(--red);padding:3px 7px;border-radius:4px;font-weight:700;letter-spacing:.4px;margin-left:auto;margin-right:8px;">⚠ ДОЛГ</div>` : ''}
           <div class="point-card-days">${reports.length} дн.</div>
         </div>
         <div class="point-card-body">
@@ -635,6 +891,11 @@
             <div class="pc-stat"><div class="pc-stat-lbl">Физлица</div><div class="pc-stat-val g">${fm(phys)} ₽</div></div>
             <div class="pc-stat"><div class="pc-stat-lbl">Корпоратив</div><div class="pc-stat-val p">${fm(c)} ₽</div></div>
           </div>
+          ${(pointDebt > 0 || pointOwe > 0) ? `
+          <div style="display:flex;gap:8px;margin-top:8px;font-size:11px;">
+            ${pointDebt > 0 ? `<div style="flex:1;padding:7px 10px;background:#141414;border-radius:6px;border-left:2px solid var(--orange);"><div style="color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px;">🟡 Нам должны</div><div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--orange);letter-spacing:.4px;">${fm(pointDebt)} ₽</div></div>` : ''}
+            ${pointOwe > 0 ? `<div style="flex:1;padding:7px 10px;background:#141414;border-radius:6px;border-left:2px solid var(--red);"><div style="color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px;">🔴 Мы должны</div><div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--red);letter-spacing:.4px;">${fm(pointOwe)} ₽</div></div>` : ''}
+          </div>` : ''}
           ${progressBlock('Физлица', 'g', plan.plan_phys_month, phys)}
           ${progressBlock('Корпоратив', 'p', plan.plan_corp_month, c)}
           ${reports.length ? `<div class="pc-chart"><div class="pc-chart-title">📈 Физ vs Корп по дням</div><canvas id="chart-${point.id}" height="120"></canvas></div>` : ''}
@@ -1420,6 +1681,85 @@ ${sorted.map((s,i) => {
       const label = filter === 'all' ? 'Общий отчёт' : filter === 'moscow' ? 'Отчёт Москвы' : 'Отчёт Ижевска';
       toast(`${label} скопирован`, 'ok');
     });
+  }
+
+  // ====================================================================
+  // ВЫГРУЗКА В EXCEL
+  // ====================================================================
+  function exportToExcel() {
+    if (!cachedData) { alert('Сначала загрузи данные'); return; }
+    if (typeof XLSX === 'undefined') { alert('Excel-библиотека не загружена'); return; }
+    try {
+      const wb = XLSX.utils.book_new();
+      const data = cachedData;
+      const mn = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+      const monthName = mn[data.range.month-1];
+
+      // Лист 1: Сводка
+      let monthTotal=0, monthIns=0, monthRetail=0, monthPhys=0, monthCorp=0;
+      data.reports.forEach(r => { monthTotal+=+r.total_day||0; monthIns+=+r.ins_day||0; monthRetail+=+r.retail_day||0; monthPhys+=+r.phys_day||0; monthCorp+=+r.corp_day||0; });
+      const fot = data.fot || {};
+      const expWithoutSalary = (data.expenses||[]).filter(r => !r.category.startsWith('salary_')).reduce((s,r) => s+(+r.amount), 0);
+      const taxTotal = (data.taxes||[]).reduce((s,r) => s+(+r.amount), 0);
+      const profit = monthTotal - expWithoutSalary - (+fot.fot_total||0) - taxTotal;
+
+      const summary = [
+        ['Дашборд RG Plaza', `${monthName} ${data.range.year}`],
+        [],
+        ['ВЫРУЧКА'],
+        ['Всего', monthTotal],
+        ['  страховые', monthIns],
+        ['  розница', monthRetail],
+        ['  физлица', monthPhys],
+        ['  корпоратив', monthCorp],
+        [],
+        ['ФИНАНСЫ'],
+        ['ФОТ', +fot.fot_total||0],
+        ['Расходы (без ЗП)', expWithoutSalary],
+        ['Налоги', taxTotal],
+        ['= Чистая прибыль', profit],
+        ['Маржа, %', monthTotal > 0 ? Math.round(profit/monthTotal*100) : 0]
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), 'Сводка');
+
+      // Лист 2: По точкам
+      const pointsRows = [['Точка', 'Выручка', 'Страховые', 'Физлица', 'Корпоратив', 'Дни', 'План физ', '% физ', 'План корп', '% корп']];
+      data.points.forEach(p => {
+        const reports = data.reports.filter(r => r.point_id === p.id);
+        const t = reports.reduce((s,r) => s+(+r.total_day||0), 0);
+        const i = reports.reduce((s,r) => s+(+r.ins_day||0), 0);
+        const ph = reports.reduce((s,r) => s+(+r.phys_day||0), 0);
+        const cp = reports.reduce((s,r) => s+(+r.corp_day||0), 0);
+        const days = new Set(reports.filter(r => +r.total_day > 0).map(r => r.date)).size;
+        const plan = data.plans.find(pl => pl.point_id === p.id) || {};
+        const planPhys = +plan.plan_phys_month || 0;
+        const planCorp = +plan.plan_corp_month || 0;
+        pointsRows.push([p.name, t, i, ph, cp, days, planPhys, planPhys > 0 ? Math.round(ph/planPhys*100) : 0, planCorp, planCorp > 0 ? Math.round(cp/planCorp*100) : 0]);
+      });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(pointsRows), 'По точкам');
+
+      // Лист 3: По дням
+      const daysRows = [['Дата', 'Точка', 'Всего', 'Страх', 'Розница', 'Физ', 'Корп', 'Записей', 'Долги (нам)', 'Долги (мы)']];
+      data.reports.slice().sort((a,b) => a.date.localeCompare(b.date)).forEach(r => {
+        const p = data.points.find(x => x.id === r.point_id);
+        daysRows.push([r.date, p?.name || r.point_id, +r.total_day||0, +r.ins_day||0, +r.retail_day||0, +r.phys_day||0, +r.corp_day||0, +r.bookings||0, +r.debt_total||0, +r.owe_total||0]);
+      });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(daysRows), 'По дням');
+
+      // Лист 4: Финансы (если есть)
+      if ((data.expenses||[]).length || (data.taxes||[]).length) {
+        const expRows = [['Тип', 'Юрлицо', 'Категория', 'Сумма']];
+        (data.expenses||[]).forEach(e => expRows.push(['Расход', e.entity_id, e.category, +e.amount||0]));
+        (data.taxes||[]).forEach(t => expRows.push(['Налог', t.entity_id, t.tax_type, +t.amount||0]));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(expRows), 'Расходы и налоги');
+      }
+
+      const fileName = `RG-Plaza_Dashboard_${monthName}_${data.range.year}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+    } catch (e) {
+      console.error(e);
+      alert('Ошибка: '+(e.message||e));
+    }
   }
 
   (function init() {
