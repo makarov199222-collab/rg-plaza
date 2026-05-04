@@ -221,6 +221,7 @@
     <button class="top-tab" onclick="showPage('taxes', this)">🏛 Налоги</button>
     <button class="top-tab" onclick="showPage('fot', this)">👥 ФОТ</button>
     <button class="top-tab" onclick="showPage('loans', this)">🏦 Кредиты/Лизинги</button>
+    <button class="top-tab" onclick="showPage('ravt', this)">🔄 РАВТ</button>
     <button class="top-tab" onclick="showPage('calendar', this)">📅 Календарь</button>
     <button class="top-tab" onclick="showPage('upload', this)">📤 Загрузить Excel</button>
   </div>
@@ -232,6 +233,7 @@
   <div class="tab-page" id="page-taxes"><div id="taxes-content"></div></div>
   <div class="tab-page" id="page-fot"><div id="fot-content"></div></div>
   <div class="tab-page" id="page-loans"><div id="loans-content"></div></div>
+  <div class="tab-page" id="page-ravt"><div id="ravt-content"></div></div>
   <div class="tab-page" id="page-calendar"><div id="calendar-content"></div></div>
   <div class="tab-page" id="page-upload"><div id="upload-content"></div></div>
 </div>
@@ -385,6 +387,7 @@
     if (p === 'taxes') renderTaxes();
     if (p === 'fot') renderFot();
     if (p === 'loans') renderLoans();
+    if (p === 'ravt') renderRavt();
     if (p === 'calendar') renderCalendar();
     if (p === 'upload') renderUpload();
   }
@@ -829,6 +832,180 @@
     html += `</div>`;
     c.innerHTML = html;
   }
+
+  // === РАВТ ВЗАИМОЗАЧЁТЫ ===
+  let ravtSettlements = [];
+
+  async function loadRavtSettlements() {
+    try {
+      const { data: rows, error } = await sb.from('ravt_settlements').select('*').order('settlement_date', { ascending: false });
+      if (error) throw error;
+      ravtSettlements = rows || [];
+    } catch (e) {
+      console.error(e);
+      ravtSettlements = [];
+    }
+  }
+
+  async function renderRavt() {
+    destroyCharts();
+    const c = document.getElementById('ravt-content');
+    c.innerHTML = '<div class="loader"><div class="spinner"></div>Загружаю акты взаимозачёта...</div>';
+
+    await loadRavtSettlements();
+
+    // Текущий долг РАВТу из daily_reports (последний отчёт где owe_ravt > 0)
+    let currentOweRavt = 0;
+    try {
+      const { data: dr } = await sb.from('daily_reports')
+        .select('point_id,date,owe_ravt')
+        .gt('owe_ravt', 0)
+        .order('date', { ascending: false })
+        .limit(50);
+      const lastByPoint = {};
+      (dr || []).forEach(r => {
+        if (!lastByPoint[r.point_id]) lastByPoint[r.point_id] = r;
+      });
+      currentOweRavt = Object.values(lastByPoint).reduce((s,r) => s + (+r.owe_ravt || 0), 0);
+    } catch (e) { console.error(e); }
+
+    const lastSettlement = ravtSettlements[0];
+    const lastNet = lastSettlement ? (+lastSettlement.ravt_owes_us - +lastSettlement.we_owe_ravt) : null;
+    const daysSinceSettlement = lastSettlement ? Math.floor((Date.now() - new Date(lastSettlement.settlement_date).getTime()) / (24*60*60*1000)) : null;
+
+    let html = `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px;">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--accent);letter-spacing:2px;margin-bottom:6px;">🔄 ВЗАИМОЗАЧЁТ С РАВТ</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.55;margin-bottom:14px;">
+          После каждого подписанного <b style="color:var(--text);">акта взаимозачёта</b> с РАВТ — заведи его сюда. Это позволит видеть <b style="color:var(--text);">реальную позицию</b> (мы должны / РАВТ должен), а не только нашу одностороннюю задолженность.
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:14px;">
+          <div style="background:#141414;border-left:3px solid var(--red);border-radius:8px;padding:11px 13px;">
+            <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;">МЫ ДОЛЖНЫ РАВТу СЕЙЧАС</div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--red);letter-spacing:.5px;">${fm(currentOweRavt)} ₽</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:3px;">из ежедневных отчётов</div>
+          </div>
+          <div style="background:#141414;border-left:3px solid var(--ok);border-radius:8px;padding:11px 13px;">
+            <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;">РАВТ ДОЛЖЕН НАМ (ПО ПОСЛ. АКТУ)</div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--ok);letter-spacing:.5px;">${lastSettlement ? fm(lastSettlement.ravt_owes_us) : '—'} ₽</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:3px;">${lastSettlement ? `от ${formatDate(lastSettlement.settlement_date)} (${daysSinceSettlement} дн назад)` : 'актов ещё нет'}</div>
+          </div>
+          <div style="background:#141414;border-left:3px solid ${lastNet !== null && lastNet >= 0 ? 'var(--ok)' : 'var(--warn)'};border-radius:8px;padding:11px 13px;">
+            <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;">ЧИСТАЯ ПОЗИЦИЯ (ПО АКТУ)</div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:${lastNet !== null && lastNet >= 0 ? 'var(--ok)' : 'var(--warn)'};letter-spacing:.5px;">${lastSettlement ? (lastNet >= 0 ? '+' : '') + fm(lastNet) : '—'} ₽</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:3px;">${lastSettlement ? (lastNet >= 0 ? 'РАВТ заплатит нам' : 'мы заплатим РАВТу') : '—'}</div>
+          </div>
+        </div>
+
+        <button onclick="openAddRavtModal()" style="width:100%;background:var(--accent);color:#000;border:none;border-radius:10px;padding:13px;font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1.5px;cursor:pointer;">➕ ДОБАВИТЬ АКТ ВЗАИМОЗАЧЁТА</button>
+      </div>
+    `;
+
+    // История актов
+    if (ravtSettlements.length > 0) {
+      html += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--accent);letter-spacing:1.5px;margin-bottom:12px;">📋 ИСТОРИЯ АКТОВ</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">`;
+      ravtSettlements.forEach(s => {
+        const net = +s.ravt_owes_us - +s.we_owe_ravt;
+        html += `<div style="background:#141414;border:1px solid var(--border);border-radius:10px;padding:11px 13px;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--accent);letter-spacing:1px;">📅 ${formatDate(s.settlement_date)}</div>
+            <div style="font-size:11px;color:var(--muted);">за период ${s.period}</div>
+            <button onclick="deleteRavtSettlement('${s.id}')" style="margin-left:auto;background:none;border:none;color:var(--crit);font-size:14px;cursor:pointer;padding:3px 7px;border-radius:5px;">🗑</button>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px;">
+            <div><div style="color:var(--muted);font-size:9px;text-transform:uppercase;font-weight:600;letter-spacing:.4px;">Мы должны</div><div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--crit);">${fm(s.we_owe_ravt)} ₽</div></div>
+            <div><div style="color:var(--muted);font-size:9px;text-transform:uppercase;font-weight:600;letter-spacing:.4px;">РАВТ должен</div><div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--ok);">${fm(s.ravt_owes_us)} ₽</div></div>
+            <div><div style="color:var(--muted);font-size:9px;text-transform:uppercase;font-weight:600;letter-spacing:.4px;">Чистая позиция</div><div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:${net >= 0 ? 'var(--ok)' : 'var(--warn)'};">${net >= 0 ? '+' : ''}${fm(net)} ₽</div></div>
+          </div>
+          ${s.notes ? `<div style="font-size:11px;color:var(--muted);margin-top:7px;padding-top:7px;border-top:1px dashed var(--border);">💬 ${escapeHtml(s.notes)}</div>` : ''}
+        </div>`;
+      });
+      html += `</div></div>`;
+    } else {
+      html += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:30px;text-align:center;color:var(--muted);font-size:13px;line-height:1.6;">
+        📭 Актов взаимозачёта пока не заведено.<br>
+        <span style="font-size:11px;">После получения первого акта от РАВТ — нажми кнопку «Добавить акт» выше.</span>
+      </div>`;
+    }
+
+    c.innerHTML = html;
+  }
+
+  function openAddRavtModal() {
+    const today = new Date().toISOString().substring(0,10);
+    const period = document.getElementById('month-pick').value || today.substring(0,7);
+    document.getElementById('modal-title').textContent = '🔄 Новый акт взаимозачёта РАВТ';
+    document.getElementById('modal-body').innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:11px;">
+        <div>
+          <label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px;">Дата подписания акта</label>
+          <input type="date" id="ravt-date" value="${today}" style="width:100%;background:#141414;border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:8px;font-family:inherit;font-size:13px;outline:none;">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px;">За какой период</label>
+          <input type="month" id="ravt-period" value="${period}" style="width:100%;background:#141414;border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:8px;font-family:inherit;font-size:13px;outline:none;">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--ok);font-weight:600;display:block;margin-bottom:4px;">💰 РАВТ должен нам, ₽<br><span style="color:var(--muted);font-size:10px;font-weight:400;">стекло + бонус (12%/25%) + работа за машины</span></label>
+          <input type="number" id="ravt-owes-us" placeholder="0" style="width:100%;background:#141414;border:1px solid var(--border);color:var(--ok);padding:9px 12px;border-radius:8px;font-family:'Bebas Neue',sans-serif;font-size:18px;outline:none;">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--crit);font-weight:600;display:block;margin-bottom:4px;">💸 Мы должны РАВТу, ₽<br><span style="color:var(--muted);font-size:10px;font-weight:400;">за купленные стёкла на дату акта</span></label>
+          <input type="number" id="we-owe-ravt" placeholder="0" style="width:100%;background:#141414;border:1px solid var(--border);color:var(--crit);padding:9px 12px;border-radius:8px;font-family:'Bebas Neue',sans-serif;font-size:18px;outline:none;">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px;">Заметки (необязательно)</label>
+          <textarea id="ravt-notes" placeholder="например, перенесли на следующий зачёт..." style="width:100%;background:#141414;border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:8px;font-family:inherit;font-size:12px;outline:none;min-height:60px;resize:vertical;"></textarea>
+        </div>
+      </div>`;
+    document.getElementById('modal-foot').innerHTML = `
+      <button onclick="closeModal()" style="background:#141414;border:1px solid var(--border);color:var(--text);padding:10px 18px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;">Отмена</button>
+      <button onclick="saveRavtSettlement()" style="background:var(--accent);color:#000;border:none;padding:10px 18px;border-radius:8px;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1px;cursor:pointer;">СОХРАНИТЬ</button>
+    `;
+    document.getElementById('modal').classList.add('show');
+  }
+
+  async function saveRavtSettlement() {
+    const settlement_date = document.getElementById('ravt-date').value;
+    const period = document.getElementById('ravt-period').value;
+    const ravt_owes_us = +document.getElementById('ravt-owes-us').value || 0;
+    const we_owe_ravt = +document.getElementById('we-owe-ravt').value || 0;
+    const notes = document.getElementById('ravt-notes').value.trim() || null;
+    if (!settlement_date || !period) { toast('Укажи дату и период', 'err'); return; }
+    if (ravt_owes_us === 0 && we_owe_ravt === 0) { toast('Заполни хотя бы одну сумму', 'err'); return; }
+
+    try {
+      const { error } = await sb.from('ravt_settlements').insert({
+        settlement_date, period, ravt_owes_us, we_owe_ravt, notes
+      });
+      if (error) throw error;
+      closeModal();
+      toast('Акт сохранён', 'ok');
+      renderRavt();
+    } catch (e) {
+      console.error(e);
+      toast('Ошибка: '+(e.message||e), 'err');
+    }
+  }
+
+  async function deleteRavtSettlement(id) {
+    if (!confirm('Удалить этот акт?')) return;
+    try {
+      const { error } = await sb.from('ravt_settlements').delete().eq('id', id);
+      if (error) throw error;
+      toast('Акт удалён', 'ok');
+      renderRavt();
+    } catch (e) {
+      console.error(e);
+      toast('Ошибка: '+(e.message||e), 'err');
+    }
+  }
+
+  function escapeHtml(s) { return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function formatDate(d) { if (!d) return '—'; const [y,m,da] = d.split('-'); return `${da}.${m}.${y}`; }
 
   // === КАЛЕНДАРЬ ===
   function renderCalendar() {
