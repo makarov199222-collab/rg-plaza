@@ -112,6 +112,8 @@
   .point-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;cursor:pointer;transition:all .15s;}
   .point-card:hover{border-color:var(--accent);}
   .point-card.expanded{border-color:var(--accent);}
+  .point-card.point-card-alert{border-left:3px solid var(--red);}
+  .point-card.point-card-alert.expanded{border-color:var(--red);}
   .pc-head{padding:13px 15px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;}
   .pc-name{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--accent);letter-spacing:2px;}
   .pc-city-tag{font-size:9px;color:var(--muted);background:#141414;padding:3px 7px;border-radius:4px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;}
@@ -320,7 +322,7 @@
       const [pointsRes, currentRes, prevRes, yearRes, plansRes, fotRes, expRes, taxRes, loansRes, dirsRes, ravtRes, channelsRes, companiesRes] = await Promise.all([
         sb.from('points').select('*').order('id'),
         sb.from('daily_reports').select('*').gte('date', range.start).lte('date', range.end).order('date'),
-        sb.from('daily_reports').select('point_id,total_day').gte('date', prevRange.start).lte('date', prevRange.end),
+        sb.from('daily_reports').select('point_id,date,total_day,owe_total,owe_ravt,owe_other').gte('date', prevRange.start).lte('date', prevRange.end),
         sb.from('daily_reports').select('point_id,total_day,retail_day,ins_day,date').gte('date', yearStart).lte('date', range.end),
         sb.from('plans').select('*'),
         sb.from('fot_summary').select('*').eq('period', period).maybeSingle(),
@@ -375,11 +377,22 @@
     data.current.forEach(r => {
       if (!lastByPoint[r.point_id] || r.date > lastByPoint[r.point_id].date) lastByPoint[r.point_id] = r;
     });
-    let monthDebtTotal=0, monthOweTotal=0;
+    let monthDebtTotal=0, monthOweTotal=0, monthOweRavt=0, monthOweOther=0;
     Object.values(lastByPoint).forEach(r => {
       monthDebtTotal += +r.debt_total || 0;
       monthOweTotal += +r.owe_total || 0;
+      monthOweRavt += +r.owe_ravt || 0;
+      monthOweOther += +r.owe_other || 0;
     });
+
+    // Долги в прошлом месяце — для сравнения динамики
+    const prevLastByPoint = {};
+    data.prev.forEach(r => {
+      if (!prevLastByPoint[r.point_id] || r.date > prevLastByPoint[r.point_id].date) prevLastByPoint[r.point_id] = r;
+    });
+    let prevOweTotal = 0;
+    Object.values(prevLastByPoint).forEach(r => { prevOweTotal += +r.owe_total || 0; });
+    const oweDelta = prevOweTotal > 0 ? Math.round((monthOweTotal - prevOweTotal) / prevOweTotal * 100) : null;
 
     let prevTotal = 0;
     data.prev.forEach(r => prevTotal += +r.total_day || 0);
@@ -428,7 +441,34 @@
     const profitMargin = monthTotal > 0 ? Math.round(profit / monthTotal * 100) : 0;
     const fotPct = monthTotal > 0 ? Math.round(fotTotal / monthTotal * 100) : 0;
 
-    const sortedPoints = data.points.slice().filter(p => pointStats[p.id].total > 0).sort((a,b) => pointStats[b.id].total - pointStats[a.id].total);
+    // ФОТ по точкам (на основе территорий)
+    const moscowPointTotal = data.points.filter(p => p.format === 'moscow').reduce((s,p) => s + (pointStats[p.id]?.total || 0), 0);
+    const pointFot = {};
+    data.points.forEach(p => {
+      if (p.id === 'sovhoz') pointFot[p.id] = +fot.fot_sovhoz || 0;
+      else if (p.id === 'poyma') pointFot[p.id] = +fot.fot_poyma || 0;
+      else if (p.format === 'moscow' && moscowPointTotal > 0) {
+        // Москву (Калужская+Серпуховская) делим пропорционально выручке
+        pointFot[p.id] = (+fot.fot_moscow || 0) * (pointStats[p.id].total / moscowPointTotal);
+      } else {
+        pointFot[p.id] = 0;
+      }
+    });
+
+    // Эффективность точки = выручка / ФОТ. Если ФОТ нет — fallback на выручку.
+    const pointEfficiency = {};
+    data.points.forEach(p => {
+      const t = pointStats[p.id].total;
+      const f = pointFot[p.id];
+      pointEfficiency[p.id] = (f > 0) ? (t / f) : 0;
+    });
+
+    // Сортировка точек: если есть ФОТ — по эффективности, иначе по выручке
+    const hasFot = fotTotal > 0;
+    const sortedPoints = data.points.slice().filter(p => pointStats[p.id].total > 0).sort((a,b) => {
+      if (hasFot) return pointEfficiency[b.id] - pointEfficiency[a.id];
+      return pointStats[b.id].total - pointStats[a.id].total;
+    });
     const leader = sortedPoints[0];
     const outsider = sortedPoints[sortedPoints.length - 1];
 
@@ -472,8 +512,34 @@
       else if (monthDelta > 20) alerts.push({ type:'green', icon:'📈', text:`<b>Рост к прошлому месяцу:</b> +${monthDelta}% (${fm(prevTotal)} → ${fm(monthTotal)} ₽)`, scrollTo:'total' });
     }
 
-    if (monthOweTotal > monthTotal * 2 && monthOweTotal > 0 && monthTotal > 100000) {
-      alerts.push({ type:'orange', icon:'💸', text:`<b>Большая задолженность:</b> мы должны ${fm(monthOweTotal)} ₽ — это ${(monthOweTotal/monthTotal).toFixed(1)}× месячной выручки`, scrollTo:'debts' });
+    // ⚠ Особенность РАВТ: долг — это рабочий капитал (стёкла на машинах в работе)
+    // Реальная угроза только в (а) долге прочим поставщикам и (б) резком росте долга РАВТу
+    const oweOtherDelta = (function() {
+      let prevOther = 0;
+      Object.values(prevLastByPoint).forEach(r => { prevOther += +r.owe_other || 0; });
+      return prevOther > 0 ? Math.round((monthOweOther - prevOther) / prevOther * 100) : null;
+    })();
+    const oweRavtDelta = (function() {
+      let prevRavt = 0;
+      Object.values(prevLastByPoint).forEach(r => { prevRavt += +r.owe_ravt || 0; });
+      return prevRavt > 0 ? Math.round((monthOweRavt - prevRavt) / prevRavt * 100) : null;
+    })();
+
+    // Алерт по прочим поставщикам — это «настоящий» долг, без взаимозачёта
+    if (monthOweOther > monthTotal * 1.5 && monthOweOther > 0 && monthTotal > 100000) {
+      alerts.push({ type:'red', icon:'🚨', text:`<b>Долг прочим поставщикам ${fm(monthOweOther)} ₽</b> — это ${(monthOweOther/monthTotal).toFixed(1)}× месячной выручки. Без учёта РАВТ (взаимозачёт)`, scrollTo:'debts' });
+    } else if (monthOweOther > monthTotal && monthOweOther > 0 && monthTotal > 100000) {
+      alerts.push({ type:'orange', icon:'💸', text:`<b>Долг прочим поставщикам ${fm(monthOweOther)} ₽</b> выше месячной выручки`, scrollTo:'debts' });
+    }
+
+    // Резкий рост долга прочим (без взаимозачёта)
+    if (oweOtherDelta !== null && oweOtherDelta > 30 && monthOweOther > 1000000) {
+      alerts.push({ type:'orange', icon:'📈', text:`<b>Долг прочим растёт быстро:</b> +${oweOtherDelta}% к прошлому месяцу`, scrollTo:'debts' });
+    }
+
+    // Резкий рост долга РАВТу — может означать что закупки опережают закрытие работ
+    if (oweRavtDelta !== null && oweRavtDelta > 40 && monthOweRavt > 2000000) {
+      alerts.push({ type:'orange', icon:'🔄', text:`<b>Долг РАВТу растёт +${oweRavtDelta}%</b> — закупки стёкол опережают закрытие работ. Проверь воронку`, scrollTo:'debts' });
     }
 
     const period = data.period;
@@ -518,8 +584,8 @@
             <div class="expand-item"><span>🛡 Страховые</span><span class="v b">${fm(monthIns)} ₽</span></div>
             <div class="expand-item"><span>💵 Розница</span><span class="v g">${fm(monthRetail)} ₽</span></div>
             ${monthCorp > 0 ? `<div class="expand-item"><span>🏢 Корпоратив</span><span class="v" style="color:var(--purple);">${fm(monthCorp)} ₽</span></div>` : ''}
-            <div class="expand-item"><span>📅 Дней с отчётами</span><span class="v">${data.current.filter(r => +r.total_day > 0).length}</span></div>
-            <div class="expand-item"><span>📌 Записей всего</span><span class="v">${monthBookings}</span></div>
+            <div class="expand-item"><span>📅 Средний день месяца</span><span class="v">${reportedDays > 0 ? fm(monthTotal/reportedDays) : 0} ₽</span></div>
+            ${monthBookings > 0 ? `<div class="expand-item"><span>📌 Записей всего</span><span class="v">${monthBookings}</span></div>` : ''}
           </div>` : ''}
         </div>
         <div class="kpi ${profit >= 0 ? 'green' : 'red'} ${expandedKpis.has('profit')?'is-expanded':''}" data-anchor="profit" onclick="toggleExpand('profit', event)">
@@ -559,24 +625,41 @@
             <div class="expand-item"><span>Средний день года</span><span class="v">${fm(yearTotal / Math.max(1, data.year.filter(r => +r.total_day > 0).length))} ₽</span></div>
           </div>` : ''}
         </div>
+        ${monthOweTotal > 0 ? `
+        <div class="kpi ${monthOweOther > monthTotal*1.5 && monthTotal > 0 ? 'red' : monthOweOther > monthTotal && monthTotal > 0 ? 'orange' : 'orange'} ${expandedKpis.has('owesKpi')?'is-expanded':''}" data-anchor="owesKpi" onclick="toggleExpand('owesKpi', event)">
+          <div class="kpi-expand-icon">+</div>
+          <div class="kpi-lbl">🔴 Мы должны</div>
+          <div class="kpi-val r">${fm(monthOweTotal)} ₽</div>
+          <div class="kpi-sub">из них РАВТ ${fm(monthOweRavt)} (взаимозачёт) + прочие ${fm(monthOweOther)}</div>
+          ${expandedKpis.has('owesKpi') ? `<div class="expand-row">
+            ${monthOweRavt > 0 ? `<div class="expand-item"><span>🔄 РАВТу <small style="color:var(--muted);font-size:9px;">(стёкла, идёт зачёт)</small></span><span class="v" style="color:var(--orange);">${fm(monthOweRavt)} ₽</span></div>` : ''}
+            ${monthOweOther > 0 ? `<div class="expand-item"><span>📦 Прочим поставщикам <small style="color:var(--muted);font-size:9px;">(требуют оплаты)</small></span><span class="v r">${fm(monthOweOther)} ₽</span></div>` : ''}
+            ${oweDelta !== null ? `<div class="expand-item"><span>vs прошлый месяц общий</span><span class="v ${oweDelta>=0?'r':'g'}">${oweDelta>=0?'+':''}${oweDelta}% (${fm(prevOweTotal)} → ${fm(monthOweTotal)})</span></div>` : ''}
+            <div class="expand-item" style="margin-top:6px;padding-top:8px;border-top:1px dashed var(--border);"><span style="font-size:11px;line-height:1.5;color:var(--muted);">💡 Долг РАВТу — это <b style="color:var(--text);">рабочий капитал</b>: стёкла на машинах в работе. РАВТ нам тоже должен (за уже сделанные работы со страховых). Реальная цифра видна после взаимозачёта раз в ~30 дн.</span><span></span></div>
+          </div>` : ''}
+        </div>` : ''}
       </div>
     </div>`;
 
     if (leader && outsider && leader.id !== outsider.id) {
+      const lEff = pointEfficiency[leader.id];
+      const oEff = pointEfficiency[outsider.id];
+      const lFot = pointFot[leader.id];
+      const oFot = pointFot[outsider.id];
       html += `<div class="heroes">
         <div class="hero leader">
           <div class="hero-icon">🏆</div>
           <div class="hero-lbl">Лидер месяца</div>
           <div class="hero-name">${leader.name}</div>
-          <div class="hero-amount">${fm(pointStats[leader.id].total)} ₽</div>
-          <div class="hero-note">${Math.round(pointStats[leader.id].total / monthTotal * 100)}% от общей выручки</div>
+          <div class="hero-amount">${hasFot && lEff > 0 ? lEff.toFixed(1)+'×' : fm(pointStats[leader.id].total)+' ₽'}</div>
+          <div class="hero-note">${hasFot && lEff > 0 ? `окупаемость ФОТ · ${fm(pointStats[leader.id].total)} ₽ / ${fm(lFot)} ₽` : Math.round(pointStats[leader.id].total / monthTotal * 100)+'% от общей выручки'}</div>
         </div>
         <div class="hero outsider">
           <div class="hero-icon">⚡</div>
           <div class="hero-lbl">Зона роста</div>
           <div class="hero-name">${outsider.name}</div>
-          <div class="hero-amount">${fm(pointStats[outsider.id].total)} ₽</div>
-          <div class="hero-note">${Math.round(pointStats[outsider.id].total / monthTotal * 100)}% — есть куда расти</div>
+          <div class="hero-amount">${hasFot && oEff > 0 ? oEff.toFixed(1)+'×' : fm(pointStats[outsider.id].total)+' ₽'}</div>
+          <div class="hero-note">${hasFot && oEff > 0 ? `окупаемость ФОТ · ${fm(pointStats[outsider.id].total)} ₽ / ${fm(oFot)} ₽` : 'есть куда расти'}</div>
         </div>
       </div>`;
     }
@@ -615,10 +698,15 @@
       const planTotal = planMonth + planCorp;
       const planPct = planTotal > 0 ? Math.round(s.total / planTotal * 100) : 0;
       const planColor = planPct >= 80 ? 'var(--green)' : planPct >= 50 ? 'var(--orange)' : 'var(--red)';
-      html += `<div class="point-card ${isExpanded?'expanded':''}" onclick="togglePoint('${p.id}', event)">
+      // Алерт точки только по долгу прочим (РАВТ — это взаимозачёт, не считаем)
+      const lastReport = lastByPoint[p.id];
+      const oweOtherForPoint = lastReport ? +lastReport.owe_other || 0 : 0;
+      const owesAlert = s.total > 0 && oweOtherForPoint > s.total * 1.5;
+      html += `<div class="point-card ${isExpanded?'expanded':''} ${owesAlert?'point-card-alert':''}" onclick="togglePoint('${p.id}', event)">
         <div class="pc-head">
           <div class="pc-name">${p.name}</div>
           <div class="pc-city-tag">${cityLabel}</div>
+          ${owesAlert ? `<div style="font-size:9px;background:rgba(244,67,54,.2);color:var(--red);padding:3px 7px;border-radius:4px;font-weight:700;letter-spacing:.4px;">⚠ ДОЛГ</div>` : ''}
           <div class="pc-toggle ${isExpanded?'expanded':''}">${isExpanded ? '−' : '+'}</div>
         </div>
         <div class="pc-body">
@@ -638,8 +726,9 @@
           </div>` : ''}
           <div class="pc-details ${isExpanded?'show':''}">
             <div class="expand-row">
-              <div class="expand-item"><span>📅 Дней с работой</span><span class="v">${s.days.size}</span></div>
-              <div class="expand-item"><span>📅 Средняя выручка/день</span><span class="v">${s.days.size>0?fm(s.total/s.days.size):0} ₽</span></div>
+              <div class="expand-item"><span>📅 Средний день</span><span class="v">${s.days.size>0?fm(s.total/s.days.size):0} ₽</span></div>
+              ${pointFot[p.id] > 0 ? `<div class="expand-item"><span>👥 ФОТ точки (оценка)</span><span class="v o">${fm(pointFot[p.id])} ₽</span></div>` : ''}
+              ${pointEfficiency[p.id] > 0 ? `<div class="expand-item"><span>💎 Окупаемость ФОТ</span><span class="v ${pointEfficiency[p.id] >= 4 ? 'g' : pointEfficiency[p.id] >= 2.5 ? '' : 'r'}">${pointEfficiency[p.id].toFixed(1)}×</span></div>` : ''}
               ${s.debt > 0 ? `<div class="expand-item"><span>🟡 Нам должны (ЗН)</span><span class="v" style="color:var(--orange);">${fm(s.debt)} ₽</span></div>` : ''}
               ${s.owe > 0 ? `<div class="expand-item"><span>🔴 Мы должны</span><span class="v r">${fm(s.owe)} ₽</span></div>` : ''}
               ${planMonth > 0 ? `<div class="expand-item"><span>План физлица</span><span class="v g">${fm(s.phys || s.retail)} / ${fm(planMonth)} ₽</span></div>` : ''}
@@ -666,8 +755,13 @@
             <div class="kpi-expand-icon">+</div>
             <div class="finance-title red">🔴 Мы должны</div>
             <div class="finance-val r">${fm(monthOweTotal)} ₽</div>
-            <div class="finance-sub">${expandedKpis.has('owes') ? '' : 'тапни чтобы увидеть детали'}</div>
-            ${expandedKpis.has('owes') ? renderDebtBreakdown(data, 'owe', lastByPoint) : ''}
+            <div class="finance-sub">${expandedKpis.has('owes') ? '' : `РАВТ ${fm(monthOweRavt)} (взаимозачёт) + прочие ${fm(monthOweOther)}`}</div>
+            ${expandedKpis.has('owes') ? renderDebtBreakdown(data, 'owe', lastByPoint) + `
+              <div style="margin-top:11px;padding:10px 11px;background:rgba(232,184,75,.08);border-radius:7px;border-left:2px solid var(--accent);font-size:11px;line-height:1.55;color:var(--muted);">
+                <b style="color:var(--accent);">🔄 Про долг РАВТу</b><br>
+                РАВТ выдаёт направления → мы покупаем у них стёкла (страх+розница) → закрываем работы → СК платит РАВТу → раз в ~30 дн идёт <b style="color:var(--text);">взаимозачёт</b>: РАВТ нам должен (стекло + бонус 12%/25% + работа за каждую закрытую машину).<br>
+                <b style="color:var(--text);">Реальная позиция</b> = долг РАВТу − долг РАВТ нам. Цифру дают по акту взаимозачёта.
+              </div>` : ''}
           </div>
         </div>
       </div>`;
@@ -821,10 +915,9 @@
           <div class="expand-item"><span>📊 Всего</span><span class="v">${fm(monthData.total)} ₽</span></div>
           <div class="expand-item"><span>🛡 Страховые</span><span class="v b">${fm(monthData.ins)} ₽</span></div>
           <div class="expand-item"><span>💵 Розница</span><span class="v g">${fm(monthData.retail)} ₽</span></div>
-          <div class="expand-item"><span>📅 Дней с отчётами</span><span class="v">${monthData.days}</span></div>
           <div class="expand-item"><span>📅 Средний день</span><span class="v">${monthData.days > 0 ? fm(monthData.total/monthData.days) : 0} ₽</span></div>
           ${delta !== null ? `<div class="expand-item"><span>vs ${MP_MONTHS_SHORT[monthNum-2]}</span><span class="v ${delta>=0?'g':'r'}">${delta>=0?'+':''}${delta}% (${fm(prevMonth)} → ${fm(monthData.total)})</span></div>` : ''}
-          <div class="expand-item"><span>🏆 Топ-точка</span><span class="v">${topPointName} (${fm(topPoint ? topPoint[1] : 0)} ₽)</span></div>
+          <div class="expand-item"><span>🏆 Топ-точка по выручке</span><span class="v">${topPointName} (${fm(topPoint ? topPoint[1] : 0)} ₽)</span></div>
         </div>` : `<div style="color:var(--muted);font-size:12px;text-align:center;padding:14px 0;">Данных за ${monthName} ещё нет</div>`}
       </div>`;
   }
