@@ -533,6 +533,21 @@
     const ytdCashflow = ytdIncome - ytdExp;
     const hasYtdData = ytdMain.length > 0 && (ytdIncome > 0 || ytdExp > 0);
 
+    // === ДИАГНОСТИКА (временно) — посмотрим что у нас в data.pnl ===
+    console.log('[CASHFLOW DEBUG]', {
+      'data.pnl.length': (data.pnl || []).length,
+      'data.pnl': data.pnl,
+      'period_искомый': period,
+      'YTD_искомый': `${data.range.year}-YTD`,
+      'monthPnl.length': monthPnl.length,
+      'ytdPnl.length': ytdPnl.length,
+      'ytdMain.length': ytdMain.length,
+      'revenuePointIds': Array.from(revenuePointIds),
+      'hasCashflowData': hasCashflowData,
+      'hasYtdData': hasYtdData,
+      'ytdCashflow': ytdCashflow
+    });
+
     const fotPct = monthTotal > 0 ? Math.round(fotTotal / monthTotal * 100) : 0;
 
     // ФОТ по точкам (на основе территорий)
