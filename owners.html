@@ -432,13 +432,49 @@
     const leader = sortedPoints[0];
     const outsider = sortedPoints[sortedPoints.length - 1];
 
+    // Определяем полный ли месяц
+    const today = new Date();
+    const isCurrentMonth = today.getFullYear() === data.range.year && today.getMonth()+1 === data.range.month;
+    const isPastMonth = data.range.year < today.getFullYear() || (data.range.year === today.getFullYear() && data.range.month < today.getMonth()+1);
+    const daysInMonth = new Date(data.range.year, data.range.month, 0).getDate();
+    const reportedDays = data.current.filter(r => +r.total_day > 0).length;
+    const monthCoverage = reportedDays / daysInMonth;
+    const monthsComplete = isPastMonth || monthCoverage >= 0.85;
+
+    // Есть ли данные о расходах/ФОТ — для определения релевантности прибыли
+    const hasFinanceData = fotTotal > 0 || expWithoutSalary > 0 || taxTotal > 0;
+
     const alerts = [];
-    if (monthTotal > 0 && profit < 0) alerts.push({ type:'red', icon:'⚠️', text:`<b>Месяц убыточный:</b> расходы превысили выручку на ${fm(Math.abs(profit))} ₽` });
-    else if (monthTotal > 0 && profitMargin < 10) alerts.push({ type:'orange', icon:'📉', text:`<b>Низкая маржа:</b> прибыль всего ${profitMargin}% от выручки` });
-    if (fotPct > 35 && monthTotal > 0) alerts.push({ type:'red', icon:'💼', text:`<b>ФОТ ${fotPct}%</b> от выручки — выше нормы (макс 30%)` });
-    if (monthDelta !== null && monthDelta < -20) alerts.push({ type:'red', icon:'📉', text:`<b>Падение к прошлому месяцу:</b> ${monthDelta}% (${fm(prevTotal)} → ${fm(monthTotal)} ₽)` });
-    else if (monthDelta !== null && monthDelta > 20) alerts.push({ type:'green', icon:'📈', text:`<b>Рост к прошлому месяцу:</b> +${monthDelta}% (${fm(prevTotal)} → ${fm(monthTotal)} ₽)` });
-    if (monthOweTotal > monthTotal * 2 && monthOweTotal > 0) alerts.push({ type:'orange', icon:'💸', text:`<b>Большая задолженность:</b> мы должны ${fm(monthOweTotal)} ₽ — это ${(monthOweTotal/monthTotal).toFixed(1)}× месячной выручки` });
+    // Прибыль/маржа — только если есть финансовые данные
+    if (monthTotal > 0 && hasFinanceData && profit < 0) {
+      alerts.push({ type:'red', icon:'⚠️', text:`<b>Месяц убыточный:</b> расходы превысили выручку на ${fm(Math.abs(profit))} ₽`, scrollTo:'profit' });
+    } else if (monthTotal > 0 && hasFinanceData && profitMargin < 10) {
+      alerts.push({ type:'orange', icon:'📉', text:`<b>Низкая маржа:</b> прибыль всего ${profitMargin}% от выручки`, scrollTo:'profit' });
+    }
+    if (fotPct > 35 && monthTotal > 0 && hasFinanceData) {
+      alerts.push({ type:'red', icon:'💼', text:`<b>ФОТ ${fotPct}%</b> от выручки — выше нормы (макс 30%)`, scrollTo:'fot' });
+    }
+
+    // Сравнение с прошлым месяцем — только если месяц «достаточно полный»
+    // Для текущего месяца сравниваем с тем же периодом прошлого
+    if (isCurrentMonth && monthCoverage < 0.5) {
+      // Сравниваем за тот же период прошлого месяца
+      const dayOfMonth = today.getDate();
+      const prevPeriodEnd = `${data.prevRange.year}-${String(data.prevRange.month).padStart(2,'0')}-${String(dayOfMonth).padStart(2,'0')}`;
+      const prevSamePeriod = data.prev.filter(r => r.date <= prevPeriodEnd).reduce((s,r) => s + (+r.total_day || 0), 0);
+      if (prevSamePeriod > 100000) {
+        const sameDelta = Math.round((monthTotal - prevSamePeriod) / prevSamePeriod * 100);
+        if (sameDelta < -20) alerts.push({ type:'red', icon:'📉', text:`<b>Падение к прошлому месяцу за тот же период (${dayOfMonth} дн):</b> ${sameDelta}% (${fm(prevSamePeriod)} → ${fm(monthTotal)} ₽)`, scrollTo:'total' });
+        else if (sameDelta > 20) alerts.push({ type:'green', icon:'📈', text:`<b>Рост к прошлому месяцу за тот же период (${dayOfMonth} дн):</b> +${sameDelta}% (${fm(prevSamePeriod)} → ${fm(monthTotal)} ₽)`, scrollTo:'total' });
+      }
+    } else if (monthsComplete && monthDelta !== null) {
+      if (monthDelta < -20) alerts.push({ type:'red', icon:'📉', text:`<b>Падение к прошлому месяцу:</b> ${monthDelta}% (${fm(prevTotal)} → ${fm(monthTotal)} ₽)`, scrollTo:'total' });
+      else if (monthDelta > 20) alerts.push({ type:'green', icon:'📈', text:`<b>Рост к прошлому месяцу:</b> +${monthDelta}% (${fm(prevTotal)} → ${fm(monthTotal)} ₽)`, scrollTo:'total' });
+    }
+
+    if (monthOweTotal > monthTotal * 2 && monthOweTotal > 0 && monthTotal > 100000) {
+      alerts.push({ type:'orange', icon:'💸', text:`<b>Большая задолженность:</b> мы должны ${fm(monthOweTotal)} ₽ — это ${(monthOweTotal/monthTotal).toFixed(1)}× месячной выручки`, scrollTo:'debts' });
+    }
 
     const period = data.period;
     const dirsCurrentPeriod = data.directions.filter(d => d.period === period);
@@ -453,16 +489,19 @@
     const dirsPrevPeriod = data.directions.filter(d => d.period === prevPeriod);
     const totalDirsPrev = dirsPrevPeriod.reduce((s,d) => s + (+d.incoming_count || 0), 0);
     const dirsDelta = totalDirsPrev > 0 ? Math.round((totalDirsMonth - totalDirsPrev) / totalDirsPrev * 100) : null;
-    if (dirsDelta !== null && dirsDelta < -30 && totalDirsPrev > 10) {
-      alerts.push({ type:'red', icon:'🚨', text:`<b>Направления СК упали на ${Math.abs(dirsDelta)}%</b> к прошлому месяцу (${totalDirsPrev} → ${totalDirsMonth})` });
+    // Алерт по СК — только если месяц достаточно полный, чтобы корректно сравнивать
+    if (monthsComplete && dirsDelta !== null && dirsDelta < -30 && totalDirsPrev > 10) {
+      alerts.push({ type:'red', icon:'🚨', text:`<b>Направления СК упали на ${Math.abs(dirsDelta)}%</b> к прошлому месяцу (${totalDirsPrev} → ${totalDirsMonth})`, scrollTo:'sk' });
     }
 
     let html = '';
 
     if (alerts.length) {
       html += `<div class="alerts">`;
-      alerts.forEach(a => {
-        html += `<div class="alert ${a.type}"><div class="alert-icon">${a.icon}</div><div class="alert-text">${a.text}</div></div>`;
+      alerts.forEach((a, idx) => {
+        const clickable = a.scrollTo ? `onclick="scrollToAnchor('${a.scrollTo}')"` : '';
+        const cursor = a.scrollTo ? 'cursor:pointer;' : '';
+        html += `<div class="alert ${a.type}" style="${cursor}" ${clickable}><div class="alert-icon">${a.icon}</div><div class="alert-text">${a.text}${a.scrollTo ? ' <span style="color:var(--accent);font-size:11px;">→ перейти</span>' : ''}</div></div>`;
       });
       html += `</div>`;
     }
@@ -470,7 +509,7 @@
     html += `<div class="section">
       <div class="section-title">💰 Выручка и прибыль · ${monthName}</div>
       <div class="kpi-grid">
-        <div class="kpi acc ${expandedKpis.has('total')?'is-expanded':''}" onclick="toggleExpand('total', event)">
+        <div class="kpi acc ${expandedKpis.has('total')?'is-expanded':''}" data-anchor="total" onclick="toggleExpand('total', event)">
           <div class="kpi-expand-icon">+</div>
           <div class="kpi-lbl">📊 Месячная выручка</div>
           <div class="kpi-val">${fm(monthTotal)} ₽</div>
@@ -483,7 +522,7 @@
             <div class="expand-item"><span>📌 Записей всего</span><span class="v">${monthBookings}</span></div>
           </div>` : ''}
         </div>
-        <div class="kpi ${profit >= 0 ? 'green' : 'red'} ${expandedKpis.has('profit')?'is-expanded':''}" onclick="toggleExpand('profit', event)">
+        <div class="kpi ${profit >= 0 ? 'green' : 'red'} ${expandedKpis.has('profit')?'is-expanded':''}" data-anchor="profit" onclick="toggleExpand('profit', event)">
           <div class="kpi-expand-icon">+</div>
           <div class="kpi-lbl">💎 Чистая прибыль</div>
           <div class="kpi-val ${profit >= 0 ? 'g' : 'r'}">${fm(profit)} ₽</div>
@@ -496,7 +535,7 @@
             <div class="expand-item"><b>= Чистая прибыль</b><span class="v ${profit >= 0 ? 'g' : 'r'}">${fm(profit)} ₽</span></div>
           </div>` : ''}
         </div>
-        <div class="kpi orange ${expandedKpis.has('fot')?'is-expanded':''}" onclick="toggleExpand('fot', event)">
+        <div class="kpi orange ${expandedKpis.has('fot')?'is-expanded':''}" data-anchor="fot" onclick="toggleExpand('fot', event)">
           <div class="kpi-expand-icon">+</div>
           <div class="kpi-lbl">👥 ФОТ</div>
           <div class="kpi-val o">${fm(fotTotal)} ₽</div>
@@ -517,7 +556,7 @@
           ${expandedKpis.has('year') ? `<div class="expand-row">
             <div class="expand-item"><span>🛡 Страховые год</span><span class="v b">${fm(yearIns)} ₽</span></div>
             <div class="expand-item"><span>💵 Розница год</span><span class="v g">${fm(yearRetail)} ₽</span></div>
-            <div class="expand-item"><span>Дней работы</span><span class="v">${data.year.filter(r => +r.total_day > 0).length}</span></div>
+            <div class="expand-item"><span>Средний день года</span><span class="v">${fm(yearTotal / Math.max(1, data.year.filter(r => +r.total_day > 0).length))} ₽</span></div>
           </div>` : ''}
         </div>
       </div>
@@ -613,7 +652,7 @@
     html += `</div></div>`;
 
     if (monthDebtTotal > 0 || monthOweTotal > 0) {
-      html += `<div class="section">
+      html += `<div class="section" data-anchor="debts">
         <div class="section-title">💸 Долги</div>
         <div class="finance-grid">
           <div class="finance-card debt ${expandedKpis.has('debts')?'is-expanded':''}" onclick="toggleExpand('debts', event)">
@@ -635,7 +674,7 @@
     }
 
     if (totalDirsMonth > 0 || totalDirsYear > 0) {
-      html += `<div class="section">
+      html += `<div class="section" data-anchor="sk">
         <div class="section-title">🛡 Менеджер страховых</div>
         <div class="sk-widget">
           <div class="sk-summary">
@@ -670,24 +709,32 @@
 
     html += `<div class="chart-row">
       <div class="chart-block">
-        <div class="chart-title">📈 Динамика по месяцам ${data.range.year}</div>
+        <div class="chart-title">📈 Динамика по месяцам ${data.range.year} <span style="font-size:10px;color:var(--muted);font-family:'Inter',sans-serif;font-weight:500;letter-spacing:0;text-transform:none;margin-left:6px;">тапни столбец</span></div>
         <div class="chart-wrap"><canvas id="ch-monthly"></canvas></div>
+        <div id="month-detail-block"></div>
       </div>
       <div class="chart-block">
-        <div class="chart-title">🎯 Структура выручки</div>
+        <div class="chart-title">🎯 Структура выручки <span style="font-size:10px;color:var(--muted);font-family:'Inter',sans-serif;font-weight:500;letter-spacing:0;text-transform:none;margin-left:6px;">тапни сегмент</span></div>
         <div class="chart-wrap"><canvas id="ch-structure"></canvas></div>
+        <div id="structure-detail-block"></div>
       </div>
     </div>`;
 
     document.getElementById('content').innerHTML = html;
 
     setTimeout(() => {
+      // Помесячные данные с разбивкой по каналам
       const monthly = {};
-      for (let m=1; m<=12; m++) monthly[m] = 0;
+      for (let m=1; m<=12; m++) monthly[m] = { total: 0, ins: 0, retail: 0, days: 0, byPoint: {} };
       data.year.forEach(r => {
         const month = +r.date.split('-')[1];
-        monthly[month] = (monthly[month] || 0) + (+r.total_day || 0);
+        monthly[month].total += +r.total_day || 0;
+        monthly[month].ins += +r.ins_day || 0;
+        monthly[month].retail += +r.retail_day || 0;
+        if (+r.total_day > 0) monthly[month].days++;
+        monthly[month].byPoint[r.point_id] = (monthly[month].byPoint[r.point_id] || 0) + (+r.total_day || 0);
       });
+
       const ctx1 = document.getElementById('ch-monthly');
       if (ctx1) allCharts.push(new Chart(ctx1, {
         type: 'bar',
@@ -695,14 +742,24 @@
           labels: MP_MONTHS_SHORT,
           datasets: [{
             label: 'Выручка',
-            data: Object.values(monthly),
-            backgroundColor: Object.values(monthly).map((v,i) => i+1 === data.range.month ? '#e8b84b' : '#2a2a2a'),
+            data: Object.values(monthly).map(m => m.total),
+            backgroundColor: Object.values(monthly).map((m,i) => i+1 === data.range.month ? '#e8b84b' : '#2a2a2a'),
+            hoverBackgroundColor: '#d4a342',
             borderRadius: 5
           }]
         },
         options: {
           responsive: true, maintainAspectRatio: false,
-          plugins: { legend: {display:false}, tooltip:{callbacks:{label:c=>fm(c.raw)+' ₽'}} },
+          onClick: (evt, elements) => {
+            if (elements.length > 0) {
+              const monthIdx = elements[0].index;
+              showMonthDetail(monthIdx + 1, monthly[monthIdx + 1], data);
+            }
+          },
+          onHover: (evt, elements) => {
+            evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+          },
+          plugins: { legend: {display:false}, tooltip:{callbacks:{label:c=>fm(c.raw)+' ₽ · тапни для деталей'}} },
           scales: { x:{ticks:{color:'#909090'},grid:{display:false}}, y:{ticks:{color:'#909090', callback:v=>fs(v)},grid:{color:'#333'}} }
         }
       }));
@@ -712,21 +769,95 @@
         const structureLabels = ['Страховые', 'Розница'];
         const structureData = [monthIns, monthRetail];
         const structureColors = ['#2196f3', '#4caf50'];
+        const structureKeys = ['ins', 'retail'];
         if (monthCorp > 0) {
           structureLabels.push('Корпоратив');
           structureData.push(monthCorp);
           structureColors.push('#9c27b0');
+          structureKeys.push('corp');
         }
         allCharts.push(new Chart(ctx2, {
           type: 'doughnut',
-          data: { labels: structureLabels, datasets: [{ data: structureData, backgroundColor: structureColors, borderColor: '#222', borderWidth: 2 }] },
+          data: { labels: structureLabels, datasets: [{ data: structureData, backgroundColor: structureColors, borderColor: '#222', borderWidth: 2, hoverOffset: 6 }] },
           options: {
             responsive: true, maintainAspectRatio: false,
-            plugins: { legend: {position:'bottom', labels:{color:'#fff', font:{size:11}}}, tooltip:{callbacks:{label:c=>c.label+': '+fm(c.raw)+' ₽'}} }
+            onClick: (evt, elements) => {
+              if (elements.length > 0) {
+                const idx = elements[0].index;
+                showStructureDetail(structureKeys[idx], structureLabels[idx], structureData[idx], data, pointStats);
+              }
+            },
+            onHover: (evt, elements) => {
+              evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+            },
+            plugins: { legend: {position:'bottom', labels:{color:'#fff', font:{size:11}}}, tooltip:{callbacks:{label:c=>c.label+': '+fm(c.raw)+' ₽ · тапни для деталей'}} }
           }
         }));
       }
     }, 50);
+  }
+
+  // Показ деталей выбранного месяца
+  function showMonthDetail(monthNum, monthData, data) {
+    const block = document.getElementById('month-detail-block');
+    if (!block) return;
+    const monthName = MP_MONTHS_FULL[monthNum-1];
+    const prevMonth = monthNum > 1 ? data.year.filter(r => +r.date.split('-')[1] === monthNum - 1).reduce((s,r) => s+(+r.total_day||0), 0) : 0;
+    const delta = prevMonth > 0 ? Math.round((monthData.total - prevMonth) / prevMonth * 100) : null;
+
+    // Топ точка месяца
+    const topPoint = Object.entries(monthData.byPoint).sort((a,b) => b[1] - a[1])[0];
+    const topPointName = topPoint ? (data.points.find(p => p.id === topPoint[0])?.name || topPoint[0]) : '—';
+
+    const isCurrentMonth = monthNum === data.range.month;
+    block.innerHTML = `
+      <div style="margin-top:14px;padding:13px;background:#141414;border-radius:10px;border-left:3px solid var(--accent);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--accent);letter-spacing:1.5px;">${monthName} ${data.range.year}</div>
+          ${!isCurrentMonth ? `<button onclick="goToMonth(${data.range.year}, ${monthNum})" style="background:var(--accent);color:#000;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">→ перейти</button>` : '<span style="font-size:10px;color:var(--muted);">текущий месяц</span>'}
+        </div>
+        ${monthData.total > 0 ? `
+        <div class="expand-row">
+          <div class="expand-item"><span>📊 Всего</span><span class="v">${fm(monthData.total)} ₽</span></div>
+          <div class="expand-item"><span>🛡 Страховые</span><span class="v b">${fm(monthData.ins)} ₽</span></div>
+          <div class="expand-item"><span>💵 Розница</span><span class="v g">${fm(monthData.retail)} ₽</span></div>
+          <div class="expand-item"><span>📅 Дней с отчётами</span><span class="v">${monthData.days}</span></div>
+          <div class="expand-item"><span>📅 Средний день</span><span class="v">${monthData.days > 0 ? fm(monthData.total/monthData.days) : 0} ₽</span></div>
+          ${delta !== null ? `<div class="expand-item"><span>vs ${MP_MONTHS_SHORT[monthNum-2]}</span><span class="v ${delta>=0?'g':'r'}">${delta>=0?'+':''}${delta}% (${fm(prevMonth)} → ${fm(monthData.total)})</span></div>` : ''}
+          <div class="expand-item"><span>🏆 Топ-точка</span><span class="v">${topPointName} (${fm(topPoint ? topPoint[1] : 0)} ₽)</span></div>
+        </div>` : `<div style="color:var(--muted);font-size:12px;text-align:center;padding:14px 0;">Данных за ${monthName} ещё нет</div>`}
+      </div>`;
+  }
+
+  // Показ деталей канала (страх/розн/корп)
+  function showStructureDetail(channelKey, channelLabel, channelTotal, data, pointStats) {
+    const block = document.getElementById('structure-detail-block');
+    if (!block) return;
+    // Разбивка по точкам для этого канала
+    const byPoint = data.points.map(p => {
+      const s = pointStats[p.id];
+      let v = 0;
+      if (channelKey === 'ins') v = s.ins;
+      else if (channelKey === 'retail') v = s.retail;
+      else if (channelKey === 'corp') v = s.corp;
+      return { name: p.name, val: v };
+    }).filter(x => x.val > 0).sort((a,b) => b.val - a.val);
+
+    const colors = { ins: 'var(--blue)', retail: 'var(--green)', corp: 'var(--purple)' };
+    block.innerHTML = `
+      <div style="margin-top:14px;padding:13px;background:#141414;border-radius:10px;border-left:3px solid ${colors[channelKey] || 'var(--accent)'};">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:${colors[channelKey] || 'var(--accent)'};letter-spacing:1.5px;margin-bottom:9px;">${channelLabel}: ${fm(channelTotal)} ₽</div>
+        ${byPoint.length > 0 ? `<div class="expand-row">${byPoint.map(p =>
+          `<div class="expand-item"><span><b>${p.name}</b></span><span class="v">${fm(p.val)} ₽ · ${Math.round(p.val/channelTotal*100)}%</span></div>`
+        ).join('')}</div>` : '<div style="color:var(--muted);font-size:12px;">Нет данных по точкам</div>'}
+      </div>`;
+  }
+
+  // Переход на конкретный месяц года
+  function goToMonth(year, month) {
+    document.getElementById('month-pick').value = `${year}-${String(month).padStart(2,'0')}`;
+    mpUpdateLabel();
+    loadAll();
   }
 
   function renderDebtBreakdown(data, type, lastByPoint) {
@@ -763,6 +894,23 @@
     if (ev) { ev.stopPropagation(); ev.preventDefault(); }
     if (expandedPoints.has(id)) expandedPoints.delete(id); else expandedPoints.add(id);
     if (cachedData) render(cachedData);
+  }
+
+  function scrollToAnchor(anchor) {
+    // Если это KPI которое можно раскрыть — раскрываем заранее
+    if (['total','profit','fot','year','debts','owes'].includes(anchor)) {
+      expandedKpis.add(anchor);
+      if (cachedData) render(cachedData);
+    }
+    // Скролл и подсветка
+    setTimeout(() => {
+      const el = document.querySelector(`[data-anchor="${anchor}"]`);
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.style.transition = 'box-shadow .3s';
+      el.style.boxShadow = '0 0 0 3px var(--accent)';
+      setTimeout(() => { el.style.boxShadow = ''; }, 1500);
+    }, 100);
   }
 
   function exportToExcel() {
