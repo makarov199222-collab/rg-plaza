@@ -647,20 +647,59 @@
     // === Алерты ===
     const alerts = [];
 
-    // 1. Точки которые не отчитались сегодня (если текущий месяц)
+    // 1. Точки которые не отчитались до 19:00 локального времени
     if (isCurrentMonth) {
       const todayStr = today.toISOString().substring(0,10);
       const dayOfWeek = today.getDay();
       const reportedToday = new Set();
       data.reports.forEach(r => { if (r.date === todayStr && +r.total_day > 0) reportedToday.add(r.point_id); });
-      const notReported = data.points.filter(p => {
-        if (reportedToday.has(p.id)) return false;
+
+      // Получаем UTC-часы и считаем локальное время для каждой точки
+      // Москва = UTC+3, Ижевск = UTC+4
+      const utcHour = today.getUTCHours();
+      const utcMin = today.getUTCMinutes();
+      const moscowHour = (utcHour + 3) % 24;        // МСК
+      const izhevskHour = (utcHour + 4) % 24;       // ИЖТ
+
+      // Точки которые не отчитались
+      const notReportedMoscow = [];
+      const notReportedIzhevsk = [];
+      data.points.forEach(p => {
+        if (reportedToday.has(p.id)) return;
         const closedDay = +p.closed_day_of_week;
-        if (closedDay && closedDay === dayOfWeek) return false;
-        return true;
+        if (closedDay && closedDay === dayOfWeek) return; // выходной точки
+        if (p.format === 'izhevsk') {
+          if (izhevskHour >= 19) notReportedIzhevsk.push(p);
+        } else {
+          if (moscowHour >= 19) notReportedMoscow.push(p);
+        }
       });
-      if (notReported.length > 0 && today.getHours() >= 11) {
-        alerts.push({ type:'orange', icon:'⏰', text:`<b>Не отчитались сегодня:</b> ${notReported.map(p => p.name).join(', ')}` });
+
+      if (notReportedIzhevsk.length > 0) {
+        alerts.push({ type:'red', icon:'⏰', text:`<b>Ижевск не отчитался до 19:00:</b> ${notReportedIzhevsk.map(p => p.name).join(', ')} (сейчас ${String(izhevskHour).padStart(2,'0')}:${String(utcMin).padStart(2,'0')} ИЖТ)` });
+      }
+      if (notReportedMoscow.length > 0) {
+        alerts.push({ type:'red', icon:'⏰', text:`<b>Москва не отчиталась до 19:00:</b> ${notReportedMoscow.map(p => p.name).join(', ')} (сейчас ${String(moscowHour).padStart(2,'0')}:${String(utcMin).padStart(2,'0')} МСК)` });
+      }
+
+      // Превентивные напоминания за час до дедлайна
+      const warnIzh = [];
+      const warnMos = [];
+      data.points.forEach(p => {
+        if (reportedToday.has(p.id)) return;
+        const closedDay = +p.closed_day_of_week;
+        if (closedDay && closedDay === dayOfWeek) return;
+        if (p.format === 'izhevsk') {
+          if (izhevskHour === 18) warnIzh.push(p);
+        } else {
+          if (moscowHour === 18) warnMos.push(p);
+        }
+      });
+      if (warnIzh.length > 0) {
+        alerts.push({ type:'orange', icon:'🔔', text:`<b>Напоминание:</b> у ${warnIzh.map(p => p.name).join(', ')} (Ижевск) меньше часа до дедлайна 19:00` });
+      }
+      if (warnMos.length > 0) {
+        alerts.push({ type:'orange', icon:'🔔', text:`<b>Напоминание:</b> у ${warnMos.map(p => p.name).join(', ')} (Москва) меньше часа до дедлайна 19:00` });
       }
     }
 
@@ -1074,11 +1113,36 @@
 
     // Получаем отчёт за конкретный день
     let dayReports = {};
+    let actualDates = {};   // фактическая дата отчёта по каждой точке (если fallback)
     try {
       const { data: dr, error } = await sb.from('daily_reports').select('*').eq('date', date);
       if (error) throw error;
-      (dr || []).forEach(r => { dayReports[r.point_id] = r; });
+      (dr || []).forEach(r => { dayReports[r.point_id] = r; actualDates[r.point_id] = date; });
     } catch (e) { console.error(e); }
+
+    // Для точек без отчёта на эту дату — ищем последний отчёт за месяц
+    const monthStart = `${range.year}-${String(range.month).padStart(2,'0')}-01`;
+    const monthEndCalc = new Date(range.year, range.month, 0);
+    const monthEnd = `${range.year}-${String(range.month).padStart(2,'0')}-${String(monthEndCalc.getDate()).padStart(2,'0')}`;
+    const missingPoints = data.points.filter(p => !dayReports[p.id]).map(p => p.id);
+    if (missingPoints.length > 0) {
+      try {
+        const { data: monthData, error } = await sb.from('daily_reports')
+          .select('*')
+          .in('point_id', missingPoints)
+          .gte('date', monthStart)
+          .lte('date', date)
+          .order('date', { ascending: false });
+        if (error) throw error;
+        // Берём ПЕРВЫЙ (самый свежий) для каждой точки
+        (monthData || []).forEach(r => {
+          if (!dayReports[r.point_id]) {
+            dayReports[r.point_id] = r;
+            actualDates[r.point_id] = r.date;
+          }
+        });
+      } catch (e) { console.error(e); }
+    }
 
     let html = `
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:14px;">
@@ -1092,37 +1156,8 @@
           <button onclick="copyAllReports()" style="flex:1;min-width:140px;background:var(--surface2);color:var(--accent);border:1px solid var(--accent);padding:10px 14px;border-radius:8px;font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;cursor:pointer;">📋 ВСЁ ВМЕСТЕ</button>
         </div>
         <div style="font-size:11px;color:var(--muted);line-height:1.5;">
-          Отчёт собирается автоматически из данных менеджеров. Год.вал считается как: <b style="color:var(--text)">начальное значение на 1 января</b> + накопленное с начала года.
+          Отчёт собирается автоматически из данных менеджеров. Если на выбранную дату нет отчёта — берётся последний доступный за месяц (с пометкой 📅).
         </div>
-      </div>
-
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:14px;">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--accent);letter-spacing:1.5px;margin-bottom:10px;">🗓 Год.вал на 1 января ${range.year}</div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5;">
-          Введи начальные значения один раз — приложение само добавит к ним накопленное за год.
-        </div>
-        ${data.points.map(p => `
-          <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:11px;margin-bottom:8px;">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:9px;flex-wrap:wrap;">
-              <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--accent);letter-spacing:1px;">${p.name}</div>
-              <div style="font-size:11px;color:var(--green);font-weight:600;margin-left:auto;" id="ystatus-${p.id}">✓</div>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
-              <div>
-                <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:3px;">Всего</div>
-                <input type="number" placeholder="0" value="${p.year_start_total || ''}" data-pid="${p.id}" data-field="year_start_total" oninput="onYearStartInput(this)" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:7px 9px;border-radius:6px;font-family:inherit;font-size:13px;font-weight:700;outline:none;">
-              </div>
-              <div>
-                <div style="font-size:9px;color:var(--green);font-weight:700;text-transform:uppercase;margin-bottom:3px;">Розница</div>
-                <input type="number" placeholder="0" value="${p.year_start_retail || ''}" data-pid="${p.id}" data-field="year_start_retail" oninput="onYearStartInput(this)" style="width:100%;background:var(--surface2);border:1px solid rgba(34,197,94,.3);color:var(--green);padding:7px 9px;border-radius:6px;font-family:inherit;font-size:13px;font-weight:700;outline:none;">
-              </div>
-              <div>
-                <div style="font-size:9px;color:var(--blue);font-weight:700;text-transform:uppercase;margin-bottom:3px;">Страховые</div>
-                <input type="number" placeholder="0" value="${p.year_start_insurance || ''}" data-pid="${p.id}" data-field="year_start_insurance" oninput="onYearStartInput(this)" style="width:100%;background:var(--surface2);border:1px solid rgba(59,130,246,.3);color:var(--blue);padding:7px 9px;border-radius:6px;font-family:inherit;font-size:13px;font-weight:700;outline:none;">
-              </div>
-            </div>
-          </div>
-        `).join('')}
       </div>
     `;
 
@@ -1132,19 +1167,19 @@
 
     if (moscowPoints.length) {
       html += `<div class="city-section"><div class="city-title">Москва</div>`;
-      moscowPoints.forEach(p => { html += renderPointReport(p, data, dayReports[p.id], yearData, date); });
+      moscowPoints.forEach(p => { html += renderPointReport(p, data, dayReports[p.id], yearData, date, actualDates[p.id]); });
       html += `</div>`;
     }
     if (izhevskPoints.length) {
       html += `<div class="city-section"><div class="city-title">Ижевск</div>`;
-      izhevskPoints.forEach(p => { html += renderPointReport(p, data, dayReports[p.id], yearData, date); });
+      izhevskPoints.forEach(p => { html += renderPointReport(p, data, dayReports[p.id], yearData, date, actualDates[p.id]); });
       html += `</div>`;
     }
 
     document.getElementById('myreport-content').innerHTML = html;
   }
 
-  function renderPointReport(point, data, dayReport, yearData, dateStr) {
+  function renderPointReport(point, data, dayReport, yearData, dateStr, actualDate) {
     const r = dayReport || {};
     const range = data.range;
 
@@ -1164,8 +1199,13 @@
     let mTotal=0, mRetail=0, mIns=0;
     monthReports.forEach(d => { mTotal+=+d.total_day||0; mRetail+=+d.retail_day||0; mIns+=+d.ins_day||0; });
 
+    // Используем фактическую дату отчёта (может быть не та что выбрана если fallback)
+    const useDate = actualDate || dateStr;
+    const isFallback = actualDate && actualDate !== dateStr;
+    const noData = !dayReport;
+
     // Парсим дату
-    const [y,mo,d] = dateStr.split('-');
+    const [y,mo,d] = useDate.split('-');
     const dateRu = `${d}.${mo}.${y.substring(2)}`;
     const nextDate = (() => {
       const dt = new Date(+y, +mo-1, +d+1);
@@ -1234,10 +1274,20 @@ ${reviews}
 9)Поток направлений:
 ${point.name} ${flow}`;
 
+    // Бейдж статуса
+    let statusBadge = '';
+    if (noData) {
+      statusBadge = `<div style="font-size:10px;background:rgba(244,67,54,.15);color:var(--red);padding:3px 8px;border-radius:4px;font-weight:700;letter-spacing:.4px;">⚠ НЕТ ДАННЫХ ЗА МЕСЯЦ</div>`;
+    } else if (isFallback) {
+      const [_,fmo,fd] = actualDate.split('-');
+      statusBadge = `<div style="font-size:10px;background:rgba(255,152,0,.15);color:var(--orange);padding:3px 8px;border-radius:4px;font-weight:700;letter-spacing:.4px;">📅 за ${fd}.${fmo} (нет свежее)</div>`;
+    }
+
     return `
       <div data-city="${point.format === 'izhevsk' ? 'izhevsk' : 'moscow'}" style="background:var(--surface);border:1px solid var(--border);border-radius:14px;margin-bottom:14px;overflow:hidden;">
-        <div style="padding:12px 16px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
+        <div style="padding:12px 16px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--accent);letter-spacing:1.5px;">${point.name}</div>
+          ${statusBadge}
           <button onclick="copyReport('rep-${point.id}', this)" style="margin-left:auto;background:var(--accent);color:#000;border:none;padding:7px 14px;border-radius:6px;font-family:'Bebas Neue',sans-serif;font-size:12px;letter-spacing:1px;cursor:pointer;">📋 Скопировать</button>
         </div>
         <pre id="rep-${point.id}" style="margin:0;padding:14px;font-family:monospace;font-size:13px;line-height:1.6;color:var(--text);background:var(--bg);white-space:pre-wrap;overflow-x:auto;">${reportText}</pre>
