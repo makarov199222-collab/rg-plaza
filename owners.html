@@ -1079,19 +1079,38 @@
     const topSK = Object.entries(bySK).map(([sk, sum]) => ({ sk, sum })).filter(x => x.sum > 0).sort((a,b) => b.sum - a.sum).slice(0, 5);
     const totalSK = topSK.reduce((s,x) => s + x.sum, 0);
 
+    // По каким точкам есть данные?
+    const pointsWithData = new Set(breakdown.map(b => b.point_id));
+    const pointNames = Array.from(pointsWithData).map(pid => data.points.find(p => p.id === pid)?.name || pid);
+    const pointsCovered = pointsWithData.size;
+    const pointsMissing = data.points.filter(p => !pointsWithData.has(p.id));
+    const isFullCoverage = pointsCovered === data.points.length;
+
+    // Имя предыдущего месяца для дельт
+    const prevMonthName = MP_MONTHS_SHORT[(data.range.month + 10) % 12];   // -2 mod 12 + 1
+
     let html = `<div class="section">
-      <div class="section-title">🏆 ТОП по услугам · ${monthName}</div>
-      <div class="top-grid">`;
+      <div class="section-title">🏆 ТОП по услугам · ${monthName}</div>`;
+
+    // Дисклеймер если данные не по всем точкам
+    if (!isFullCoverage) {
+      html += `<div style="background:var(--surface);border-left:3px solid var(--blue);border-radius:8px;padding:10px 13px;margin-bottom:10px;font-size:12px;color:var(--text);line-height:1.5;">
+        ℹ️ <b>Детализация заведена только по точкам:</b> ${pointNames.join(', ')}.
+        <span style="color:var(--muted);">Данные по ${pointsMissing.map(p => p.name).join(', ')} в этом блоке отсутствуют.</span>
+      </div>`;
+    }
+
+    html += `<div class="top-grid">`;
 
     // Карточка 1: Топ услуг
     html += `<div class="top-card">
-      <div class="top-title">💰 Топ услуг розницы</div>
+      <div class="top-title">💰 Топ услуг розницы <span style="font-size:10px;color:var(--muted);font-weight:500;letter-spacing:0;text-transform:none;margin-left:4px;">(${pointNames.join(', ')})</span></div>
       <div class="top-list">`;
     topCategories.forEach((c, i) => {
       const prev = byCategoryPrev[c.cat] || 0;
       const delta = prev > 0 ? Math.round((c.sum - prev) / prev * 100) : null;
       const pctOfTotal = totalSum > 0 ? Math.round(c.sum / totalSum * 100) : 0;
-      const deltaStr = delta !== null ? ` <span style="font-size:10px;color:${delta >= 0 ? 'var(--green)' : 'var(--red)'};">${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta)}%</span>` : '';
+      const deltaStr = delta !== null ? ` <span style="font-size:10px;color:${delta >= 0 ? 'var(--green)' : 'var(--red)'};">${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta)}% к ${prevMonthName}</span>` : ` <span style="font-size:10px;color:var(--muted);">(нет ${prevMonthName})</span>`;
       html += `<div class="top-item">
         <div class="top-item-rank">${i+1}</div>
         <div style="flex:1;">
