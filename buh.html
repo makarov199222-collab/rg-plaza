@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#1a1a1a">
+<title>RG Plaza — Бухгалтерия</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg:#1a1a1a; --surface:#222222; --surface2:#2a2a2a; --border:#333333;
+    --accent:#e8b84b; --blue:#2196f3; --text:#ffffff; --muted:#909090;
+    --green:#4caf50; --purple:#9c27b0; --red:#f44336; --orange:#ff9800;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+  body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased;padding-bottom:40px;}
+  .login{position:fixed;inset:0;background:var(--bg);z-index:500;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;}
+  .login.hidden{display:none;}
+  .login-logo{font-family:'Bebas Neue',sans-serif;font-size:48px;color:var(--accent);letter-spacing:5px;margin-bottom:8px;line-height:1;}
+  .login-sub{font-size:11px;color:var(--muted);letter-spacing:5px;font-weight:600;margin-bottom:36px;text-transform:uppercase;}
+  .login-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:26px 24px;width:100%;max-width:360px;}
+  .login-title{font-size:14px;font-weight:600;margin-bottom:18px;text-align:center;}
+  .login-input{width:100%;background:#141414;border:1px solid var(--border);border-radius:8px;padding:14px 16px;color:var(--text);font-family:'Inter',sans-serif;font-size:15px;font-weight:500;outline:none;text-align:center;letter-spacing:1px;-webkit-appearance:none;}
+  .login-input:focus{border-color:var(--accent);}
+  .login-btn{width:100%;margin-top:12px;padding:14px;background:var(--accent);border:none;border-radius:8px;color:#000;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;cursor:pointer;}
+  .login-err{margin-top:10px;font-size:13px;color:var(--red);text-align:center;min-height:18px;}
+
+  header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 20px;position:sticky;top:0;z-index:100;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+  .logo{font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--accent);letter-spacing:3px;line-height:1;}
+  .logo span{color:#b8b8b8;font-size:9px;display:block;letter-spacing:2.5px;font-family:'Inter',sans-serif;font-weight:600;text-transform:uppercase;margin-top:3px;}
+  .month-pick{margin-left:auto;background:#141414;border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:8px;font-family:'Inter',sans-serif;font-size:13px;font-weight:500;cursor:pointer;outline:none;}
+  .month-pick:focus,.month-pick:hover{border-color:var(--accent);}
+  .refresh-btn{background:#141414;border:1px solid var(--border);border-radius:8px;padding:9px 13px;color:var(--accent);font-size:13px;cursor:pointer;font-family:'Inter',sans-serif;font-weight:600;}
+
+  .wrap{padding:18px;max-width:1400px;margin:0 auto;}
+  .top-tabs{display:flex;gap:6px;margin-bottom:18px;overflow-x:auto;padding-bottom:4px;}
+  .top-tab{flex:1;min-width:110px;padding:11px 14px;background:var(--surface);border:1px solid var(--border);border-radius:10px;color:var(--muted);font-family:'Inter',sans-serif;font-size:13px;font-weight:600;cursor:pointer;text-align:center;white-space:nowrap;}
+  .top-tab.active{background:var(--accent);color:#000;border-color:var(--accent);}
+  .tab-page{display:none;} .tab-page.active{display:block;}
+
+  /* === Карточки KPI === */
+  .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:18px;}
+  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;}
+  .kpi.acc{border-color:rgba(232,184,75,.5);}
+  .kpi.red{border-left:3px solid var(--red);}
+  .kpi.green{border-left:3px solid var(--green);}
+  .kpi.blue{border-left:3px solid var(--blue);}
+  .kpi.orange{border-left:3px solid var(--orange);}
+  .kpi-lbl{font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.7px;margin-bottom:7px;}
+  .kpi-val{font-family:'Bebas Neue',sans-serif;font-size:30px;color:var(--accent);line-height:1;letter-spacing:.5px;}
+  .kpi-val.t{color:var(--text);}
+  .kpi-val.r{color:var(--red);}
+  .kpi-val.g{color:var(--green);}
+  .kpi-val.b{color:var(--blue);}
+  .kpi-val.o{color:var(--orange);}
+  .kpi-sub{font-size:11px;color:var(--muted);margin-top:6px;}
+
+  /* === Таблица расходов по юрлицам === */
+  .data-block{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:14px;overflow-x:auto;}
+  .block-title{font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--accent);letter-spacing:2px;margin-bottom:13px;display:flex;align-items:center;gap:10px;}
+  .block-actions{margin-left:auto;display:flex;gap:7px;}
+  .data-table{width:100%;border-collapse:collapse;font-size:13px;min-width:600px;}
+  .data-table th{text-align:left;padding:10px 10px;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.6px;border-bottom:1px solid var(--border);}
+  .data-table td{padding:9px 10px;border-bottom:1px solid var(--border);}
+  .data-table tr:last-child td{border-bottom:none;}
+  .data-table .name-cell{color:var(--text);font-weight:500;}
+  .data-table .num-cell{text-align:right;font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:.5px;color:var(--text);}
+  .data-table .num-cell.muted{color:var(--muted);}
+  .data-table .total-row td{font-weight:700;background:#141414;}
+  .data-table .total-row .num-cell{color:var(--accent);font-size:17px;}
+
+  /* Фильтр юрлица */
+  .entity-pills{display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap;}
+  .entity-pill{padding:7px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--muted);font-size:11px;font-weight:600;cursor:pointer;}
+  .entity-pill.active{background:var(--accent);color:#000;border-color:var(--accent);}
+
+  /* Календарь платежей */
+  .calendar-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;}
+  .cal-day{background:#141414;border:1px solid var(--border);border-radius:10px;padding:13px;}
+  .cal-date{font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--accent);letter-spacing:.5px;margin-bottom:7px;}
+  .cal-date small{font-size:10px;color:var(--muted);font-family:'Inter',sans-serif;font-weight:600;letter-spacing:.5px;text-transform:uppercase;display:block;margin-top:-2px;}
+  .cal-items{display:flex;flex-direction:column;gap:6px;}
+  .cal-item{display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-bottom:1px solid var(--border);}
+  .cal-item:last-child{border-bottom:none;}
+  .cal-item-name{color:var(--muted);}
+  .cal-item-amount{color:var(--text);font-weight:600;}
+  .cal-total{margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--accent);text-align:right;letter-spacing:.5px;}
+
+  /* === ФОТ — диаграммы === */
+  .charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;}
+  @media (max-width:800px){.charts-grid{grid-template-columns:1fr;}}
+  .chart-block{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;}
+  .chart-wrap{position:relative;height:280px;}
+
+  /* Сотрудники */
+  .emp-list{display:flex;flex-direction:column;gap:7px;}
+  .emp-row{background:#141414;border:1px solid var(--border);border-radius:8px;padding:11px 13px;display:flex;align-items:center;gap:10px;}
+  .emp-row.detailing{border-left:3px solid var(--orange);}
+  .emp-row.sovhoz{border-left:3px solid var(--green);}
+  .emp-row.poyma{border-left:3px solid var(--blue);}
+  .emp-row.moscow{border-left:3px solid var(--purple);}
+  .emp-name{flex:1;font-size:13px;color:var(--text);font-weight:500;line-height:1.3;}
+  .emp-meta{font-size:10px;color:var(--muted);margin-top:2px;}
+  .emp-amount{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--accent);letter-spacing:.5px;text-align:right;flex-shrink:0;}
+  .emp-amount small{display:block;font-family:'Inter',sans-serif;font-size:9px;color:var(--muted);font-weight:600;text-transform:uppercase;}
+  .emp-filters{display:flex;gap:5px;margin-bottom:11px;flex-wrap:wrap;}
+  .filter-btn{padding:7px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--muted);font-size:11px;font-weight:600;cursor:pointer;}
+  .filter-btn.active{background:var(--accent);color:#000;border-color:var(--accent);}
+  .emp-search{width:100%;background:#141414;border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'Inter',sans-serif;font-size:13px;outline:none;margin-bottom:11px;}
+
+  /* Кредиты/лизинги */
+  .loans-list{display:flex;flex-direction:column;gap:10px;}
+  .loan-card{background:#141414;border:1px solid var(--border);border-radius:10px;padding:13px;}
+  .loan-card.credit{border-left:3px solid var(--red);}
+  .loan-card.lease{border-left:3px solid var(--blue);}
+  .loan-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:9px;flex-wrap:wrap;gap:5px;}
+  .loan-name{font-size:13px;font-weight:600;color:var(--text);}
+  .loan-type{font-size:9px;color:var(--muted);background:var(--surface2);padding:3px 8px;border-radius:4px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;margin-left:auto;}
+  .loan-amount{font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--accent);letter-spacing:.5px;}
+  .loan-meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px;}
+  .loan-meta-item{font-size:11px;color:var(--muted);}
+  .loan-meta-item b{color:var(--text);display:block;margin-top:2px;font-weight:600;}
+  .loan-progress{margin-top:9px;}
+  .loan-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;}
+  .loan-bar-fill{height:100%;background:var(--green);border-radius:3px;}
+  .loan-progress-text{font-size:10px;color:var(--muted);margin-top:4px;}
+
+  /* Кнопки */
+  .btn{padding:9px 14px;background:var(--accent);color:#000;border:none;border-radius:8px;font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;cursor:pointer;}
+  .btn.secondary{background:var(--surface2);color:var(--accent);border:1px solid var(--accent);}
+  .btn.danger{background:var(--red);color:#fff;}
+
+  /* Модал */
+  .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);backdrop-filter:blur(4px);z-index:200;padding:14px;align-items:center;justify-content:center;}
+  .overlay.show{display:flex;}
+  .modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;width:100%;max-width:500px;overflow:hidden;max-height:90vh;display:flex;flex-direction:column;}
+  .modal-head{padding:14px 17px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
+  .modal-title{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--accent);letter-spacing:2px;}
+  .modal-body{padding:17px;overflow-y:auto;flex:1;}
+  .modal-foot{padding:14px 17px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;}
+  .form-group{margin-bottom:14px;}
+  .form-label{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.5px;text-transform:uppercase;margin-bottom:6px;display:block;}
+  .form-input,.form-select{width:100%;background:#141414;border:1px solid var(--border);border-radius:8px;padding:11px 12px;color:var(--text);font-family:'Inter',sans-serif;font-size:14px;outline:none;-webkit-appearance:none;}
+  .form-input:focus{border-color:var(--accent);}
+  .xbtn{background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;}
+
+  /* Загрузка Excel */
+  .upload-zone{background:var(--surface);border:2px dashed var(--border);border-radius:12px;padding:30px 20px;text-align:center;cursor:pointer;transition:all .2s;}
+  .upload-zone:hover{border-color:var(--accent);}
+  .upload-zone.drag{border-color:var(--accent);background:rgba(232,184,75,.05);}
+  .upload-icon{font-size:40px;margin-bottom:9px;}
+  .upload-text{font-size:14px;color:var(--text);margin-bottom:4px;}
+  .upload-hint{font-size:11px;color:var(--muted);}
+  .upload-status{margin-top:10px;font-size:12px;color:var(--green);min-height:16px;}
+
+  /* Toast */
+  .toast{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 18px;font-size:13px;color:var(--text);z-index:300;opacity:0;transition:opacity .3s;pointer-events:none;border-left:3px solid var(--accent);}
+  .toast.show{opacity:1;}
+  .toast.ok{border-left-color:var(--green);}
+  .toast.err{border-left-color:var(--red);}
+
+  .empty{text-align:center;color:var(--muted);font-size:13px;padding:30px 20px;line-height:1.6;}
+  .loader{display:flex;justify-content:center;align-items:center;padding:50px;color:var(--muted);font-size:13px;}
+  .spinner{width:22px;height:22px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;margin-right:11px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+
+<div class="login" id="login">
+  <div class="login-logo">RG PLAZA</div>
+  <div class="login-sub">бухгалтерия</div>
+  <div class="login-card">
+    <div class="login-title">Введите код доступа</div>
+    <input type="password" class="login-input" id="login-code" placeholder="Код бухгалтера" autocomplete="off">
+    <button class="login-btn" onclick="doLogin()">ВОЙТИ</button>
+    <div class="login-err" id="login-err"></div>
+  </div>
+</div>
+
+<div id="app" style="display:none;">
+<header>
+  <div class="logo">RG PLAZA<span>бухгалтерия</span></div>
+  <input type="month" class="month-pick" id="month-pick" onchange="loadAll()">
+  <button class="refresh-btn" onclick="loadAll()" title="Обновить">↻</button>
+</header>
+
+<div class="wrap">
+  <div class="top-tabs">
+    <button class="top-tab active" onclick="showPage('overview', this)">📊 Обзор</button>
+    <button class="top-tab" onclick="showPage('expenses', this)">💸 Расходы</button>
+    <button class="top-tab" onclick="showPage('taxes', this)">🏛 Налоги</button>
+    <button class="top-tab" onclick="showPage('fot', this)">👥 ФОТ</button>
+    <button class="top-tab" onclick="showPage('loans', this)">🏦 Кредиты/Лизинги</button>
+    <button class="top-tab" onclick="showPage('calendar', this)">📅 Календарь</button>
+    <button class="top-tab" onclick="showPage('upload', this)">📤 Загрузить Excel</button>
+  </div>
+
+  <div class="tab-page active" id="page-overview">
+    <div id="overview-content"><div class="loader"><div class="spinner"></div>Загружаю...</div></div>
+  </div>
+  <div class="tab-page" id="page-expenses"><div id="expenses-content"></div></div>
+  <div class="tab-page" id="page-taxes"><div id="taxes-content"></div></div>
+  <div class="tab-page" id="page-fot"><div id="fot-content"></div></div>
+  <div class="tab-page" id="page-loans"><div id="loans-content"></div></div>
+  <div class="tab-page" id="page-calendar"><div id="calendar-content"></div></div>
+  <div class="tab-page" id="page-upload"><div id="upload-content"></div></div>
+</div>
+</div>
+
+<div class="overlay" id="modal"><div class="modal"><div class="modal-head"><div class="modal-title" id="modal-title">Заголовок</div><button class="xbtn" onclick="closeModal()">×</button></div><div class="modal-body" id="modal-body"></div><div class="modal-foot" id="modal-foot"></div></div></div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const SUPABASE_URL = 'https://uxdgiwbkvgbnrsuxjhvp.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_bg1BRofqJsjkV_9eXzn2Pg__YJ-xRMK';
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  const BUH_CODE = 'buh-2026';
+
+  // Хранилище данных
+  let data = {
+    expenses: [], taxes: [], fot: null, employees: [], penalties: [],
+    loans: [], calendar: [], reports: [], period: null
+  };
+  let charts = [];
+
+  // Категории
+  const EXPENSE_CATS = {
+    salary_official: '👔 Зарплата офиц',
+    salary_unofficial: '💰 Зарплата неоф',
+    rent_official: '🏢 Аренда офиц',
+    rent_unofficial: '🏠 Аренда неоф',
+    leasing: '🚛 Лизинг',
+    credit_kv: '🏦 Кредит КВ'
+  };
+  const TAX_NAMES = {
+    contributions: 'Взносы', ndfl: 'НДФЛ', fss: 'ФССнс', nds: 'НДС',
+    usn: 'УСН', patent: 'Патент', transport_tax: 'Транспортный'
+  };
+  const ENTITIES_ORDER = ['plaza','ip_rkv','ip_shap','trak'];
+  const ENTITY_NAMES = {plaza:'ПЛАЗА', ip_rkv:'ИП РКВ', ip_shap:'ИП ШАП', trak:'ТРАК'};
+
+  // === LOGIN ===
+  function doLogin() {
+    const code = document.getElementById('login-code').value.trim();
+    if (code === BUH_CODE) {
+      sessionStorage.setItem('rgp_buh', '1');
+      enterApp();
+    } else {
+      document.getElementById('login-err').textContent = 'Неверный код';
+    }
+  }
+
+  function enterApp() {
+    document.getElementById('login').classList.add('hidden');
+    document.getElementById('app').style.display = 'block';
+    const now = new Date();
+    document.getElementById('month-pick').value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    loadAll();
+  }
+
+  // === ХЕЛПЕРЫ ===
+  function fm(n) { if (!n && n !== 0) return '0'; return Math.round(+n).toLocaleString('ru-RU'); }
+  function fmd(n) { if (!n && n !== 0) return '0'; return (+n).toLocaleString('ru-RU', {maximumFractionDigits:2}); }
+  function fs(n) { n = +n || 0; if (Math.abs(n) >= 1e6) return (n/1e6).toFixed(1)+' млн'; if (Math.abs(n) >= 1e3) return (n/1e3).toFixed(0)+'к'; return Math.round(n)+''; }
+  function showToast(t, c='') { const el = document.getElementById('toast'); el.textContent = t; el.className = 'toast '+c+' show'; setTimeout(()=>el.classList.remove('show'), 2500); }
+  function destroyCharts() { charts.forEach(c => { try{c.destroy();}catch(e){} }); charts = []; }
+
+  function showPage(p, btn) {
+    document.querySelectorAll('.tab-page').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.top-tab').forEach(x => x.classList.remove('active'));
+    document.getElementById('page-'+p).classList.add('active');
+    if (btn) btn.classList.add('active');
+    if (p === 'overview') renderOverview();
+    if (p === 'expenses') renderExpenses();
+    if (p === 'taxes') renderTaxes();
+    if (p === 'fot') renderFot();
+    if (p === 'loans') renderLoans();
+    if (p === 'calendar') renderCalendar();
+    if (p === 'upload') renderUpload();
+  }
+
+  async function loadAll() {
+    const period = document.getElementById('month-pick').value;
+    if (!period) return;
+    data.period = period;
+    try {
+      const [exp, tax, fot, emp, pen, loan, cal, rep] = await Promise.all([
+        sb.from('expenses_monthly').select('*').eq('period', period),
+        sb.from('taxes_monthly').select('*').eq('period', period),
+        sb.from('fot_summary').select('*').eq('period', period).maybeSingle(),
+        sb.from('fot_employees').select('*').eq('period', period),
+        sb.from('fot_penalties').select('*').eq('period', period),
+        sb.from('loans_leases').select('*').eq('active', true),
+        sb.from('payment_calendar').select('*').eq('period', period),
+        sb.from('daily_reports').select('*').gte('date', period+'-01').lte('date', period+'-31'),
+      ]);
+      data.expenses = exp.data || [];
+      data.taxes = tax.data || [];
+      data.fot = fot.data || null;
+      data.employees = emp.data || [];
+      data.penalties = pen.data || [];
+      data.loans = loan.data || [];
+      data.calendar = cal.data || [];
+      data.reports = rep.data || [];
+      // перерисовать активную
+      const active = document.querySelector('.tab-page.active').id.replace('page-','');
+      const btn = document.querySelector('.top-tab.active');
+      showPage(active, btn);
+    } catch (e) {
+      console.error(e);
+      showToast('Ошибка загрузки: '+(e.message||e), 'err');
+    }
+  }
+
+  // === ОБЗОР ===
+  function renderOverview() {
+    destroyCharts();
+    const c = document.getElementById('overview-content');
+    if (!data.period) { c.innerHTML = '<div class="empty">Выберите месяц</div>'; return; }
+
+    // Подсчёты
+    const totalExp = data.expenses.reduce((s,r) => s + (+r.amount), 0);
+    const totalTax = data.taxes.reduce((s,r) => s + (+r.amount), 0);
+    const fotTotal = data.fot ? +data.fot.fot_total : 0;
+    const revenue = data.reports.reduce((s,r) => s + (+r.total_day || 0), 0);
+    // Прибыль = выручка - все расходы (но без двойного счёта зарплаты в расходах и ФОТ)
+    // У нас зарплата официальная учтена в expenses, плюс ФОТ — это весь выплачиваемый ФОТ.
+    // Чтобы не считать дважды, для прибыли возьмём: выручка − (expenses без зарплаты) − ФОТ − налоги
+    const expWithoutSalary = data.expenses.filter(r => !r.category.startsWith('salary_')).reduce((s,r) => s + (+r.amount), 0);
+    const profit = revenue - expWithoutSalary - fotTotal - totalTax;
+    const profitClass = profit >= 0 ? 'g' : 'r';
+
+    const monthName = new Date(data.period + '-01').toLocaleDateString('ru-RU', {month:'long', year:'numeric'});
+
+    let html = `
+      <div style="margin-bottom:18px;">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--accent);letter-spacing:2px;margin-bottom:5px;text-transform:capitalize;">📊 ${monthName}</div>
+        <div style="font-size:12px;color:var(--muted);">Финансовая картина</div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi acc">
+          <div class="kpi-lbl">Выручка за месяц</div>
+          <div class="kpi-val">${fm(revenue)} ₽</div>
+          <div class="kpi-sub">из daily_reports · ${data.reports.length} дн.</div>
+        </div>
+        <div class="kpi red">
+          <div class="kpi-lbl">Расходы (без ФОТ)</div>
+          <div class="kpi-val r">${fm(expWithoutSalary)} ₽</div>
+          <div class="kpi-sub">аренда, лизинг, кредиты</div>
+        </div>
+        <div class="kpi orange">
+          <div class="kpi-lbl">ФОТ итого</div>
+          <div class="kpi-val o">${fm(fotTotal)} ₽</div>
+          <div class="kpi-sub">${data.fot ? data.fot.total_employees : 0} сотрудников</div>
+        </div>
+        <div class="kpi blue">
+          <div class="kpi-lbl">Налоги</div>
+          <div class="kpi-val b">${fm(totalTax)} ₽</div>
+          <div class="kpi-sub">${data.taxes.length} платежей</div>
+        </div>
+        <div class="kpi ${profit >= 0 ? 'green' : 'red'}">
+          <div class="kpi-lbl">Чистая прибыль</div>
+          <div class="kpi-val ${profitClass}">${fm(profit)} ₽</div>
+          <div class="kpi-sub">${revenue > 0 ? Math.round(profit/revenue*100) : 0}% от выручки</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-lbl">% ФОТ от выручки</div>
+          <div class="kpi-val ${revenue > 0 && fotTotal/revenue > 0.35 ? 'r' : revenue > 0 && fotTotal/revenue > 0.25 ? 'o' : 'g'}">${revenue > 0 ? Math.round(fotTotal/revenue*100) : 0}%</div>
+          <div class="kpi-sub">норма 25-30%</div>
+        </div>
+      </div>
+
+      <div class="charts-grid">
+        <div class="chart-block">
+          <div class="block-title">📊 Расходы по юрлицам</div>
+          <div class="chart-wrap"><canvas id="ch-entities"></canvas></div>
+        </div>
+        <div class="chart-block">
+          <div class="block-title">💼 ФОТ по территориям</div>
+          <div class="chart-wrap"><canvas id="ch-fot"></canvas></div>
+        </div>
+      </div>
+    `;
+
+    // Алерты
+    const alerts = [];
+    if (revenue > 0 && fotTotal / revenue > 0.4) {
+      alerts.push({type:'red', text:`🚨 ФОТ ${Math.round(fotTotal/revenue*100)}% от выручки — выше нормы (макс 30%)`});
+    }
+    if (profit < 0) {
+      alerts.push({type:'red', text:`⚠️ Месяц убыточный — расходы превышают выручку на ${fm(Math.abs(profit))} ₽`});
+    }
+    const usnTotal = data.taxes.filter(t => t.tax_type === 'usn').reduce((s,r) => s + (+r.amount), 0);
+    if (usnTotal > 1000000) {
+      alerts.push({type:'orange', text:`💰 Большая сумма УСН: ${fm(usnTotal)} ₽ — закладывайте в бюджет`});
+    }
+    if (alerts.length) {
+      html += `<div class="data-block"><div class="block-title">⚠️ Внимание</div>` +
+        alerts.map(a => `<div style="padding:11px 14px;background:#141414;border-radius:8px;border-left:3px solid var(--${a.type});margin-bottom:7px;font-size:13px;">${a.text}</div>`).join('') +
+        `</div>`;
+    }
+
+    c.innerHTML = html;
+
+    // Графики
+    setTimeout(() => {
+      // По юрлицам
+      const byEntity = {};
+      ENTITIES_ORDER.forEach(e => byEntity[e] = 0);
+      data.expenses.forEach(r => { byEntity[r.entity_id] = (byEntity[r.entity_id] || 0) + (+r.amount); });
+      data.taxes.forEach(r => { byEntity[r.entity_id] = (byEntity[r.entity_id] || 0) + (+r.amount); });
+
+      const ctx1 = document.getElementById('ch-entities');
+      if (ctx1) charts.push(new Chart(ctx1, {
+        type: 'bar',
+        data: {
+          labels: ENTITIES_ORDER.map(e => ENTITY_NAMES[e]),
+          datasets: [{
+            data: ENTITIES_ORDER.map(e => byEntity[e]),
+            backgroundColor: ['#e8b84b','#2196f3','#9c27b0','#4caf50'],
+            borderRadius: 5
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: {display:false}, tooltip:{callbacks:{label:c=>fm(c.raw)+' ₽'}} },
+          scales: { x:{ticks:{color:'#909090'},grid:{display:false}}, y:{ticks:{color:'#909090', callback:v=>fs(v)},grid:{color:'#333'}} }
+        }
+      }));
+
+      // ФОТ по территориям
+      if (data.fot) {
+        const ctx2 = document.getElementById('ch-fot');
+        if (ctx2) charts.push(new Chart(ctx2, {
+          type: 'doughnut',
+          data: {
+            labels: ['Совхозная','Москва','Пойма','Детейлинг'],
+            datasets: [{
+              data: [data.fot.fot_sovhoz||0, data.fot.fot_moscow||0, data.fot.fot_poyma||0, data.fot.fot_detailing||0],
+              backgroundColor: ['#4caf50','#9c27b0','#2196f3','#ff9800'],
+              borderColor: '#222', borderWidth: 2
+            }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: {position:'bottom', labels:{color:'#fff', font:{size:11}}}, tooltip:{callbacks:{label:c=>c.label+': '+fm(c.raw)+' ₽'}} }
+          }
+        }));
+      }
+    }, 50);
+  }
+
+  // === РАСХОДЫ ===
+  function renderExpenses() {
+    destroyCharts();
+    const c = document.getElementById('expenses-content');
+    if (!data.period) { c.innerHTML = '<div class="empty">Выберите месяц</div>'; return; }
+
+    // Группировка по категории и юрлицу
+    const grid = {};
+    Object.keys(EXPENSE_CATS).forEach(cat => {
+      grid[cat] = {};
+      ENTITIES_ORDER.forEach(e => grid[cat][e] = 0);
+    });
+    data.expenses.forEach(r => {
+      if (grid[r.category]) grid[r.category][r.entity_id] = +r.amount;
+    });
+
+    const totals = {};
+    ENTITIES_ORDER.forEach(e => totals[e] = ENTITIES_ORDER.reduce((s,_)=>s,0));
+    let grandTotal = 0;
+    ENTITIES_ORDER.forEach(e => {
+      totals[e] = data.expenses.filter(r => r.entity_id === e).reduce((s,r) => s + (+r.amount), 0);
+      grandTotal += totals[e];
+    });
+
+    let html = `
+      <div class="data-block">
+        <div class="block-title">💸 Расходы по статьям и юрлицам
+          <div class="block-actions">
+            <button class="btn secondary" onclick="addExpense()">+ Разовый расход</button>
+          </div>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Статья</th>
+              <th class="num-cell">ПЛАЗА</th>
+              <th class="num-cell">ИП РКВ</th>
+              <th class="num-cell">ИП ШАП</th>
+              <th class="num-cell">ТРАК</th>
+              <th class="num-cell">Итого</th>
+            </tr>
+          </thead>
+          <tbody>`;
+
+    Object.entries(EXPENSE_CATS).forEach(([key, name]) => {
+      const rowTotal = ENTITIES_ORDER.reduce((s,e) => s + grid[key][e], 0);
+      if (rowTotal === 0) return;
+      html += `<tr><td class="name-cell">${name}</td>`;
+      ENTITIES_ORDER.forEach(e => {
+        const v = grid[key][e];
+        html += `<td class="num-cell ${v === 0 ? 'muted' : ''}">${v > 0 ? fm(v)+' ₽' : '—'}</td>`;
+      });
+      html += `<td class="num-cell">${fm(rowTotal)} ₽</td></tr>`;
+    });
+
+    html += `<tr class="total-row"><td>ИТОГО</td>`;
+    ENTITIES_ORDER.forEach(e => html += `<td class="num-cell">${fm(totals[e])} ₽</td>`);
+    html += `<td class="num-cell">${fm(grandTotal)} ₽</td></tr>`;
+    html += `</tbody></table></div>`;
+    c.innerHTML = html;
+  }
+
+  // === НАЛОГИ ===
+  function renderTaxes() {
+    destroyCharts();
+    const c = document.getElementById('taxes-content');
+    if (!data.period) { c.innerHTML = '<div class="empty">Выберите месяц</div>'; return; }
+
+    const grid = {};
+    Object.keys(TAX_NAMES).forEach(t => {
+      grid[t] = {};
+      ENTITIES_ORDER.forEach(e => grid[t][e] = 0);
+    });
+    data.taxes.forEach(r => {
+      if (grid[r.tax_type]) grid[r.tax_type][r.entity_id] = +r.amount;
+    });
+
+    const totals = {};
+    let grandTotal = 0;
+    ENTITIES_ORDER.forEach(e => {
+      totals[e] = data.taxes.filter(r => r.entity_id === e).reduce((s,r) => s + (+r.amount), 0);
+      grandTotal += totals[e];
+    });
+
+    let html = `
+      <div class="data-block">
+        <div class="block-title">🏛 Налоги по видам и юрлицам</div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Налог</th>
+              <th class="num-cell">ПЛАЗА</th>
+              <th class="num-cell">ИП РКВ</th>
+              <th class="num-cell">ИП ШАП</th>
+              <th class="num-cell">ТРАК</th>
+              <th class="num-cell">Итого</th>
+            </tr>
+          </thead>
+          <tbody>`;
+
+    Object.entries(TAX_NAMES).forEach(([key, name]) => {
+      const rowTotal = ENTITIES_ORDER.reduce((s,e) => s + grid[key][e], 0);
+      if (rowTotal === 0) return;
+      html += `<tr><td class="name-cell">${name}</td>`;
+      ENTITIES_ORDER.forEach(e => {
+        const v = grid[key][e];
+        html += `<td class="num-cell ${v === 0 ? 'muted' : ''}">${v > 0 ? fm(v)+' ₽' : '—'}</td>`;
+      });
+      html += `<td class="num-cell">${fm(rowTotal)} ₽</td></tr>`;
+    });
+
+    html += `<tr class="total-row"><td>ИТОГО</td>`;
+    ENTITIES_ORDER.forEach(e => html += `<td class="num-cell">${fm(totals[e])} ₽</td>`);
+    html += `<td class="num-cell">${fm(grandTotal)} ₽</td></tr>`;
+    html += `</tbody></table></div>`;
+    c.innerHTML = html;
+  }
+
+  // === ФОТ ===
+  let fotFilter = {territory: 'all', search: ''};
+  function renderFot() {
+    destroyCharts();
+    const c = document.getElementById('fot-content');
+    if (!data.period) { c.innerHTML = '<div class="empty">Выберите месяц</div>'; return; }
+    if (!data.fot && data.employees.length === 0) {
+      c.innerHTML = '<div class="empty">📭 Данных по ФОТ за этот месяц нет<br><br>Загрузите файл начисления зарплаты на вкладке "Загрузить Excel"</div>';
+      return;
+    }
+
+    const fot = data.fot || {};
+    let html = `
+      <div class="kpi-grid">
+        <div class="kpi acc">
+          <div class="kpi-lbl">ФОТ итого</div>
+          <div class="kpi-val">${fm(fot.fot_total)} ₽</div>
+          <div class="kpi-sub">${fot.total_employees || 0} сотрудников</div>
+        </div>
+        <div class="kpi green">
+          <div class="kpi-lbl">Совхозная</div>
+          <div class="kpi-val g">${fm(fot.fot_sovhoz)} ₽</div>
+        </div>
+        <div class="kpi blue">
+          <div class="kpi-lbl">Пойма</div>
+          <div class="kpi-val b">${fm(fot.fot_poyma)} ₽</div>
+        </div>
+        <div class="kpi" style="border-left:3px solid var(--purple);">
+          <div class="kpi-lbl">Москва</div>
+          <div class="kpi-val" style="color:var(--purple);">${fm(fot.fot_moscow)} ₽</div>
+        </div>
+        <div class="kpi orange">
+          <div class="kpi-lbl">Детейлинг</div>
+          <div class="kpi-val o">${fm(fot.fot_detailing)} ₽</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-lbl">НДФЛ удержано</div>
+          <div class="kpi-val t">${fm(fot.ndfl)} ₽</div>
+        </div>
+      </div>
+
+      <div class="data-block">
+        <div class="block-title">👥 Сотрудники (${data.employees.length})</div>
+        <input type="text" class="emp-search" id="emp-search" placeholder="Поиск по ФИО..." oninput="fotFilter.search=this.value;drawEmployees()">
+        <div class="emp-filters">
+          <button class="filter-btn ${fotFilter.territory==='all'?'active':''}" onclick="fotFilter.territory='all';renderFot()">Все</button>
+          <button class="filter-btn ${fotFilter.territory==='Совхозная'?'active':''}" onclick="fotFilter.territory='Совхозная';renderFot()">Совхозная</button>
+          <button class="filter-btn ${fotFilter.territory==='Пойма'?'active':''}" onclick="fotFilter.territory='Пойма';renderFot()">Пойма</button>
+          <button class="filter-btn ${fotFilter.territory==='Москва'?'active':''}" onclick="fotFilter.territory='Москва';renderFot()">Москва</button>
+          <button class="filter-btn ${fotFilter.territory==='Детейлинг'?'active':''}" onclick="fotFilter.territory='Детейлинг';renderFot()">Детейлинг</button>
+        </div>
+        <div id="emp-list"></div>
+      </div>
+    `;
+
+    // Удержания
+    if (data.penalties.length) {
+      html += `<div class="data-block"><div class="block-title">⚠️ Удержания (${data.penalties.length})</div><div class="emp-list">`;
+      data.penalties.forEach(p => {
+        html += `<div class="emp-row"><div class="emp-name">${p.fio}<div class="emp-meta">${p.reason || ''}</div></div><div class="emp-amount" style="color:var(--red);">−${fm(p.amount)} ₽</div></div>`;
+      });
+      html += `</div></div>`;
+    }
+
+    c.innerHTML = html;
+    drawEmployees();
+  }
+
+  function drawEmployees() {
+    const list = document.getElementById('emp-list');
+    if (!list) return;
+    let emps = data.employees;
+    if (fotFilter.territory !== 'all') emps = emps.filter(e => e.territory === fotFilter.territory);
+    if (fotFilter.search) {
+      const q = fotFilter.search.toLowerCase();
+      emps = emps.filter(e => (e.fio || '').toLowerCase().includes(q));
+    }
+    emps = emps.slice().sort((a,b) => +b.final_payable - +a.final_payable);
+
+    if (emps.length === 0) { list.innerHTML = '<div class="empty">Никого не найдено</div>'; return; }
+
+    let html = '<div class="emp-list">';
+    emps.forEach(e => {
+      const territoryClass = (e.territory || '').toLowerCase()
+        .replace('совхозная','sovhoz')
+        .replace('пойма','poyma')
+        .replace('москва','moscow')
+        .replace('детейлинг','detailing');
+      html += `<div class="emp-row ${territoryClass}">
+        <div class="emp-name">${e.fio}<div class="emp-meta">${e.territory} · ${e.status}${e.comment ? ' · '+e.comment : ''}</div></div>
+        <div class="emp-amount">${fm(e.final_payable)} ₽<small>${e.fact_days || 0} дней</small></div>
+      </div>`;
+    });
+    html += '</div>';
+    list.innerHTML = html;
+  }
+
+  // === КРЕДИТЫ/ЛИЗИНГИ ===
+  function renderLoans() {
+    destroyCharts();
+    const c = document.getElementById('loans-content');
+    let html = `
+      <div class="data-block">
+        <div class="block-title">🏦 Кредиты и лизинги
+          <div class="block-actions">
+            <button class="btn" onclick="addLoan()">+ Добавить</button>
+          </div>
+        </div>`;
+    if (data.loans.length === 0) {
+      html += `<div class="empty">📭 Кредитов и лизингов пока нет<br><br>Нажмите "+ Добавить" чтобы внести данные</div>`;
+    } else {
+      const totalMonthly = data.loans.reduce((s,r) => s + (+r.monthly_payment || 0), 0);
+      const totalDebt = data.loans.reduce((s,r) => s + (+r.remaining_debt || 0), 0);
+      html += `
+        <div class="kpi-grid" style="margin-bottom:14px;">
+          <div class="kpi red"><div class="kpi-lbl">Остаток долга</div><div class="kpi-val r">${fm(totalDebt)} ₽</div></div>
+          <div class="kpi orange"><div class="kpi-lbl">Платёж в месяц</div><div class="kpi-val o">${fm(totalMonthly)} ₽</div></div>
+          <div class="kpi"><div class="kpi-lbl">Всего обязательств</div><div class="kpi-val t">${data.loans.length}</div></div>
+        </div>
+        <div class="loans-list">`;
+      data.loans.forEach(l => {
+        const initial = +l.initial_amount || 0;
+        const remaining = +l.remaining_debt || 0;
+        const paid = initial - remaining;
+        const pct = initial > 0 ? Math.round(paid/initial*100) : 0;
+        html += `<div class="loan-card ${l.type}">
+          <div class="loan-head">
+            <div>
+              <div class="loan-name">${l.bank}</div>
+              ${l.description ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;">${l.description}</div>`:''}
+            </div>
+            <div class="loan-type">${l.type === 'credit' ? 'Кредит' : 'Лизинг'}</div>
+          </div>
+          <div class="loan-amount">${fm(remaining)} ₽<span style="font-family:'Inter',sans-serif;font-size:11px;color:var(--muted);font-weight:500;margin-left:8px;">остаток</span></div>
+          <div class="loan-meta">
+            <div class="loan-meta-item">Платёж в мес<b>${fm(l.monthly_payment)} ₽</b></div>
+            <div class="loan-meta-item">До<b>${l.end_date ? new Date(l.end_date).toLocaleDateString('ru-RU') : '—'}</b></div>
+          </div>
+          ${initial > 0 ? `
+          <div class="loan-progress">
+            <div class="loan-bar"><div class="loan-bar-fill" style="width:${pct}%;"></div></div>
+            <div class="loan-progress-text">Выплачено ${pct}% · ${fm(paid)} из ${fm(initial)} ₽</div>
+          </div>` : ''}
+        </div>`;
+      });
+      html += `</div>`;
+    }
+    html += `</div>`;
+    c.innerHTML = html;
+  }
+
+  // === КАЛЕНДАРЬ ===
+  function renderCalendar() {
+    destroyCharts();
+    const c = document.getElementById('calendar-content');
+    if (!data.period) { c.innerHTML = '<div class="empty">Выберите месяц</div>'; return; }
+
+    // Группируем расходы по предполагаемым датам платежа
+    const groups = {
+      10: {name: '10-е число', items: [{name: 'Аванс зарплаты (часть)', amount: data.fot ? Math.round(data.fot.fot_total * 0.3) : 0}]},
+      15: {name: '15-е число', items: [{name: 'Часть лизинга (если разделён)', amount: 0}]},
+      25: {name: '25-е число', items: []},
+      28: {name: '28-е число', items: []}
+    };
+    // 25 — зарплата + аренда + лизинг + кредиты
+    const salaryOf = data.expenses.filter(r => r.category === 'salary_official').reduce((s,r) => s + (+r.amount), 0);
+    const salaryUnof = data.expenses.filter(r => r.category === 'salary_unofficial').reduce((s,r) => s + (+r.amount), 0);
+    const rent = data.expenses.filter(r => r.category.startsWith('rent')).reduce((s,r) => s + (+r.amount), 0);
+    const lease = data.expenses.filter(r => r.category === 'leasing').reduce((s,r) => s + (+r.amount), 0);
+    const credit = data.expenses.filter(r => r.category === 'credit_kv').reduce((s,r) => s + (+r.amount), 0);
+    if (salaryOf + salaryUnof > 0) groups[25].items.push({name: '👔 Зарплата (вторая часть)', amount: Math.round((salaryOf + salaryUnof) * 0.7)});
+    if (rent > 0) groups[25].items.push({name: '🏢 Аренда', amount: rent});
+    if (lease > 0) groups[25].items.push({name: '🚛 Лизинг', amount: lease});
+    if (credit > 0) groups[25].items.push({name: '🏦 Кредит КВ', amount: credit});
+
+    // 28 — налоги
+    const taxByType = {};
+    data.taxes.forEach(t => {
+      const name = TAX_NAMES[t.tax_type] || t.tax_type;
+      taxByType[name] = (taxByType[name] || 0) + (+t.amount);
+    });
+    Object.entries(taxByType).forEach(([name, amount]) => {
+      groups[28].items.push({name: '🏛 '+name, amount});
+    });
+
+    let html = `<div class="data-block"><div class="block-title">📅 Календарь платежей · ${data.period}</div><div class="calendar-grid">`;
+    Object.entries(groups).forEach(([day, g]) => {
+      const total = g.items.reduce((s,i) => s + i.amount, 0);
+      if (total === 0 && g.items.length === 0) return;
+      html += `<div class="cal-day">
+        <div class="cal-date">${day}<small>${g.name}</small></div>
+        <div class="cal-items">`;
+      g.items.filter(i => i.amount > 0).forEach(i => {
+        html += `<div class="cal-item"><span class="cal-item-name">${i.name}</span><span class="cal-item-amount">${fm(i.amount)} ₽</span></div>`;
+      });
+      html += `</div><div class="cal-total">${fm(total)} ₽</div></div>`;
+    });
+    html += `</div></div>`;
+    c.innerHTML = html;
+  }
+
+  // === ЗАГРУЗКА EXCEL ===
+  function renderUpload() {
+    const c = document.getElementById('upload-content');
+    c.innerHTML = `
+      <div class="data-block">
+        <div class="block-title">📤 Загрузка Excel</div>
+        <p style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:14px;">
+          Здесь можно загрузить два типа файлов:<br>
+          • <b style="color:var(--text);">Расходы</b> — файл с зарплатой/арендой/лизингом/налогами по 4 юрлицам<br>
+          • <b style="color:var(--text);">Начисление зарплаты</b> — детальный ФОТ с разбивкой по сотрудникам
+        </p>
+        <div class="upload-zone" id="upload-zone-exp" onclick="document.getElementById('file-exp').click()">
+          <div class="upload-icon">💸</div>
+          <div class="upload-text">Загрузить файл «Расходы»</div>
+          <div class="upload-hint">Excel-файл (.xlsx) от бухгалтера</div>
+          <div class="upload-status" id="status-exp"></div>
+        </div>
+        <input type="file" id="file-exp" accept=".xlsx" style="display:none" onchange="handleUpload('expenses', this)">
+
+        <div style="height:14px;"></div>
+
+        <div class="upload-zone" id="upload-zone-fot" onclick="document.getElementById('file-fot').click()">
+          <div class="upload-icon">👥</div>
+          <div class="upload-text">Загрузить файл «Начисление зарплаты»</div>
+          <div class="upload-hint">Excel-файл с листами «январь 26», «февраль 26» и т.д.</div>
+          <div class="upload-status" id="status-fot"></div>
+        </div>
+        <input type="file" id="file-fot" accept=".xlsx" style="display:none" onchange="handleUpload('fot', this)">
+
+        <div style="margin-top:18px;padding:13px;background:#141414;border-radius:8px;font-size:12px;color:var(--muted);line-height:1.6;">
+          <b style="color:var(--text);">📌 Важно:</b><br>
+          Парсинг Excel в браузере находится в разработке. Сейчас файлы загружаются вручную через SQL после обработки в системе.<br>
+          Скиньте файл в чат и он будет добавлен в БД в течение нескольких минут.
+        </div>
+      </div>
+    `;
+  }
+
+  function handleUpload(type, input) {
+    const file = input.files[0];
+    if (!file) return;
+    const status = document.getElementById('status-'+type);
+    status.style.color = 'var(--orange)';
+    status.textContent = '⏳ Файл получен: '+file.name+' · '+(file.size/1024).toFixed(1)+' KB. Парсер в разработке — отправьте файл в чат для импорта.';
+  }
+
+  // === МОДАЛЫ ===
+  function openModal(title, body, onSave) {
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-body').innerHTML = body;
+    document.getElementById('modal-foot').innerHTML = `
+      <button class="btn secondary" onclick="closeModal()">Отмена</button>
+      <button class="btn" id="modal-save">Сохранить</button>`;
+    document.getElementById('modal-save').onclick = onSave;
+    document.getElementById('modal').classList.add('show');
+  }
+  function closeModal() { document.getElementById('modal').classList.remove('show'); }
+
+  function addExpense() {
+    const body = `
+      <div class="form-group">
+        <label class="form-label">Юрлицо</label>
+        <select class="form-select" id="m-entity">
+          <option value="plaza">ПЛАЗА</option>
+          <option value="ip_rkv">ИП РКВ</option>
+          <option value="ip_shap">ИП ШАП</option>
+          <option value="trak">ТРАК</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Категория</label>
+        <select class="form-select" id="m-category">
+          ${Object.entries(EXPENSE_CATS).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Сумма ₽</label>
+        <input class="form-input" id="m-amount" type="number" placeholder="0">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Комментарий</label>
+        <input class="form-input" id="m-notes" placeholder="например: переплата за апрель">
+      </div>
+    `;
+    openModal('Добавить разовый расход', body, async () => {
+      const entity = document.getElementById('m-entity').value;
+      const cat = document.getElementById('m-category').value;
+      const amount = +document.getElementById('m-amount').value;
+      const notes = document.getElementById('m-notes').value;
+      if (!amount) { showToast('Введите сумму', 'err'); return; }
+      try {
+        await sb.from('expenses_monthly').insert({
+          period: data.period, entity_id: entity, category: cat, amount, notes
+        });
+        showToast('Сохранено', 'ok');
+        closeModal();
+        loadAll();
+      } catch (e) { showToast('Ошибка: '+(e.message||e), 'err'); }
+    });
+  }
+
+  function addLoan() {
+    const body = `
+      <div class="form-group">
+        <label class="form-label">Тип</label>
+        <select class="form-select" id="m-type">
+          <option value="credit">Кредит</option>
+          <option value="lease">Лизинг</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Банк / Лизинговая компания</label>
+        <input class="form-input" id="m-bank" placeholder="Тинькофф / Альфа-Банк / Европлан">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Юрлицо</label>
+        <select class="form-select" id="m-entity">
+          <option value="plaza">ПЛАЗА</option>
+          <option value="ip_rkv">ИП РКВ</option>
+          <option value="ip_shap">ИП ШАП</option>
+          <option value="trak">ТРАК</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Первоначальная сумма</label>
+        <input class="form-input" id="m-initial" type="number" placeholder="3000000">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Остаток долга сейчас</label>
+        <input class="form-input" id="m-remaining" type="number" placeholder="2200000">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Платёж в месяц</label>
+        <input class="form-input" id="m-monthly" type="number" placeholder="138000">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Дата окончания</label>
+        <input class="form-input" id="m-enddate" type="date">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Описание</label>
+        <input class="form-input" id="m-desc" placeholder="например: лизинг на Газель">
+      </div>
+    `;
+    openModal('Добавить кредит/лизинг', body, async () => {
+      const type = document.getElementById('m-type').value;
+      const bank = document.getElementById('m-bank').value.trim();
+      const entity = document.getElementById('m-entity').value;
+      const initial = +document.getElementById('m-initial').value || null;
+      const remaining = +document.getElementById('m-remaining').value || null;
+      const monthly = +document.getElementById('m-monthly').value;
+      const endDate = document.getElementById('m-enddate').value || null;
+      const desc = document.getElementById('m-desc').value.trim();
+      if (!bank || !monthly) { showToast('Заполните банк и платёж', 'err'); return; }
+      try {
+        await sb.from('loans_leases').insert({
+          type, bank, entity_id: entity, initial_amount: initial,
+          remaining_debt: remaining, monthly_payment: monthly,
+          end_date: endDate, description: desc, active: true
+        });
+        showToast('Сохранено', 'ok');
+        closeModal();
+        loadAll();
+      } catch (e) { showToast('Ошибка: '+(e.message||e), 'err'); }
+    });
+  }
+
+  // === ИНИЦИАЛИЗАЦИЯ ===
+  document.getElementById('login-code').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  if (sessionStorage.getItem('rgp_buh') === '1') enterApp();
+</script>
+</body>
+</html>
