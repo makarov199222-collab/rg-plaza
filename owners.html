@@ -65,14 +65,17 @@
   .section-title::after{content:'';flex:1;height:1px;background:var(--border);}
 
   .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:14px;}
-  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;cursor:pointer;transition:all .15s;}
+  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;cursor:pointer;transition:all .15s;position:relative;}
   .kpi:hover{border-color:var(--accent);}
+  .kpi:active{transform:scale(.98);}
   .kpi.acc{border-color:rgba(232,184,75,.5);}
   .kpi.green{border-left:3px solid var(--green);}
   .kpi.red{border-left:3px solid var(--red);}
   .kpi.blue{border-left:3px solid var(--blue);}
   .kpi.orange{border-left:3px solid var(--orange);}
   .kpi.purple{border-left:3px solid var(--purple);}
+  .kpi-expand-icon{position:absolute;top:11px;right:11px;color:var(--muted);font-size:14px;transition:transform .2s;opacity:.5;}
+  .kpi.is-expanded .kpi-expand-icon{transform:rotate(45deg);color:var(--accent);opacity:1;}
   .kpi-lbl{font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.7px;margin-bottom:7px;display:flex;align-items:center;gap:5px;}
   .kpi-val{font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--accent);line-height:1;letter-spacing:1px;}
   .kpi-val.t{color:var(--text);} .kpi-val.r{color:var(--red);} .kpi-val.g{color:var(--green);} .kpi-val.o{color:var(--orange);} .kpi-val.b{color:var(--blue);} .kpi-val.p{color:var(--purple);}
@@ -112,8 +115,8 @@
   .pc-head{padding:13px 15px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;}
   .pc-name{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--accent);letter-spacing:2px;}
   .pc-city-tag{font-size:9px;color:var(--muted);background:#141414;padding:3px 7px;border-radius:4px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;}
-  .pc-toggle{margin-left:auto;color:var(--muted);font-size:18px;transition:transform .2s;}
-  .pc-toggle.expanded{transform:rotate(90deg);color:var(--accent);}
+  .pc-toggle{margin-left:auto;color:var(--muted);font-size:18px;font-weight:600;width:24px;height:24px;display:flex;align-items:center;justify-content:center;background:#141414;border-radius:6px;transition:all .2s;}
+  .pc-toggle.expanded{color:var(--accent);background:rgba(232,184,75,.15);}
   .pc-body{padding:13px;}
   .pc-stats{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:10px;}
   .pc-stat{background:#141414;border:1px solid var(--border);border-radius:8px;padding:9px 10px;}
@@ -125,7 +128,8 @@
 
   .finance-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
   @media (max-width:600px){ .finance-grid{grid-template-columns:1fr;} }
-  .finance-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;cursor:pointer;}
+  .finance-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;cursor:pointer;position:relative;transition:all .15s;}
+  .finance-card:hover{border-color:var(--accent);}
   .finance-card.profit{border-color:rgba(76,175,80,.4);}
   .finance-card.loss{border-color:rgba(244,67,54,.4);}
   .finance-card.debt{border-left:3px solid var(--orange);}
@@ -466,7 +470,8 @@
     html += `<div class="section">
       <div class="section-title">💰 Выручка и прибыль · ${monthName}</div>
       <div class="kpi-grid">
-        <div class="kpi acc" onclick="toggleExpand('total', event)">
+        <div class="kpi acc ${expandedKpis.has('total')?'is-expanded':''}" onclick="toggleExpand('total', event)">
+          <div class="kpi-expand-icon">+</div>
           <div class="kpi-lbl">📊 Месячная выручка</div>
           <div class="kpi-val">${fm(monthTotal)} ₽</div>
           <div class="kpi-sub">${monthDelta !== null ? `<span class="kpi-delta ${monthDelta>=0?'up':'down'}">${monthDelta>=0?'▲':'▼'} ${Math.abs(monthDelta)}%</span> к ${MP_MONTHS_SHORT[data.prevRange.month-1]}` : 'нет данных за прошлый месяц'}</div>
@@ -478,7 +483,8 @@
             <div class="expand-item"><span>📌 Записей всего</span><span class="v">${monthBookings}</span></div>
           </div>` : ''}
         </div>
-        <div class="kpi ${profit >= 0 ? 'green' : 'red'}" onclick="toggleExpand('profit', event)">
+        <div class="kpi ${profit >= 0 ? 'green' : 'red'} ${expandedKpis.has('profit')?'is-expanded':''}" onclick="toggleExpand('profit', event)">
+          <div class="kpi-expand-icon">+</div>
           <div class="kpi-lbl">💎 Чистая прибыль</div>
           <div class="kpi-val ${profit >= 0 ? 'g' : 'r'}">${fm(profit)} ₽</div>
           <div class="kpi-sub">маржа ${profitMargin}%</div>
@@ -490,7 +496,8 @@
             <div class="expand-item"><b>= Чистая прибыль</b><span class="v ${profit >= 0 ? 'g' : 'r'}">${fm(profit)} ₽</span></div>
           </div>` : ''}
         </div>
-        <div class="kpi orange" onclick="toggleExpand('fot', event)">
+        <div class="kpi orange ${expandedKpis.has('fot')?'is-expanded':''}" onclick="toggleExpand('fot', event)">
+          <div class="kpi-expand-icon">+</div>
           <div class="kpi-lbl">👥 ФОТ</div>
           <div class="kpi-val o">${fm(fotTotal)} ₽</div>
           <div class="kpi-sub">${fotPct}% от выручки · ${fot.total_employees || 0} чел</div>
@@ -502,7 +509,8 @@
             <div class="expand-item"><b>Норма ФОТ от выручки</b><span class="v">25-30%</span></div>
           </div>` : ''}
         </div>
-        <div class="kpi blue" onclick="toggleExpand('year', event)">
+        <div class="kpi blue ${expandedKpis.has('year')?'is-expanded':''}" onclick="toggleExpand('year', event)">
+          <div class="kpi-expand-icon">+</div>
           <div class="kpi-lbl">🎯 Год.вал ${data.range.year}</div>
           <div class="kpi-val b">${fm(yearTotal)} ₽</div>
           <div class="kpi-sub">страх ${yearTotal>0?Math.round(yearIns/yearTotal*100):0}% / розн ${yearTotal>0?Math.round(yearRetail/yearTotal*100):0}%</div>
@@ -568,11 +576,11 @@
       const planTotal = planMonth + planCorp;
       const planPct = planTotal > 0 ? Math.round(s.total / planTotal * 100) : 0;
       const planColor = planPct >= 80 ? 'var(--green)' : planPct >= 50 ? 'var(--orange)' : 'var(--red)';
-      html += `<div class="point-card ${isExpanded?'expanded':''}" onclick="togglePoint('${p.id}')">
+      html += `<div class="point-card ${isExpanded?'expanded':''}" onclick="togglePoint('${p.id}', event)">
         <div class="pc-head">
           <div class="pc-name">${p.name}</div>
           <div class="pc-city-tag">${cityLabel}</div>
-          <div class="pc-toggle ${isExpanded?'expanded':''}">›</div>
+          <div class="pc-toggle ${isExpanded?'expanded':''}">${isExpanded ? '−' : '+'}</div>
         </div>
         <div class="pc-body">
           <div class="pc-stats">
@@ -608,13 +616,15 @@
       html += `<div class="section">
         <div class="section-title">💸 Долги</div>
         <div class="finance-grid">
-          <div class="finance-card debt" onclick="toggleExpand('debts', event)">
+          <div class="finance-card debt ${expandedKpis.has('debts')?'is-expanded':''}" onclick="toggleExpand('debts', event)">
+            <div class="kpi-expand-icon">+</div>
             <div class="finance-title orange">🟡 Нам должны (заказ-наряды)</div>
             <div class="finance-val o">${fm(monthDebtTotal)} ₽</div>
             <div class="finance-sub">${expandedKpis.has('debts') ? '' : 'тапни чтобы увидеть детали'}</div>
             ${expandedKpis.has('debts') ? renderDebtBreakdown(data, 'debt', lastByPoint) : ''}
           </div>
-          <div class="finance-card owe" onclick="toggleExpand('owes', event)">
+          <div class="finance-card owe ${expandedKpis.has('owes')?'is-expanded':''}" onclick="toggleExpand('owes', event)">
+            <div class="kpi-expand-icon">+</div>
             <div class="finance-title red">🔴 Мы должны</div>
             <div class="finance-val r">${fm(monthOweTotal)} ₽</div>
             <div class="finance-sub">${expandedKpis.has('owes') ? '' : 'тапни чтобы увидеть детали'}</div>
@@ -745,11 +755,12 @@
   }
 
   function toggleExpand(key, ev) {
-    if (ev) ev.stopPropagation();
+    if (ev) { ev.stopPropagation(); ev.preventDefault(); }
     if (expandedKpis.has(key)) expandedKpis.delete(key); else expandedKpis.add(key);
     if (cachedData) render(cachedData);
   }
-  function togglePoint(id) {
+  function togglePoint(id, ev) {
+    if (ev) { ev.stopPropagation(); ev.preventDefault(); }
     if (expandedPoints.has(id)) expandedPoints.delete(id); else expandedPoints.add(id);
     if (cachedData) render(cachedData);
   }
