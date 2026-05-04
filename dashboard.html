@@ -533,7 +533,7 @@
         sb.from('expenses_monthly').select('*').eq('period', period),
         sb.from('taxes_monthly').select('*').eq('period', period),
         sb.from('insurance_directions').select('*').gte('period', `${range.year}-01`).lte('period', period),
-        sb.from('point_pnl').select('*').eq('period', period)
+        sb.from('point_pnl').select('*').or(`period.eq.${period},period.eq.${range.year}-YTD`)
       ]);
       if (pointsRes.error) throw pointsRes.error;
       if (reportsRes.error) throw reportsRes.error;
@@ -636,12 +636,18 @@
 
     // Кэшфлоу из Планфакт за месяц
     const revIds = new Set(data.points.map(p => p.id));
-    const monthPnlMain = (data.pnl || []).filter(p => revIds.has(p.point_id));
+    const monthPnlMain = (data.pnl || []).filter(p => p.period === period && revIds.has(p.point_id));
     const cashflowIncome = monthPnlMain.reduce((s,p) => s + (+p.income||0), 0);
     const cashflowExp = monthPnlMain.reduce((s,p) => s + (+p.expenses||0), 0);
     const cashflow = cashflowIncome - cashflowExp;
     const cashflowMargin = cashflowIncome > 0 ? Math.round(cashflow / cashflowIncome * 100) : 0;
     const hasCashflowData = monthPnlMain.length > 0 && (cashflowIncome > 0 || cashflowExp > 0);
+    // Fallback на YTD
+    const ytdMain = (data.pnl || []).filter(p => p.period === `${data.range.year}-YTD` && revIds.has(p.point_id));
+    const ytdIncome = ytdMain.reduce((s,p) => s + (+p.income||0), 0);
+    const ytdExp = ytdMain.reduce((s,p) => s + (+p.expenses||0), 0);
+    const ytdCashflow = ytdIncome - ytdExp;
+    const hasYtdData = ytdMain.length > 0 && (ytdIncome > 0 || ytdExp > 0);
 
     // === Полнота месяца ===
     const today = new Date();
@@ -776,19 +782,24 @@
 
     // Финансовый блок
     html += `<div class="finance-row">
-      <div class="fin-card ${hasCashflowData ? (cashflow >= 0 ? 'green' : 'red') : 'orange'} ${expandedFinance.has('profit')?'is-expanded':''}" onclick="toggleFinance('profit', event)">
+      <div class="fin-card ${hasCashflowData ? (cashflow >= 0 ? 'green' : 'red') : (hasYtdData ? 'blue' : 'orange')} ${expandedFinance.has('profit')?'is-expanded':''}" onclick="toggleFinance('profit', event)">
         <div class="fin-expand-icon">+</div>
-        <div class="fin-lbl">💰 Кэшфлоу <span style="font-size:8px;color:var(--muted);font-weight:500;text-transform:none;letter-spacing:0;">из Планфакт</span></div>
-        <div class="fin-val ${hasCashflowData ? (cashflow >= 0 ? 'g' : 'r') : 'o'}">${hasCashflowData ? (cashflow >= 0 ? '+' : '') + fm(cashflow) + ' ₽' : '— нет данных'}</div>
-        <div class="fin-sub">${hasCashflowData ? `маржа ${cashflowMargin}%` : 'не загружено за месяц'}</div>
+        <div class="fin-lbl">💰 Кэшфлоу <span style="font-size:8px;color:var(--muted);font-weight:500;text-transform:none;letter-spacing:0;">${hasCashflowData ? 'из Планфакт' : (hasYtdData ? 'YTD только' : 'из Планфакт')}</span></div>
+        <div class="fin-val ${hasCashflowData ? (cashflow >= 0 ? 'g' : 'r') : (hasYtdData ? 'b' : 'o')}">${hasCashflowData ? (cashflow >= 0 ? '+' : '') + fm(cashflow) + ' ₽' : (hasYtdData ? (ytdCashflow >= 0 ? '+' : '') + fm(ytdCashflow) + ' ₽' : '— нет данных')}</div>
+        <div class="fin-sub">${hasCashflowData ? `маржа ${cashflowMargin}%` : (hasYtdData ? `накопленно за год` : 'не загружено')}</div>
         ${expandedFinance.has('profit') ? `<div class="fin-detail">
           ${hasCashflowData ? `
             <div class="fin-detail-item"><span>+ Поступления</span><span class="v g">${fm(cashflowIncome)}</span></div>
             <div class="fin-detail-item"><span>− Выплаты</span><span class="v r">${fm(cashflowExp)}</span></div>
             <div class="fin-detail-item"><b>= Кэшфлоу</b><span class="v ${cashflow >= 0 ? 'g' : 'r'}">${cashflow >= 0 ? '+' : ''}${fm(cashflow)}</span></div>
+          ` : (hasYtdData ? `
+            <div class="fin-detail-item"><span>+ Поступления YTD</span><span class="v g">${fm(ytdIncome)}</span></div>
+            <div class="fin-detail-item"><span>− Выплаты YTD</span><span class="v r">${fm(ytdExp)}</span></div>
+            <div class="fin-detail-item"><b>= Кэшфлоу YTD</b><span class="v ${ytdCashflow >= 0 ? 'g' : 'r'}">${ytdCashflow >= 0 ? '+' : ''}${fm(ytdCashflow)}</span></div>
+            <div class="fin-detail-item" style="grid-column:1/-1;"><span style="font-size:10px;line-height:1.4;color:var(--muted);">📊 Помесячных данных нет — показано накопленное за год</span><span></span></div>
           ` : `
-            <div class="fin-detail-item" style="grid-column:1/-1;"><span style="font-size:11px;line-height:1.4;color:var(--muted);">Бухгалтер ещё не загрузил Планфакт за месяц</span><span></span></div>
-          `}
+            <div class="fin-detail-item" style="grid-column:1/-1;"><span style="font-size:11px;line-height:1.4;color:var(--muted);">Бухгалтер ещё не загрузил Планфакт</span><span></span></div>
+          `)}
         </div>` : ''}
       </div>
       ${hasFinanceData ? `
