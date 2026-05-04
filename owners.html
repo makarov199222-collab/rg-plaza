@@ -339,7 +339,7 @@
     const period = `${range.year}-${String(range.month).padStart(2,'0')}`;
 
     try {
-      const [pointsRes, currentRes, prevRes, yearRes, plansRes, fotRes, expRes, taxRes, loansRes, dirsRes, ravtRes, channelsRes, companiesRes, breakdownRes, breakdownPrevRes, breakdownYearRes] = await Promise.all([
+      const [pointsRes, currentRes, prevRes, yearRes, plansRes, fotRes, expRes, taxRes, loansRes, dirsRes, ravtRes, channelsRes, companiesRes, breakdownRes, breakdownPrevRes, breakdownYearRes, ravtSettlementsRes] = await Promise.all([
         sb.from('points').select('*').order('id'),
         sb.from('daily_reports').select('*').gte('date', range.start).lte('date', range.end).order('date'),
         sb.from('daily_reports').select('point_id,date,total_day,owe_total,owe_ravt,owe_other').gte('date', prevRange.start).lte('date', prevRange.end),
@@ -355,7 +355,8 @@
         sb.from('insurance_companies').select('*').eq('is_active', true),
         sb.from('revenue_breakdown').select('*').eq('period', period),
         sb.from('revenue_breakdown').select('*').eq('period', `${prevRange.year}-${String(prevRange.month).padStart(2,'0')}`),
-        sb.from('revenue_breakdown').select('*').gte('period', `${range.year}-01`).lte('period', period)
+        sb.from('revenue_breakdown').select('*').gte('period', `${range.year}-01`).lte('period', period),
+        sb.from('ravt_settlements').select('*').order('settlement_date', { ascending: false }).limit(10)
       ]);
 
       cachedData = {
@@ -375,6 +376,7 @@
         breakdown: breakdownRes.data || [],
         breakdownPrev: breakdownPrevRes.data || [],
         breakdownYear: breakdownYearRes.data || [],
+        ravtSettlements: ravtSettlementsRes.data || [],
         range, prevRange, period
       };
       render(cachedData);
@@ -697,6 +699,23 @@
             ${monthOweRavt > 0 ? `<div class="expand-item"><span>🔄 РАВТу <small style="color:var(--muted);font-size:9px;">(стёкла, идёт зачёт)</small></span><span class="v" style="color:var(--orange);">${fm(monthOweRavt)} ₽</span></div>` : ''}
             ${monthOweOther > 0 ? `<div class="expand-item"><span>📦 Прочим поставщикам <small style="color:var(--muted);font-size:9px;">(требуют оплаты)</small></span><span class="v r">${fm(monthOweOther)} ₽</span></div>` : ''}
             ${oweDelta !== null ? `<div class="expand-item"><span>vs прошлый месяц общий</span><span class="v ${oweDelta>=0?'r':'g'}">${oweDelta>=0?'+':''}${oweDelta}% (${fm(prevOweTotal)} → ${fm(monthOweTotal)})</span></div>` : ''}
+            ${(function() {
+              const lastAct = (data.ravtSettlements || [])[0];
+              if (!lastAct) return '';
+              const net = +lastAct.ravt_owes_us - +lastAct.we_owe_ravt;
+              const days = Math.floor((Date.now() - new Date(lastAct.settlement_date).getTime()) / (24*60*60*1000));
+              const [yA,mA,dA] = lastAct.settlement_date.split('-');
+              const dateStr = `${dA}.${mA}.${yA.substring(2)}`;
+              const netColor = net >= 0 ? 'var(--green)' : 'var(--red)';
+              const netLabel = net >= 0 ? 'РАВТ заплатит нам' : 'мы заплатим РАВТу';
+              return `<div class="expand-item" style="margin-top:6px;padding-top:8px;border-top:1px dashed var(--border);background:rgba(33,150,243,.08);border-radius:7px;padding:9px 11px;">
+                <span style="font-size:11px;line-height:1.55;">
+                  📋 <b style="color:var(--blue);">Последний акт от ${dateStr}</b> (${days} дн назад)<br>
+                  <span style="color:var(--muted);">РАВТ нам ${fm(lastAct.ravt_owes_us)} − мы РАВТу ${fm(lastAct.we_owe_ravt)}</span><br>
+                  <span style="color:${netColor};font-weight:600;">→ Чистая позиция: ${net >= 0 ? '+' : ''}${fm(net)} ₽ — ${netLabel}</span>
+                </span><span></span>
+              </div>`;
+            })()}
             <div class="expand-item" style="margin-top:6px;padding-top:8px;border-top:1px dashed var(--border);"><span style="font-size:11px;line-height:1.5;color:var(--muted);">💡 Долг РАВТу — это <b style="color:var(--text);">рабочий капитал</b>: стёкла на машинах в работе. РАВТ нам тоже должен (за уже сделанные работы со страховых). Реальная цифра видна после взаимозачёта раз в ~30 дн.</span><span></span></div>
           </div>` : ''}
         </div>` : ''}
