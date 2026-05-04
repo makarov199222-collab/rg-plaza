@@ -323,7 +323,7 @@
         sb.from('points').select('*').order('id'),
         sb.from('daily_reports').select('*').gte('date', range.start).lte('date', range.end).order('date'),
         sb.from('daily_reports').select('point_id,date,total_day,owe_total,owe_ravt,owe_other').gte('date', prevRange.start).lte('date', prevRange.end),
-        sb.from('daily_reports').select('point_id,total_day,retail_day,ins_day,date').gte('date', yearStart).lte('date', range.end),
+        sb.from('daily_reports').select('point_id,date,total_day,retail_day,ins_day,debt_total,debt_retail,debt_insurance,owe_total,owe_ravt,owe_other').gte('date', yearStart).lte('date', range.end),
         sb.from('plans').select('*'),
         sb.from('fot_summary').select('*').eq('period', period).maybeSingle(),
         sb.from('expenses_monthly').select('*').eq('period', period),
@@ -373,7 +373,13 @@
       monthCorp += +r.corp_day || 0;
       monthBookings += +r.bookings || 0;
     });
+    // Последний отчёт по каждой точке (берём из всего года, а не только текущий месяц)
+    // Чтобы долги учитывались даже если в текущем месяце нет нового отчёта
     const lastByPoint = {};
+    data.year.forEach(r => {
+      if (!lastByPoint[r.point_id] || r.date > lastByPoint[r.point_id].date) lastByPoint[r.point_id] = r;
+    });
+    // Перезапишем последними из текущего месяца (если есть свежее)
     data.current.forEach(r => {
       if (!lastByPoint[r.point_id] || r.date > lastByPoint[r.point_id].date) lastByPoint[r.point_id] = r;
     });
@@ -386,7 +392,13 @@
     });
 
     // Долги в прошлом месяце — для сравнения динамики
+    // Берём последний отчёт по каждой точке до конца прошлого месяца (из year)
     const prevLastByPoint = {};
+    const prevEnd = data.prevRange.end;
+    data.year.forEach(r => {
+      if (r.date > prevEnd) return;
+      if (!prevLastByPoint[r.point_id] || r.date > prevLastByPoint[r.point_id].date) prevLastByPoint[r.point_id] = r;
+    });
     data.prev.forEach(r => {
       if (!prevLastByPoint[r.point_id] || r.date > prevLastByPoint[r.point_id].date) prevLastByPoint[r.point_id] = r;
     });
