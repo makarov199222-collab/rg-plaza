@@ -373,18 +373,26 @@
       monthCorp += +r.corp_day || 0;
       monthBookings += +r.bookings || 0;
     });
-    // Последний отчёт по каждой точке (берём из всего года, а не только текущий месяц)
-    // Чтобы долги учитывались даже если в текущем месяце нет нового отчёта
-    const lastByPoint = {};
+    // Последний отчёт по каждой точке — для долгов берём последний отчёт ГДЕ ДОЛГИ УКАЗАНЫ
+    // (если менеджер ввёл новый отчёт но забыл долги — они должны браться из предыдущего)
+    const lastByPoint = {};        // последний отчёт (для всего общего)
+    const lastDebtsByPoint = {};   // последний отчёт где долги > 0 (для отображения долгов)
     data.year.forEach(r => {
       if (!lastByPoint[r.point_id] || r.date > lastByPoint[r.point_id].date) lastByPoint[r.point_id] = r;
+      const hasDebts = (+r.debt_total > 0) || (+r.owe_total > 0);
+      if (hasDebts && (!lastDebtsByPoint[r.point_id] || r.date > lastDebtsByPoint[r.point_id].date)) {
+        lastDebtsByPoint[r.point_id] = r;
+      }
     });
-    // Перезапишем последними из текущего месяца (если есть свежее)
     data.current.forEach(r => {
       if (!lastByPoint[r.point_id] || r.date > lastByPoint[r.point_id].date) lastByPoint[r.point_id] = r;
+      const hasDebts = (+r.debt_total > 0) || (+r.owe_total > 0);
+      if (hasDebts && (!lastDebtsByPoint[r.point_id] || r.date > lastDebtsByPoint[r.point_id].date)) {
+        lastDebtsByPoint[r.point_id] = r;
+      }
     });
     let monthDebtTotal=0, monthOweTotal=0, monthOweRavt=0, monthOweOther=0;
-    Object.values(lastByPoint).forEach(r => {
+    Object.values(lastDebtsByPoint).forEach(r => {
       monthDebtTotal += +r.debt_total || 0;
       monthOweTotal += +r.owe_total || 0;
       monthOweRavt += +r.owe_ravt || 0;
@@ -392,14 +400,18 @@
     });
 
     // Долги в прошлом месяце — для сравнения динамики
-    // Берём последний отчёт по каждой точке до конца прошлого месяца (из year)
+    // Берём последний отчёт ГДЕ ДОЛГИ УКАЗАНЫ до конца прошлого месяца
     const prevLastByPoint = {};
     const prevEnd = data.prevRange.end;
     data.year.forEach(r => {
       if (r.date > prevEnd) return;
+      const hasDebts = (+r.debt_total > 0) || (+r.owe_total > 0);
+      if (!hasDebts) return;
       if (!prevLastByPoint[r.point_id] || r.date > prevLastByPoint[r.point_id].date) prevLastByPoint[r.point_id] = r;
     });
     data.prev.forEach(r => {
+      const hasDebts = (+r.debt_total > 0) || (+r.owe_total > 0);
+      if (!hasDebts) return;
       if (!prevLastByPoint[r.point_id] || r.date > prevLastByPoint[r.point_id].date) prevLastByPoint[r.point_id] = r;
     });
     let prevOweTotal = 0;
@@ -438,7 +450,7 @@
       s.bookings += +r.bookings || 0;
       s.days.add(r.date);
     });
-    Object.values(lastByPoint).forEach(r => {
+    Object.values(lastDebtsByPoint).forEach(r => {
       const s = pointStats[r.point_id];
       if (!s) return;
       s.debt = +r.debt_total || 0;
@@ -723,7 +735,7 @@
       const planPct = planTotal > 0 ? Math.round(s.total / planTotal * 100) : 0;
       const planColor = planPct >= 80 ? 'var(--green)' : planPct >= 50 ? 'var(--orange)' : 'var(--red)';
       // Алерт точки только по долгу прочим (РАВТ — это взаимозачёт, не считаем)
-      const lastReport = lastByPoint[p.id];
+      const lastReport = lastDebtsByPoint[p.id];
       const oweOtherForPoint = lastReport ? +lastReport.owe_other || 0 : 0;
       const owesAlert = s.total > 0 && oweOtherForPoint > s.total * 1.5;
       html += `<div class="point-card ${isExpanded?'expanded':''} ${owesAlert?'point-card-alert':''}" onclick="togglePoint('${p.id}', event)">
@@ -773,14 +785,14 @@
             <div class="finance-title orange">🟡 Нам должны (заказ-наряды)</div>
             <div class="finance-val o">${fm(monthDebtTotal)} ₽</div>
             <div class="finance-sub">${expandedKpis.has('debts') ? '' : 'тапни чтобы увидеть детали'}</div>
-            ${expandedKpis.has('debts') ? renderDebtBreakdown(data, 'debt', lastByPoint) : ''}
+            ${expandedKpis.has('debts') ? renderDebtBreakdown(data, 'debt', lastDebtsByPoint) : ''}
           </div>
           <div class="finance-card owe ${expandedKpis.has('owes')?'is-expanded':''}" onclick="toggleExpand('owes', event)">
             <div class="kpi-expand-icon">+</div>
             <div class="finance-title red">🔴 Мы должны</div>
             <div class="finance-val r">${fm(monthOweTotal)} ₽</div>
             <div class="finance-sub">${expandedKpis.has('owes') ? '' : `РАВТ ${fm(monthOweRavt)} (взаимозачёт) + прочие ${fm(monthOweOther)}`}</div>
-            ${expandedKpis.has('owes') ? renderDebtBreakdown(data, 'owe', lastByPoint) + `
+            ${expandedKpis.has('owes') ? renderDebtBreakdown(data, 'owe', lastDebtsByPoint) + `
               <div style="margin-top:11px;padding:10px 11px;background:rgba(232,184,75,.08);border-radius:7px;border-left:2px solid var(--accent);font-size:11px;line-height:1.55;color:var(--muted);">
                 <b style="color:var(--accent);">🔄 Про долг РАВТу</b><br>
                 РАВТ выдаёт направления → мы покупаем у них стёкла (страх+розница) → закрываем работы → СК платит РАВТу → раз в ~30 дн идёт <b style="color:var(--text);">взаимозачёт</b>: РАВТ нам должен (стекло + бонус 12%/25% + работа за каждую закрытую машину).<br>
