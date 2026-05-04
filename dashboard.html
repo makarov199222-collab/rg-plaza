@@ -524,7 +524,7 @@
     const yearStart = `${range.year}-01-01`;
     const period = `${range.year}-${String(range.month).padStart(2,'0')}`;
     try {
-      const [pointsRes, reportsRes, plansRes, yearRes, fotRes, expRes, taxRes, dirsRes] = await Promise.all([
+      const [pointsRes, reportsRes, plansRes, yearRes, fotRes, expRes, taxRes, dirsRes, pnlRes] = await Promise.all([
         sb.from('points').select('*').order('id'),
         sb.from('daily_reports').select('*').gte('date', range.start).lte('date', range.end).order('date'),
         sb.from('plans').select('*'),
@@ -532,13 +532,19 @@
         sb.from('fot_summary').select('*').eq('period', period).maybeSingle(),
         sb.from('expenses_monthly').select('*').eq('period', period),
         sb.from('taxes_monthly').select('*').eq('period', period),
-        sb.from('insurance_directions').select('*').gte('period', `${range.year}-01`).lte('period', period)
+        sb.from('insurance_directions').select('*').gte('period', `${range.year}-01`).lte('period', period),
+        sb.from('point_pnl').select('*').eq('period', period)
       ]);
       if (pointsRes.error) throw pointsRes.error;
       if (reportsRes.error) throw reportsRes.error;
       if (plansRes.error) throw plansRes.error;
+
+      const allPoints = pointsRes.data || [];
+      const revenuePoints = allPoints.filter(p => p.is_revenue_point !== false && !['detailing','school','mgt','other'].includes(p.id));
+
       cachedData = {
-        points: pointsRes.data || [],
+        points: revenuePoints,
+        allPoints: allPoints,
         reports: reportsRes.data || [],
         plans: plansRes.data || [],
         year: yearRes.data || [],
@@ -546,6 +552,7 @@
         expenses: expRes.data || [],
         taxes: taxRes.data || [],
         directions: dirsRes.data || [],
+        pnl: pnlRes.data || [],
         range, period
       };
       renderOverview(cachedData);
@@ -627,6 +634,15 @@
     const fotPct = allTotal > 0 ? Math.round(fotTotal / allTotal * 100) : 0;
     const hasFinanceData = fotTotal > 0 || expWithoutSalary > 0 || taxTotal > 0;
 
+    // Кэшфлоу из Планфакт за месяц
+    const revIds = new Set(data.points.map(p => p.id));
+    const monthPnlMain = (data.pnl || []).filter(p => revIds.has(p.point_id));
+    const cashflowIncome = monthPnlMain.reduce((s,p) => s + (+p.income||0), 0);
+    const cashflowExp = monthPnlMain.reduce((s,p) => s + (+p.expenses||0), 0);
+    const cashflow = cashflowIncome - cashflowExp;
+    const cashflowMargin = cashflowIncome > 0 ? Math.round(cashflow / cashflowIncome * 100) : 0;
+    const hasCashflowData = monthPnlMain.length > 0 && (cashflowIncome > 0 || cashflowExp > 0);
+
     // === Полнота месяца ===
     const today = new Date();
     const isCurrentMonth = today.getFullYear() === data.range.year && today.getMonth()+1 === data.range.month;
@@ -694,11 +710,11 @@
       }
     }
 
-    // 2. Прибыль/маржа
-    if (allTotal > 0 && hasFinanceData && profit < 0) {
-      alerts.push({ type:'red', icon:'⚠️', text:`<b>Месяц убыточный:</b> расходы превысили выручку на ${fm(Math.abs(profit))} ₽` });
-    } else if (allTotal > 0 && hasFinanceData && profitMargin < 10) {
-      alerts.push({ type:'orange', icon:'📉', text:`<b>Низкая маржа:</b> прибыль всего ${profitMargin}% от выручки` });
+    // 2. Кэшфлоу — главный показатель
+    if (hasCashflowData && cashflow < 0) {
+      alerts.push({ type:'red', icon:'⚠️', text:`<b>Месяц убыточный по деньгам:</b> ушло на ${fm(Math.abs(cashflow))} ₽ больше чем пришло` });
+    } else if (hasCashflowData && cashflowMargin > 0 && cashflowMargin < 10) {
+      alerts.push({ type:'orange', icon:'📉', text:`<b>Низкая маржа кэшфлоу:</b> ${cashflowMargin}% от поступлений` });
     }
 
     // 3. План под угрозой (если на середине месяца идём ниже плана)
@@ -758,65 +774,68 @@
         </div>
       </div>`;
 
-    // Финансовый блок (только если есть данные)
-    if (hasFinanceData) {
-      html += `<div class="finance-row">
-        <div class="fin-card ${profit >= 0 ? 'green' : 'red'} ${expandedFinance.has('profit')?'is-expanded':''}" onclick="toggleFinance('profit', event)">
-          <div class="fin-expand-icon">+</div>
-          <div class="fin-lbl">💎 Чистая прибыль</div>
-          <div class="fin-val ${profit >= 0 ? 'g' : 'r'}">${fm(profit)} ₽</div>
-          <div class="fin-sub">маржа ${profitMargin}%</div>
-          ${expandedFinance.has('profit') ? `<div class="fin-detail">
-            <div class="fin-detail-item"><span>+ Выручка</span><span class="v g">${fm(allTotal)}</span></div>
-            <div class="fin-detail-item"><span>− ФОТ</span><span class="v r">${fm(fotTotal)}</span></div>
-            <div class="fin-detail-item"><span>− Расходы</span><span class="v r">${fm(expWithoutSalary)}</span></div>
-            <div class="fin-detail-item"><span>− Налоги</span><span class="v r">${fm(taxTotal)}</span></div>
-          </div>` : ''}
-        </div>
-        <div class="fin-card orange ${expandedFinance.has('fot')?'is-expanded':''}" onclick="toggleFinance('fot', event)">
-          <div class="fin-expand-icon">+</div>
-          <div class="fin-lbl">👥 ФОТ</div>
-          <div class="fin-val o">${fm(fotTotal)} ₽</div>
-          <div class="fin-sub">${fotPct}% от выручки</div>
-          ${expandedFinance.has('fot') ? `<div class="fin-detail">
-            <div class="fin-detail-item"><span>Совхозная</span><span class="v">${fm(fot.fot_sovhoz)}</span></div>
-            <div class="fin-detail-item"><span>Москва</span><span class="v">${fm(fot.fot_moscow)}</span></div>
-            <div class="fin-detail-item"><span>Пойма</span><span class="v">${fm(fot.fot_poyma)}</span></div>
-            <div class="fin-detail-item"><span>Детейлинг</span><span class="v">${fm(fot.fot_detailing)}</span></div>
-          </div>` : ''}
-        </div>
-        <div class="fin-card red ${expandedFinance.has('exp')?'is-expanded':''}" onclick="toggleFinance('exp', event)">
-          <div class="fin-expand-icon">+</div>
-          <div class="fin-lbl">📦 Расходы</div>
-          <div class="fin-val r">${fm(expWithoutSalary)} ₽</div>
-          <div class="fin-sub">аренда, лизинг, кредиты</div>
-          ${expandedFinance.has('exp') ? `<div class="fin-detail">
-            ${(function(){
-              const cats = {};
-              data.expenses.filter(r => !r.category.startsWith('salary_')).forEach(r => { cats[r.category] = (cats[r.category]||0) + (+r.amount); });
-              return Object.entries(cats).sort((a,b) => b[1] - a[1]).slice(0, 6).map(([cat, sum]) =>
-                `<div class="fin-detail-item"><span>${cat}</span><span class="v">${fm(sum)}</span></div>`
-              ).join('');
-            })()}
-          </div>` : ''}
-        </div>
-        <div class="fin-card blue ${expandedFinance.has('tax')?'is-expanded':''}" onclick="toggleFinance('tax', event)">
-          <div class="fin-expand-icon">+</div>
-          <div class="fin-lbl">📋 Налоги</div>
-          <div class="fin-val b">${fm(taxTotal)} ₽</div>
-          <div class="fin-sub">${data.taxes.length} платежей</div>
-          ${expandedFinance.has('tax') ? `<div class="fin-detail">
-            ${(function(){
-              const types = {};
-              data.taxes.forEach(r => { types[r.tax_type] = (types[r.tax_type]||0) + (+r.amount); });
-              return Object.entries(types).sort((a,b) => b[1] - a[1]).map(([t, sum]) =>
-                `<div class="fin-detail-item"><span>${t}</span><span class="v">${fm(sum)}</span></div>`
-              ).join('');
-            })()}
-          </div>` : ''}
-        </div>
-      </div>`;
-    }
+    // Финансовый блок
+    html += `<div class="finance-row">
+      <div class="fin-card ${hasCashflowData ? (cashflow >= 0 ? 'green' : 'red') : 'orange'} ${expandedFinance.has('profit')?'is-expanded':''}" onclick="toggleFinance('profit', event)">
+        <div class="fin-expand-icon">+</div>
+        <div class="fin-lbl">💰 Кэшфлоу <span style="font-size:8px;color:var(--muted);font-weight:500;text-transform:none;letter-spacing:0;">из Планфакт</span></div>
+        <div class="fin-val ${hasCashflowData ? (cashflow >= 0 ? 'g' : 'r') : 'o'}">${hasCashflowData ? (cashflow >= 0 ? '+' : '') + fm(cashflow) + ' ₽' : '— нет данных'}</div>
+        <div class="fin-sub">${hasCashflowData ? `маржа ${cashflowMargin}%` : 'не загружено за месяц'}</div>
+        ${expandedFinance.has('profit') ? `<div class="fin-detail">
+          ${hasCashflowData ? `
+            <div class="fin-detail-item"><span>+ Поступления</span><span class="v g">${fm(cashflowIncome)}</span></div>
+            <div class="fin-detail-item"><span>− Выплаты</span><span class="v r">${fm(cashflowExp)}</span></div>
+            <div class="fin-detail-item"><b>= Кэшфлоу</b><span class="v ${cashflow >= 0 ? 'g' : 'r'}">${cashflow >= 0 ? '+' : ''}${fm(cashflow)}</span></div>
+          ` : `
+            <div class="fin-detail-item" style="grid-column:1/-1;"><span style="font-size:11px;line-height:1.4;color:var(--muted);">Бухгалтер ещё не загрузил Планфакт за месяц</span><span></span></div>
+          `}
+        </div>` : ''}
+      </div>
+      ${hasFinanceData ? `
+      <div class="fin-card orange ${expandedFinance.has('fot')?'is-expanded':''}" onclick="toggleFinance('fot', event)">
+        <div class="fin-expand-icon">+</div>
+        <div class="fin-lbl">👥 ФОТ</div>
+        <div class="fin-val o">${fm(fotTotal)} ₽</div>
+        <div class="fin-sub">${fotPct}% от выручки</div>
+        ${expandedFinance.has('fot') ? `<div class="fin-detail">
+          <div class="fin-detail-item"><span>Совхозная</span><span class="v">${fm(fot.fot_sovhoz)}</span></div>
+          <div class="fin-detail-item"><span>Москва</span><span class="v">${fm(fot.fot_moscow)}</span></div>
+          <div class="fin-detail-item"><span>Пойма</span><span class="v">${fm(fot.fot_poyma)}</span></div>
+          <div class="fin-detail-item"><span>Детейлинг</span><span class="v">${fm(fot.fot_detailing)}</span></div>
+        </div>` : ''}
+      </div>
+      <div class="fin-card red ${expandedFinance.has('exp')?'is-expanded':''}" onclick="toggleFinance('exp', event)">
+        <div class="fin-expand-icon">+</div>
+        <div class="fin-lbl">📦 Расходы</div>
+        <div class="fin-val r">${fm(expWithoutSalary)} ₽</div>
+        <div class="fin-sub">аренда, лизинг, кредиты</div>
+        ${expandedFinance.has('exp') ? `<div class="fin-detail">
+          ${(function(){
+            const cats = {};
+            data.expenses.filter(r => !r.category.startsWith('salary_')).forEach(r => { cats[r.category] = (cats[r.category]||0) + (+r.amount); });
+            return Object.entries(cats).sort((a,b) => b[1] - a[1]).slice(0, 6).map(([cat, sum]) =>
+              `<div class="fin-detail-item"><span>${cat}</span><span class="v">${fm(sum)}</span></div>`
+            ).join('');
+          })()}
+        </div>` : ''}
+      </div>
+      <div class="fin-card blue ${expandedFinance.has('tax')?'is-expanded':''}" onclick="toggleFinance('tax', event)">
+        <div class="fin-expand-icon">+</div>
+        <div class="fin-lbl">📋 Налоги</div>
+        <div class="fin-val b">${fm(taxTotal)} ₽</div>
+        <div class="fin-sub">${data.taxes.length} платежей</div>
+        ${expandedFinance.has('tax') ? `<div class="fin-detail">
+          ${(function(){
+            const types = {};
+            data.taxes.forEach(r => { types[r.tax_type] = (types[r.tax_type]||0) + (+r.amount); });
+            return Object.entries(types).sort((a,b) => b[1] - a[1]).map(([t, sum]) =>
+              `<div class="fin-detail-item"><span>${t}</span><span class="v">${fm(sum)}</span></div>`
+            ).join('');
+          })()}
+        </div>` : ''}
+      </div>
+      ` : ''}
+    </div>`;
 
     // Мини-блок Долги (только если есть)
     if (totalDebt > 0 || totalOwe > 0) {
