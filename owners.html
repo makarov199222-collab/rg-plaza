@@ -500,15 +500,24 @@
     const profitMargin = monthTotal > 0 ? Math.round(profit / monthTotal * 100) : 0;
 
     // === КЭШФЛОУ из Планфакт за выбранный месяц ===
-    // Берём только основные точки (revenuePoints) чтобы не смешивать со свернутыми проектами
+    // Если за конкретный месяц данных нет — пробуем найти YTD (накопленно за год)
     const monthPnl = (data.pnl || []).filter(p => p.period === period);
-    const revenuePointIds = new Set(data.points.map(p => p.id));    // основные точки
+    const revenuePointIds = new Set(data.points.map(p => p.id));
     const monthPnlMain = monthPnl.filter(p => revenuePointIds.has(p.point_id));
     const cashflowIncome = monthPnlMain.reduce((s,p) => s + (+p.income||0), 0);
     const cashflowExp = monthPnlMain.reduce((s,p) => s + (+p.expenses||0), 0);
     const cashflow = cashflowIncome - cashflowExp;
     const cashflowMargin = cashflowIncome > 0 ? Math.round(cashflow / cashflowIncome * 100) : 0;
     const hasCashflowData = monthPnlMain.length > 0 && (cashflowIncome > 0 || cashflowExp > 0);
+
+    // Fallback на YTD: если за конкретный месяц данных нет — показываем YTD-итог
+    const ytdPnl = (data.pnl || []).filter(p => p.period === `${data.range.year}-YTD`);
+    const ytdMain = ytdPnl.filter(p => revenuePointIds.has(p.point_id));
+    const ytdIncome = ytdMain.reduce((s,p) => s + (+p.income||0), 0);
+    const ytdExp = ytdMain.reduce((s,p) => s + (+p.expenses||0), 0);
+    const ytdCashflow = ytdIncome - ytdExp;
+    const hasYtdData = ytdMain.length > 0 && (ytdIncome > 0 || ytdExp > 0);
+
     const fotPct = monthTotal > 0 ? Math.round(fotTotal / monthTotal * 100) : 0;
 
     // ФОТ по точкам (на основе территорий)
@@ -670,20 +679,25 @@
             ${monthBookings > 0 ? `<div class="expand-item"><span>📌 Записей всего</span><span class="v">${monthBookings}</span></div>` : ''}
           </div>` : ''}
         </div>
-        <div class="kpi ${hasCashflowData ? (cashflow >= 0 ? 'green' : 'red') : 'orange'} ${expandedKpis.has('profit')?'is-expanded':''}" data-anchor="profit" onclick="toggleExpand('profit', event)">
+        <div class="kpi ${hasCashflowData ? (cashflow >= 0 ? 'green' : 'red') : (hasYtdData ? 'blue' : 'orange')} ${expandedKpis.has('profit')?'is-expanded':''}" data-anchor="profit" onclick="toggleExpand('profit', event)">
           <div class="kpi-expand-icon">+</div>
-          <div class="kpi-lbl">💰 Кэшфлоу <span style="font-size:8px;color:var(--muted);font-weight:500;letter-spacing:0;text-transform:none;margin-left:3px;">из Планфакт</span></div>
-          <div class="kpi-val ${hasCashflowData ? (cashflow >= 0 ? 'g' : 'r') : 'o'}">${hasCashflowData ? (cashflow >= 0 ? '+' : '') + fm(cashflow) + ' ₽' : '— нет данных'}</div>
-          <div class="kpi-sub">${hasCashflowData ? `маржа ${cashflowMargin}% · по ${monthPnlMain.length} точкам` : 'бухгалтер ещё не загрузил'}</div>
+          <div class="kpi-lbl">💰 Кэшфлоу <span style="font-size:8px;color:var(--muted);font-weight:500;letter-spacing:0;text-transform:none;margin-left:3px;">${hasCashflowData ? 'за месяц' : (hasYtdData ? 'YTD только' : 'из Планфакт')}</span></div>
+          <div class="kpi-val ${hasCashflowData ? (cashflow >= 0 ? 'g' : 'r') : (hasYtdData ? 'b' : 'o')}">${hasCashflowData ? (cashflow >= 0 ? '+' : '') + fm(cashflow) + ' ₽' : (hasYtdData ? (ytdCashflow >= 0 ? '+' : '') + fm(ytdCashflow) + ' ₽' : '— нет данных')}</div>
+          <div class="kpi-sub">${hasCashflowData ? `маржа ${cashflowMargin}% · по ${monthPnlMain.length} точкам` : (hasYtdData ? `накопленно за ${data.range.year} (нет помесячно)` : 'бухгалтер ещё не загрузил')}</div>
           ${expandedKpis.has('profit') ? `<div class="expand-row">
             ${hasCashflowData ? `
               <div class="expand-item"><span>+ Поступления</span><span class="v g">${fm(cashflowIncome)} ₽</span></div>
               <div class="expand-item"><span>− Выплаты</span><span class="v r">${fm(cashflowExp)} ₽</span></div>
-              <div class="expand-item"><b>= Кэшфлоу</b><span class="v ${cashflow >= 0 ? 'g' : 'r'}">${cashflow >= 0 ? '+' : ''}${fm(cashflow)} ₽</span></div>
-              <div class="expand-item" style="margin-top:6px;padding-top:8px;border-top:1px dashed var(--border);"><span style="font-size:11px;line-height:1.5;color:var(--muted);">💡 <b style="color:var(--text);">Кэшфлоу</b> — это движение живых денег по банку: что пришло − что ушло. Не путать с выручкой ОВР (там сделанные работы где деньги могут быть ещё в дороге).</span><span></span></div>
+              <div class="expand-item"><b>= Кэшфлоу за ${monthName}</b><span class="v ${cashflow >= 0 ? 'g' : 'r'}">${cashflow >= 0 ? '+' : ''}${fm(cashflow)} ₽</span></div>
+              <div class="expand-item" style="margin-top:6px;padding-top:8px;border-top:1px dashed var(--border);"><span style="font-size:11px;line-height:1.5;color:var(--muted);">💡 <b style="color:var(--text);">Кэшфлоу</b> — это движение живых денег по банку: что пришло − что ушло.</span><span></span></div>
+            ` : (hasYtdData ? `
+              <div class="expand-item"><span>+ Поступления YTD</span><span class="v g">${fm(ytdIncome)} ₽</span></div>
+              <div class="expand-item"><span>− Выплаты YTD</span><span class="v r">${fm(ytdExp)} ₽</span></div>
+              <div class="expand-item"><b>= Кэшфлоу YTD ${data.range.year}</b><span class="v ${ytdCashflow >= 0 ? 'g' : 'r'}">${ytdCashflow >= 0 ? '+' : ''}${fm(ytdCashflow)} ₽</span></div>
+              <div class="expand-item" style="margin-top:6px;padding-top:8px;border-top:1px dashed var(--border);background:rgba(33,150,243,.08);border-radius:7px;padding:9px 11px;"><span style="font-size:11px;line-height:1.55;">📊 <b style="color:var(--blue);">Помесячных данных за ${monthName} нет</b><br><span style="color:var(--muted);">Показано накопленное за весь ${data.range.year} год. Чтобы увидеть конкретный месяц, бухгалтеру нужно выгрузить из Планфакта помесячный xlsx и загрузить в кабинете → вкладка «💰 Прибыль».</span></span><span></span></div>
             ` : `
-              <div class="expand-item" style="grid-column:1/-1;"><span style="font-size:11px;line-height:1.55;color:var(--muted);">📭 Данные за <b style="color:var(--text);">${monthName} ${data.range.year}</b> не загружены.<br>Бухгалтеру нужно выгрузить из Планфакта «Отчёт о ДДС по проектам» за этот месяц и загрузить в кабинет бухгалтера → вкладка «💰 Прибыль».</span><span></span></div>
-            `}
+              <div class="expand-item" style="grid-column:1/-1;"><span style="font-size:11px;line-height:1.55;color:var(--muted);">📭 Данные за <b style="color:var(--text);">${monthName} ${data.range.year}</b> не загружены.<br>Бухгалтеру нужно выгрузить из Планфакта «Отчёт о ДДС по проектам» и загрузить в кабинет бухгалтера → вкладка «💰 Прибыль».</span><span></span></div>
+            `)}
           </div>` : ''}
         </div>
         <div class="kpi orange ${expandedKpis.has('fot')?'is-expanded':''}" data-anchor="fot" onclick="toggleExpand('fot', event)">
