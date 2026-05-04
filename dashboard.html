@@ -524,6 +524,15 @@
     const yearStart = `${range.year}-01-01`;
     const period = `${range.year}-${String(range.month).padStart(2,'0')}`;
     try {
+      // Хелпер: если таблица не существует — возвращает пустой массив вместо краша
+      const safe = async (q) => {
+        try {
+          const r = await q;
+          if (r.error) { console.warn('Soft error:', r.error.message); return { data: [] }; }
+          return r;
+        } catch (e) { console.warn('Soft error:', e.message); return { data: [] }; }
+      };
+
       const [pointsRes, reportsRes, plansRes, yearRes, fotRes, expRes, taxRes, dirsRes, pnlRes] = await Promise.all([
         sb.from('points').select('*').order('id'),
         sb.from('daily_reports').select('*').gte('date', range.start).lte('date', range.end).order('date'),
@@ -533,7 +542,7 @@
         sb.from('expenses_monthly').select('*').eq('period', period),
         sb.from('taxes_monthly').select('*').eq('period', period),
         sb.from('insurance_directions').select('*').gte('period', `${range.year}-01`).lte('period', period),
-        sb.from('point_pnl').select('*').or(`period.eq.${period},period.eq.${range.year}-YTD`)
+        safe(sb.from('point_pnl').select('*').or(`period.eq.${period},period.eq.${range.year}-YTD`))
       ]);
       if (pointsRes.error) throw pointsRes.error;
       if (reportsRes.error) throw reportsRes.error;
@@ -635,6 +644,7 @@
     const hasFinanceData = fotTotal > 0 || expWithoutSalary > 0 || taxTotal > 0;
 
     // Кэшфлоу из Планфакт за месяц
+    const period = data.period;
     const revIds = new Set(data.points.map(p => p.id));
     const monthPnlMain = (data.pnl || []).filter(p => p.period === period && revIds.has(p.point_id));
     const cashflowIncome = monthPnlMain.reduce((s,p) => s + (+p.income||0), 0);
