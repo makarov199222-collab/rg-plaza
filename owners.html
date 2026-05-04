@@ -4,25 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#1a1a1a">
-<title>RG Plaza — Дашборд учредителей</title>
+<title>RG Plaza — Учредителям</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 <style>
-  /* RG PLAZA — стиль фирменного сайта */
   :root {
-    --bg:#1a1a1a;
-    --surface:#222222;
-    --surface2:#2a2a2a;
-    --border:#333333;
-    --accent:#e8b84b;
-    --blue:#2196f3;
-    --text:#ffffff;
-    --muted:#909090;
-    --green:#4caf50;
-    --purple:#9c27b0;
-    --red:#f44336;
-    --orange:#ff9800;
+    --bg:#1a1a1a; --surface:#222222; --surface2:#2a2a2a; --border:#333333;
+    --accent:#e8b84b; --blue:#2196f3; --text:#ffffff; --muted:#909090;
+    --green:#4caf50; --purple:#9c27b0; --red:#f44336; --orange:#ff9800;
   }
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
   body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased;padding-bottom:40px;}
@@ -33,19 +24,15 @@
   .login-sub{font-size:11px;color:var(--muted);letter-spacing:5px;font-weight:600;margin-bottom:36px;text-transform:uppercase;}
   .login-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:26px 24px;width:100%;max-width:360px;}
   .login-title{font-size:14px;font-weight:600;margin-bottom:18px;text-align:center;}
-  .login-input{width:100%;background:#141414;border:1px solid var(--border);border-radius:8px;padding:14px 16px;color:var(--text);font-family:'Inter',sans-serif;font-size:15px;font-weight:500;outline:none;text-align:center;letter-spacing:1px;-webkit-appearance:none;transition:border-color .15s;}
+  .login-input{width:100%;background:#141414;border:1px solid var(--border);border-radius:8px;padding:14px 16px;color:var(--text);font-family:'Inter',sans-serif;font-size:15px;font-weight:500;outline:none;text-align:center;letter-spacing:1px;-webkit-appearance:none;}
   .login-input:focus{border-color:var(--accent);}
-  .login-btn{width:100%;margin-top:12px;padding:14px;background:var(--accent);border:none;border-radius:8px;color:#000;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;cursor:pointer;transition:filter .15s,transform .05s;}
-  .login-btn:active{transform:scale(.99);filter:brightness(1.08);}
+  .login-btn{width:100%;margin-top:12px;padding:14px;background:var(--accent);border:none;border-radius:8px;color:#000;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;cursor:pointer;}
   .login-err{margin-top:10px;font-size:13px;color:var(--red);text-align:center;min-height:18px;}
 
   header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 20px;position:sticky;top:0;z-index:100;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
   .logo{font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--accent);letter-spacing:3px;line-height:1;}
   .logo span{color:#b8b8b8;font-size:9px;display:block;letter-spacing:2.5px;font-family:'Inter',sans-serif;font-weight:600;text-transform:uppercase;margin-top:3px;}
-  .month-pick{margin-left:auto;background:#141414;border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:8px;font-family:'Inter',sans-serif;font-size:13px;font-weight:500;cursor:pointer;outline:none;transition:border-color .15s;}
-  .month-pick:focus, .month-pick:hover{border-color:var(--accent);}
 
-  /* === Кастомный месяц-пикер === */
   .mp-wrap{margin-left:auto;display:flex;align-items:center;gap:6px;background:#141414;border:1px solid var(--border);border-radius:8px;padding:3px;}
   .mp-arrow{background:none;border:none;color:var(--accent);width:30px;height:30px;border-radius:5px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s;font-family:inherit;line-height:1;}
   .mp-arrow:hover{background:var(--surface2);} .mp-arrow:active{transform:scale(.92);}
@@ -64,101 +51,138 @@
   .mp-month:hover{border-color:var(--accent);color:var(--accent);}
   .mp-month.active{background:var(--accent);color:#000;border-color:var(--accent);}
   .mp-month.future{opacity:.4;}
+
   .refresh-btn{background:#141414;border:1px solid var(--border);border-radius:8px;padding:9px 13px;color:var(--accent);font-size:13px;cursor:pointer;font-family:'Inter',sans-serif;font-weight:600;transition:all .15s;}
   .refresh-btn:hover{border-color:var(--accent);}
+  .export-btn{background:var(--accent);color:#000;border:none;border-radius:8px;padding:9px 13px;font-family:'Inter',sans-serif;font-size:13px;font-weight:600;cursor:pointer;}
+  .export-btn:hover{filter:brightness(1.08);}
 
   .wrap{padding:18px;max-width:1400px;margin:0 auto;}
 
-  /* KPI карточки */
-  .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:20px;}
-  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;position:relative;overflow:hidden;}
+  .section{margin-bottom:22px;}
+  .section-title{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--muted);letter-spacing:2px;margin-bottom:12px;display:flex;align-items:center;gap:10px;}
+  .section-title::before{content:'';width:24px;height:2px;background:var(--accent);}
+  .section-title::after{content:'';flex:1;height:1px;background:var(--border);}
+
+  .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:14px;}
+  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;cursor:pointer;transition:all .15s;}
+  .kpi:hover{border-color:var(--accent);}
   .kpi.acc{border-color:rgba(232,184,75,.5);}
-  .kpi-lbl{font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.7px;margin-bottom:7px;}
-  .kpi-val{font-family:'Bebas Neue',sans-serif;font-size:36px;color:var(--accent);line-height:1;letter-spacing:1px;}
-  .kpi-val.b{color:var(--blue);} .kpi-val.g{color:var(--green);} .kpi-val.p{color:var(--purple);}
-  .kpi-sub{font-size:11px;color:var(--muted);margin-top:8px;display:flex;align-items:center;gap:5px;}
+  .kpi.green{border-left:3px solid var(--green);}
+  .kpi.red{border-left:3px solid var(--red);}
+  .kpi.blue{border-left:3px solid var(--blue);}
+  .kpi.orange{border-left:3px solid var(--orange);}
+  .kpi.purple{border-left:3px solid var(--purple);}
+  .kpi-lbl{font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.7px;margin-bottom:7px;display:flex;align-items:center;gap:5px;}
+  .kpi-val{font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--accent);line-height:1;letter-spacing:1px;}
+  .kpi-val.t{color:var(--text);} .kpi-val.r{color:var(--red);} .kpi-val.g{color:var(--green);} .kpi-val.o{color:var(--orange);} .kpi-val.b{color:var(--blue);} .kpi-val.p{color:var(--purple);}
+  .kpi-sub{font-size:11px;color:var(--muted);margin-top:7px;display:flex;align-items:center;gap:5px;}
   .kpi-delta{font-weight:600;}
   .kpi-delta.up{color:var(--green);} .kpi-delta.down{color:var(--red);}
-  .kpi-progress{margin-top:9px;height:5px;background:var(--border);border-radius:3px;overflow:hidden;}
-  .kpi-progress-fill{height:100%;background:var(--accent);border-radius:3px;transition:width .5s;}
-  .kpi-progress-fill.green{background:var(--green);}
-  .kpi-progress-fill.red{background:var(--red);}
 
-  /* Лидер/Аутсайдер */
-  .heroes-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;}
-  @media (max-width: 600px){ .heroes-grid{grid-template-columns:1fr;} }
-  .hero-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;}
-  .hero-card.leader{border-color:rgba(76,175,80,.4);}
-  .hero-card.outsider{border-color:rgba(244,67,54,.35);}
-  .hero-icon{font-size:24px;margin-bottom:6px;}
-  .hero-lbl{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;margin-bottom:9px;}
-  .hero-card.leader .hero-lbl{color:var(--green);}
-  .hero-card.outsider .hero-lbl{color:var(--red);}
-  .hero-name{font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2px;color:var(--text);margin-bottom:7px;}
-  .hero-amount{font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--accent);letter-spacing:1px;}
-  .hero-note{font-size:11px;color:var(--muted);margin-top:7px;}
+  .expand-row{margin-top:10px;display:flex;flex-direction:column;gap:6px;font-size:12px;}
+  .expand-item{display:flex;justify-content:space-between;color:var(--muted);padding:5px 0;border-bottom:1px dashed var(--border);}
+  .expand-item:last-child{border-bottom:none;}
+  .expand-item b{color:var(--text);font-weight:600;}
+  .expand-item .v{color:var(--text);font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:.5px;}
+  .expand-item .v.g{color:var(--green);} .expand-item .v.r{color:var(--red);}
 
-  /* Графики */
-  .chart-row{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:20px;}
-  @media (max-width: 900px){ .chart-row{grid-template-columns:1fr;} }
-  .chart-block{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;}
-  .chart-title{font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--accent);letter-spacing:2px;margin-bottom:13px;}
-  .chart-wrap{position:relative;height:280px;}
-  .chart-wrap.tall{height:340px;}
+  .heroes{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
+  @media (max-width:600px){ .heroes{grid-template-columns:1fr;} }
+  .hero{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;}
+  .hero.leader{border-color:rgba(76,175,80,.4);}
+  .hero.outsider{border-color:rgba(244,67,54,.35);}
+  .hero-icon{font-size:22px;margin-bottom:5px;}
+  .hero-lbl{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;margin-bottom:7px;}
+  .hero.leader .hero-lbl{color:var(--green);} .hero.outsider .hero-lbl{color:var(--red);}
+  .hero-name{font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--text);letter-spacing:2px;margin-bottom:5px;}
+  .hero-amount{font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--accent);letter-spacing:.5px;}
+  .hero-note{font-size:11px;color:var(--muted);margin-top:5px;}
 
-  /* Сравнение точек */
-  .points-compare{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px;}
-  .pc-row{display:flex;align-items:center;gap:10px;margin-bottom:11px;}
-  .pc-row:last-child{margin-bottom:0;}
-  .pc-name{flex:0 0 130px;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1.5px;color:var(--text);}
-  .pc-bar-wrap{flex:1;height:24px;background:#141414;border-radius:6px;overflow:hidden;position:relative;}
-  .pc-bar-fill{height:100%;background:linear-gradient(90deg,var(--accent),#d4a342);border-radius:6px;transition:width .5s;}
-  .pc-bar-text{position:absolute;left:10px;top:50%;transform:translateY(-50%);font-family:'Bebas Neue',sans-serif;font-size:13px;color:#000;font-weight:600;letter-spacing:.5px;}
-  .pc-pct{flex:0 0 60px;text-align:right;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:.5px;}
-  .pc-pct.ok{color:var(--green);} .pc-pct.warn{color:var(--orange);} .pc-pct.bad{color:var(--red);} .pc-pct.muted{color:var(--muted);}
+  .chart-row{display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-bottom:14px;}
+  @media (max-width:900px){ .chart-row{grid-template-columns:1fr;} }
+  .chart-block{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;}
+  .chart-title{font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--accent);letter-spacing:2px;margin-bottom:11px;}
+  .chart-wrap{position:relative;height:240px;}
 
-  /* Финансовое здоровье */
-  .finance-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;}
-  @media (max-width: 600px){ .finance-grid{grid-template-columns:1fr;} }
-  .finance-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;}
-  .finance-title{font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;margin-bottom:11px;}
-  .finance-title.debt{color:var(--orange);}
-  .finance-title.owe{color:var(--red);}
-  .finance-val{font-family:'Bebas Neue',sans-serif;font-size:30px;color:var(--text);margin-bottom:9px;letter-spacing:1px;}
-  .finance-sub{font-size:11px;color:var(--muted);line-height:1.6;}
+  .points-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:10px;margin-bottom:14px;}
+  .point-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;cursor:pointer;transition:all .15s;}
+  .point-card:hover{border-color:var(--accent);}
+  .point-card.expanded{border-color:var(--accent);}
+  .pc-head{padding:13px 15px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;}
+  .pc-name{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--accent);letter-spacing:2px;}
+  .pc-city-tag{font-size:9px;color:var(--muted);background:#141414;padding:3px 7px;border-radius:4px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;}
+  .pc-toggle{margin-left:auto;color:var(--muted);font-size:18px;transition:transform .2s;}
+  .pc-toggle.expanded{transform:rotate(90deg);color:var(--accent);}
+  .pc-body{padding:13px;}
+  .pc-stats{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:10px;}
+  .pc-stat{background:#141414;border:1px solid var(--border);border-radius:8px;padding:9px 10px;}
+  .pc-stat-lbl{font-size:9px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;}
+  .pc-stat-val{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:.5px;}
+  .pc-stat-val.t{color:var(--accent);} .pc-stat-val.b{color:var(--blue);} .pc-stat-val.g{color:var(--green);} .pc-stat-val.r{color:var(--red);}
+  .pc-details{display:none;margin-top:8px;padding:11px;background:#141414;border-radius:8px;}
+  .pc-details.show{display:block;}
 
-  /* Кнопки копирования */
-  .copy-section{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px;}
-  .copy-title{font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--accent);letter-spacing:2px;margin-bottom:13px;}
-  .copy-buttons{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;}
-  .copy-btn{padding:11px 14px;background:var(--accent);color:#000;border:none;border-radius:8px;font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1.5px;cursor:pointer;transition:filter .15s,transform .05s;}
-  .copy-btn:active{transform:scale(.99);filter:brightness(1.08);}
-  .copy-btn.secondary{background:var(--surface2);color:var(--accent);border:1px solid var(--accent);}
+  .finance-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
+  @media (max-width:600px){ .finance-grid{grid-template-columns:1fr;} }
+  .finance-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;cursor:pointer;}
+  .finance-card.profit{border-color:rgba(76,175,80,.4);}
+  .finance-card.loss{border-color:rgba(244,67,54,.4);}
+  .finance-card.debt{border-left:3px solid var(--orange);}
+  .finance-card.owe{border-left:3px solid var(--red);}
+  .finance-title{font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;margin-bottom:9px;}
+  .finance-title.green{color:var(--green);} .finance-title.red{color:var(--red);} .finance-title.orange{color:var(--orange);} .finance-title.acc{color:var(--accent);}
+  .finance-val{font-family:'Bebas Neue',sans-serif;font-size:30px;color:var(--text);letter-spacing:1px;}
+  .finance-val.r{color:var(--red);} .finance-val.g{color:var(--green);} .finance-val.o{color:var(--orange);}
+  .finance-sub{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5;}
 
-  .empty{text-align:center;color:var(--muted);font-size:14px;padding:40px 20px;}
-  .loader{display:flex;justify-content:center;align-items:center;padding:60px;color:var(--muted);font-size:14px;}
-  .spinner{width:24px;height:24px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;margin-right:12px;}
+  .compare-block{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:14px;}
+  .compare-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+  .compare-row:last-child{margin-bottom:0;}
+  .compare-name{flex:0 0 110px;font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;color:var(--text);}
+  .compare-bar-wrap{flex:1;height:22px;background:#141414;border-radius:6px;overflow:hidden;position:relative;}
+  .compare-bar-fill{height:100%;background:linear-gradient(90deg,var(--accent),#d4a342);border-radius:6px;transition:width .5s;}
+  .compare-bar-text{position:absolute;left:9px;top:50%;transform:translateY(-50%);font-family:'Bebas Neue',sans-serif;font-size:12px;color:#000;font-weight:600;letter-spacing:.4px;}
+  .compare-pct{flex:0 0 50px;text-align:right;font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:.5px;}
+  .compare-pct.ok{color:var(--green);} .compare-pct.warn{color:var(--orange);} .compare-pct.bad{color:var(--red);} .compare-pct.muted{color:var(--muted);}
+
+  .alerts{display:flex;flex-direction:column;gap:7px;margin-bottom:14px;}
+  .alert{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:11px 13px;display:flex;align-items:flex-start;gap:10px;font-size:12px;line-height:1.5;}
+  .alert.red{border-left:3px solid var(--red);} .alert.orange{border-left:3px solid var(--orange);}
+  .alert.green{border-left:3px solid var(--green);} .alert.blue{border-left:3px solid var(--blue);}
+  .alert-icon{font-size:18px;flex-shrink:0;}
+  .alert-text{flex:1;color:var(--text);}
+  .alert-text b{color:var(--accent);}
+
+  .sk-widget{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:14px;}
+  .sk-summary{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:11px;}
+  @media (max-width:500px){ .sk-summary{grid-template-columns:1fr 1fr;} }
+  .sk-stat{background:#141414;border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center;}
+  .sk-stat-val{font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--accent);letter-spacing:.5px;}
+  .sk-stat-val.b{color:var(--blue);} .sk-stat-val.g{color:var(--green);} .sk-stat-val.r{color:var(--red);}
+  .sk-stat-lbl{font-size:9px;color:var(--muted);font-weight:600;text-transform:uppercase;margin-top:3px;letter-spacing:.5px;}
+  .sk-cities{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  @media (max-width:500px){ .sk-cities{grid-template-columns:1fr;} }
+  .sk-city{background:#141414;border:1px solid var(--border);border-radius:8px;padding:10px 12px;}
+  .sk-city-name{font-size:11px;color:var(--muted);font-weight:600;margin-bottom:5px;letter-spacing:.5px;text-transform:uppercase;}
+  .sk-city-val{font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--text);letter-spacing:.5px;}
+  .sk-city-sub{font-size:10px;color:var(--muted);margin-top:3px;}
+
+  .empty{text-align:center;color:var(--muted);font-size:13px;padding:30px 20px;line-height:1.6;}
+  .loader{display:flex;justify-content:center;align-items:center;padding:50px;color:var(--muted);font-size:13px;}
+  .spinner{width:24px;height:24px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;margin-right:11px;}
   @keyframes spin{to{transform:rotate(360deg);}}
 
   .toast{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 18px;font-size:13px;color:var(--text);z-index:300;opacity:0;transition:opacity .3s;pointer-events:none;border-left:3px solid var(--accent);}
   .toast.show{opacity:1;}
-  .toast.ok{border-left-color:var(--green);}
-  .toast.err{border-left-color:var(--red);}
-
-  .city-section{margin-bottom:24px;}
-  .city-title{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--muted);letter-spacing:2px;margin-bottom:12px;display:flex;align-items:center;gap:10px;}
-  .city-title::before{content:'';width:24px;height:2px;background:var(--accent);}
-  .city-title::after{content:'';flex:1;height:1px;background:var(--border);}
+  .toast.ok{border-left-color:var(--green);} .toast.err{border-left-color:var(--red);}
 
   @media (max-width: 600px){
     header{padding:11px 13px;gap:8px;}
     .logo{font-size:20px;}
     .wrap{padding:13px;}
-    .kpi-val{font-size:30px;}
-    .hero-name{font-size:20px;}
-    .hero-amount{font-size:26px;}
-    .pc-name{flex:0 0 90px;font-size:12px;}
-    .pc-pct{flex:0 0 50px;font-size:13px;}
+    .kpi-val{font-size:24px;}
+    .compare-name{flex:0 0 90px;font-size:11px;}
   }
 </style>
 </head>
@@ -166,17 +190,16 @@
 
 <div class="login" id="login">
   <div class="login-logo">RG PLAZA</div>
-  <div class="login-sub">ДЛЯ УЧРЕДИТЕЛЕЙ</div>
+  <div class="login-sub">Учредителям</div>
   <div class="login-card">
-    <div class="login-title">Введи код доступа</div>
-    <input type="password" class="login-input" id="login-code" placeholder="Код" autocomplete="off">
+    <div class="login-title">Введите код доступа</div>
+    <input type="password" class="login-input" id="login-code" placeholder="Код учредителя" autocomplete="off">
     <button class="login-btn" onclick="doLogin()">ВОЙТИ</button>
     <div class="login-err" id="login-err"></div>
   </div>
 </div>
 
 <div id="app" style="display:none;">
-
 <header>
   <div class="logo">RG Plaza <span>УЧРЕДИТЕЛЯМ</span></div>
   <input type="hidden" id="month-pick">
@@ -185,6 +208,7 @@
     <button class="mp-current" id="mp-current" onclick="mpOpenGrid()">—</button>
     <button class="mp-arrow" onclick="mpNext()" title="Следующий">›</button>
   </div>
+  <button class="export-btn" onclick="exportToExcel()" title="Скачать в Excel">📥 Excel</button>
   <button class="refresh-btn" onclick="loadAll()" title="Обновить">↻</button>
 </header>
 
@@ -211,10 +235,30 @@
   const SUPABASE_URL = 'https://uxdgiwbkvgbnrsuxjhvp.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_bg1BRofqJsjkV_9eXzn2Pg__YJ-xRMK';
   const OWNERS_CODE = 'rgplaza-owners-2026';
-
   const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
   let allCharts = [];
   let cachedData = null;
+  let expandedPoints = new Set();
+  let expandedKpis = new Set();
+
+  function fm(n) { return n ? Math.round(+n).toLocaleString('ru-RU') : '0'; }
+  function fs(n) { n = +n || 0; if (Math.abs(n) >= 1e6) return (n/1e6).toFixed(1)+' млн'; if (Math.abs(n) >= 1e3) return Math.round(n/1e3)+'к'; return Math.round(n)+''; }
+  function showToast(t, c='') { const el = document.getElementById('toast'); el.textContent = t; el.className = 'toast '+c+' show'; setTimeout(()=>el.classList.remove('show'), 2500); }
+  function destroyCharts() { allCharts.forEach(c => { try{c.destroy();}catch(e){} }); allCharts = []; }
+  function getMonthRange() {
+    const v = document.getElementById('month-pick').value || '';
+    const [y, m] = v.split('-').map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    return { year: y, month: m, start: `${y}-${String(m).padStart(2,'0')}-01`, end: `${y}-${String(m).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}` };
+  }
+  function getPrevMonthRange() {
+    const cur = getMonthRange();
+    let y = cur.year, m = cur.month - 1;
+    if (m < 1) { m = 12; y--; }
+    const lastDay = new Date(y, m, 0).getDate();
+    return { year: y, month: m, start: `${y}-${String(m).padStart(2,'0')}-01`, end: `${y}-${String(m).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}` };
+  }
 
   function doLogin() {
     const code = document.getElementById('login-code').value.trim();
@@ -231,14 +275,10 @@
     loadAll();
   }
 
-  // === КАСТОМНЫЙ МЕСЯЦ-ПИКЕР ===
   const MP_MONTHS_FULL = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  const MP_MONTHS_SHORT = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'];
   let mpGridYear = new Date().getFullYear();
-  function mpGetCurrent() {
-    const v = document.getElementById('month-pick').value || '';
-    const [y, m] = v.split('-').map(Number);
-    return [y || new Date().getFullYear(), m || (new Date().getMonth()+1)];
-  }
+  function mpGetCurrent() { const v = document.getElementById('month-pick').value || ''; const [y, m] = v.split('-').map(Number); return [y || new Date().getFullYear(), m || (new Date().getMonth()+1)]; }
   function mpSet(y, m) { document.getElementById('month-pick').value = `${y}-${String(m).padStart(2,'0')}`; mpUpdateLabel(); loadAll(); }
   function mpUpdateLabel() { const [y,m]=mpGetCurrent(); const el=document.getElementById('mp-current'); if(el) el.textContent = `${MP_MONTHS_FULL[m-1]} ${y}`; }
   function mpPrev() { let [y,m]=mpGetCurrent(); m--; if(m<1){m=12;y--;} mpSet(y,m); }
@@ -263,60 +303,47 @@
   }
   function mpPickMonth(m) { mpSet(mpGridYear, m); mpCloseGrid(); }
 
-  function toast(msg, type) {
-    const t = document.getElementById('toast');
-    t.textContent = msg;
-    t.className = 'toast show ' + (type||'');
-    setTimeout(() => t.classList.remove('show'), 2500);
-  }
-
-  function fm(n) { return n ? Number(Math.round(n)).toLocaleString('ru-RU') : '0'; }
-  function fs(n) { if (!n) return '0'; if (n>=1000000) return (n/1000000).toFixed(1).replace('.',',')+' М'; if (n>=1000) return Math.round(n/1000)+' К'; return String(Math.round(n)); }
-  function pdate(iso) { const [y,m,d]=iso.split('-'); return `${d}.${m}`; }
-
-  function getMonthRange() {
-    const v = document.getElementById('month-pick').value || new Date().toISOString().substring(0,7);
-    const [y,m] = v.split('-');
-    return { start: `${y}-${m}-01`, end: new Date(+y, +m, 0).toISOString().split('T')[0], year:+y, month:+m };
-  }
-
-  function getPrevMonthRange() {
-    const range = getMonthRange();
-    const prevMonth = range.month === 1 ? 12 : range.month - 1;
-    const prevYear = range.month === 1 ? range.year - 1 : range.year;
-    return {
-      start: `${prevYear}-${String(prevMonth).padStart(2,'0')}-01`,
-      end: new Date(prevYear, prevMonth, 0).toISOString().split('T')[0],
-      year: prevYear, month: prevMonth
-    };
-  }
-
   async function loadAll() {
     document.getElementById('content').innerHTML = '<div class="loader"><div class="spinner"></div>Загружаю данные...</div>';
-    allCharts.forEach(c => { try { c.destroy(); } catch(e){} });
-    allCharts = [];
+    destroyCharts();
 
     const range = getMonthRange();
     const prevRange = getPrevMonthRange();
     const yearStart = `${range.year}-01-01`;
+    const period = `${range.year}-${String(range.month).padStart(2,'0')}`;
 
     try {
-      const [pointsRes, currentRes, prevRes, yearRes, plansRes] = await Promise.all([
+      const [pointsRes, currentRes, prevRes, yearRes, plansRes, fotRes, expRes, taxRes, loansRes, dirsRes, ravtRes, channelsRes, companiesRes] = await Promise.all([
         sb.from('points').select('*').order('id'),
         sb.from('daily_reports').select('*').gte('date', range.start).lte('date', range.end).order('date'),
         sb.from('daily_reports').select('point_id,total_day').gte('date', prevRange.start).lte('date', prevRange.end),
-        sb.from('daily_reports').select('point_id,total_day,retail_day,ins_day').gte('date', yearStart).lte('date', range.end),
-        sb.from('plans').select('*')
+        sb.from('daily_reports').select('point_id,total_day,retail_day,ins_day,date').gte('date', yearStart).lte('date', range.end),
+        sb.from('plans').select('*'),
+        sb.from('fot_summary').select('*').eq('period', period).maybeSingle(),
+        sb.from('expenses_monthly').select('*').eq('period', period),
+        sb.from('taxes_monthly').select('*').eq('period', period),
+        sb.from('loans_leases').select('*').eq('active', true),
+        sb.from('insurance_directions').select('*').gte('period', `${range.year}-01`).lte('period', period),
+        sb.from('insurance_ravt_check').select('*').eq('period', period),
+        sb.from('insurance_channels').select('*').eq('is_active', true),
+        sb.from('insurance_companies').select('*').eq('is_active', true)
       ]);
-      if (pointsRes.error) throw pointsRes.error;
-      if (currentRes.error) throw currentRes.error;
+
       cachedData = {
         points: pointsRes.data || [],
         current: currentRes.data || [],
         prev: prevRes.data || [],
         year: yearRes.data || [],
         plans: plansRes.data || [],
-        range, prevRange
+        fot: fotRes.data || null,
+        expenses: expRes.data || [],
+        taxes: taxRes.data || [],
+        loans: loansRes.data || [],
+        directions: dirsRes.data || [],
+        ravt: ravtRes.data || [],
+        channels: channelsRes.data || [],
+        companies: companiesRes.data || [],
+        range, prevRange, period
       };
       render(cachedData);
     } catch (e) {
@@ -328,404 +355,485 @@
   function render(data) {
     if (!data.points.length) { document.getElementById('content').innerHTML = '<div class="empty">Точки не настроены</div>'; return; }
 
-    const mn = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
-    const monthName = mn[data.range.month-1];
+    const monthName = MP_MONTHS_FULL[data.range.month-1];
+    destroyCharts();
 
-    // Агрегаты
-    let monthTotal=0, monthIns=0, monthRetail=0, monthPhys=0, monthCorp=0;
+    let monthTotal=0, monthIns=0, monthRetail=0, monthPhys=0, monthCorp=0, monthBookings=0;
     data.current.forEach(r => {
       monthTotal += +r.total_day || 0;
       monthIns += +r.ins_day || 0;
       monthRetail += +r.retail_day || 0;
       monthPhys += +r.phys_day || 0;
       monthCorp += +r.corp_day || 0;
+      monthBookings += +r.bookings || 0;
+    });
+    const lastByPoint = {};
+    data.current.forEach(r => {
+      if (!lastByPoint[r.point_id] || r.date > lastByPoint[r.point_id].date) lastByPoint[r.point_id] = r;
+    });
+    let monthDebtTotal=0, monthOweTotal=0;
+    Object.values(lastByPoint).forEach(r => {
+      monthDebtTotal += +r.debt_total || 0;
+      monthOweTotal += +r.owe_total || 0;
     });
 
     let prevTotal = 0;
     data.prev.forEach(r => prevTotal += +r.total_day || 0);
     const monthDelta = prevTotal ? Math.round((monthTotal - prevTotal) / prevTotal * 100) : null;
 
-    // Год
-    let yearTotal = 0, yearRetail = 0, yearIns = 0;
+    let yearTotal=0, yearRetail=0, yearIns=0;
     data.year.forEach(r => {
       yearTotal += +r.total_day || 0;
       yearRetail += +r.retail_day || 0;
       yearIns += +r.ins_day || 0;
     });
-    // Добавляем начальные значения года
     data.points.forEach(p => {
       yearTotal += +p.year_start_total || 0;
       yearRetail += +p.year_start_retail || 0;
       yearIns += +p.year_start_insurance || 0;
     });
 
-    // План месяца общий
-    let totalPlanMonth = 0;
-    data.plans.forEach(p => { totalPlanMonth += (+p.plan_phys_month || 0) + (+p.plan_corp_month || 0); });
-    const planPct = totalPlanMonth ? Math.round((monthPhys + monthCorp) / totalPlanMonth * 100) : null;
-
-    // Сводка по точкам
-    const byPoint = {};
-    data.points.forEach(p => byPoint[p.id] = { point: p, total: 0, plan: 0, days: new Set() });
-    data.current.forEach(r => {
-      if (byPoint[r.point_id]) {
-        byPoint[r.point_id].total += +r.total_day || 0;
-        byPoint[r.point_id].days.add(r.date);
-      }
-    });
-    data.plans.forEach(p => {
-      if (byPoint[p.point_id]) byPoint[p.point_id].plan = (+p.plan_phys_month || 0) + (+p.plan_corp_month || 0);
-    });
-
-    // Лидер и аутсайдер
-    const sorted = Object.values(byPoint).sort((a,b) => b.total - a.total);
-    const leader = sorted[0];
-    const outsider = sorted[sorted.length - 1];
-
-    // Дневной средний
-    const daysCount = new Set(data.current.map(r => r.date)).size || 1;
-    const avgDay = Math.round(monthTotal / daysCount);
-
-    // Финансы (берём последний день с данными)
-    let lastDebtTotal=0, lastDebtRetail=0, lastDebtIns=0;
-    let lastOweTotal=0, lastOweRavt=0, lastOweOther=0;
+    const pointStats = {};
     data.points.forEach(p => {
-      const reports = data.current.filter(r => r.point_id === p.id).sort((a,b) => b.date.localeCompare(a.date));
-      if (reports[0]) {
-        lastDebtTotal += +reports[0].debt_total || 0;
-        lastDebtRetail += +reports[0].debt_retail || 0;
-        lastDebtIns += +reports[0].debt_insurance || 0;
-        lastOweTotal += +reports[0].owe_total || 0;
-        lastOweRavt += +reports[0].owe_ravt || 0;
-        lastOweOther += +reports[0].owe_other || 0;
-      }
+      pointStats[p.id] = { total:0, ins:0, retail:0, phys:0, corp:0, debt:0, owe:0, bookings:0, days:new Set(),
+        plan: data.plans.find(pl => pl.point_id === p.id) || {} };
+    });
+    data.current.forEach(r => {
+      const s = pointStats[r.point_id];
+      if (!s) return;
+      s.total += +r.total_day || 0;
+      s.ins += +r.ins_day || 0;
+      s.retail += +r.retail_day || 0;
+      s.phys += +r.phys_day || 0;
+      s.corp += +r.corp_day || 0;
+      s.bookings += +r.bookings || 0;
+      s.days.add(r.date);
+    });
+    Object.values(lastByPoint).forEach(r => {
+      const s = pointStats[r.point_id];
+      if (!s) return;
+      s.debt = +r.debt_total || 0;
+      s.owe = +r.owe_total || 0;
     });
 
-    // ====== HTML ======
-    let html = `
-      <!-- KPI -->
+    const fot = data.fot || {};
+    const fotTotal = +fot.fot_total || 0;
+    const expWithoutSalary = data.expenses.filter(r => !r.category.startsWith('salary_')).reduce((s,r) => s + (+r.amount), 0);
+    const taxTotal = data.taxes.reduce((s,r) => s + (+r.amount), 0);
+    const profit = monthTotal - expWithoutSalary - fotTotal - taxTotal;
+    const profitMargin = monthTotal > 0 ? Math.round(profit / monthTotal * 100) : 0;
+    const fotPct = monthTotal > 0 ? Math.round(fotTotal / monthTotal * 100) : 0;
+
+    const sortedPoints = data.points.slice().filter(p => pointStats[p.id].total > 0).sort((a,b) => pointStats[b.id].total - pointStats[a.id].total);
+    const leader = sortedPoints[0];
+    const outsider = sortedPoints[sortedPoints.length - 1];
+
+    const alerts = [];
+    if (monthTotal > 0 && profit < 0) alerts.push({ type:'red', icon:'⚠️', text:`<b>Месяц убыточный:</b> расходы превысили выручку на ${fm(Math.abs(profit))} ₽` });
+    else if (monthTotal > 0 && profitMargin < 10) alerts.push({ type:'orange', icon:'📉', text:`<b>Низкая маржа:</b> прибыль всего ${profitMargin}% от выручки` });
+    if (fotPct > 35 && monthTotal > 0) alerts.push({ type:'red', icon:'💼', text:`<b>ФОТ ${fotPct}%</b> от выручки — выше нормы (макс 30%)` });
+    if (monthDelta !== null && monthDelta < -20) alerts.push({ type:'red', icon:'📉', text:`<b>Падение к прошлому месяцу:</b> ${monthDelta}% (${fm(prevTotal)} → ${fm(monthTotal)} ₽)` });
+    else if (monthDelta !== null && monthDelta > 20) alerts.push({ type:'green', icon:'📈', text:`<b>Рост к прошлому месяцу:</b> +${monthDelta}% (${fm(prevTotal)} → ${fm(monthTotal)} ₽)` });
+    if (monthOweTotal > monthTotal * 2 && monthOweTotal > 0) alerts.push({ type:'orange', icon:'💸', text:`<b>Большая задолженность:</b> мы должны ${fm(monthOweTotal)} ₽ — это ${(monthOweTotal/monthTotal).toFixed(1)}× месячной выручки` });
+
+    const period = data.period;
+    const dirsCurrentPeriod = data.directions.filter(d => d.period === period);
+    const totalDirsMonth = dirsCurrentPeriod.reduce((s,d) => s + (+d.incoming_count || 0), 0);
+    const totalDirsYear = data.directions.reduce((s,d) => s + (+d.incoming_count || 0), 0);
+    const byCity = { moscow: 0, izhevsk: 0 };
+    dirsCurrentPeriod.forEach(d => {
+      const ch = data.channels.find(c => c.id === d.channel_id);
+      if (ch) byCity[ch.city] = (byCity[ch.city] || 0) + (+d.incoming_count || 0);
+    });
+    const prevPeriod = `${data.prevRange.year}-${String(data.prevRange.month).padStart(2,'0')}`;
+    const dirsPrevPeriod = data.directions.filter(d => d.period === prevPeriod);
+    const totalDirsPrev = dirsPrevPeriod.reduce((s,d) => s + (+d.incoming_count || 0), 0);
+    const dirsDelta = totalDirsPrev > 0 ? Math.round((totalDirsMonth - totalDirsPrev) / totalDirsPrev * 100) : null;
+    if (dirsDelta !== null && dirsDelta < -30 && totalDirsPrev > 10) {
+      alerts.push({ type:'red', icon:'🚨', text:`<b>Направления СК упали на ${Math.abs(dirsDelta)}%</b> к прошлому месяцу (${totalDirsPrev} → ${totalDirsMonth})` });
+    }
+
+    let html = '';
+
+    if (alerts.length) {
+      html += `<div class="alerts">`;
+      alerts.forEach(a => {
+        html += `<div class="alert ${a.type}"><div class="alert-icon">${a.icon}</div><div class="alert-text">${a.text}</div></div>`;
+      });
+      html += `</div>`;
+    }
+
+    html += `<div class="section">
+      <div class="section-title">💰 Выручка и прибыль · ${monthName}</div>
       <div class="kpi-grid">
-        <div class="kpi acc">
-          <div class="kpi-lbl">${monthName} ${data.range.year}</div>
+        <div class="kpi acc" onclick="toggleExpand('total', event)">
+          <div class="kpi-lbl">📊 Месячная выручка</div>
           <div class="kpi-val">${fm(monthTotal)} ₽</div>
-          <div class="kpi-sub">
-            ${monthDelta !== null ? `<span class="kpi-delta ${monthDelta >= 0 ? 'up' : 'down'}">${monthDelta >= 0 ? '↑' : '↓'} ${Math.abs(monthDelta)}%</span> vs прошлый месяц` : `прошлый месяц: данных нет`}
-          </div>
-          ${totalPlanMonth ? `
-          <div class="kpi-progress"><div class="kpi-progress-fill ${planPct >= 90 ? 'green' : planPct < 70 ? 'red' : ''}" style="width:${Math.min(100,planPct)}%"></div></div>
-          <div class="kpi-sub" style="margin-top:5px;">${planPct}% от плана ${fm(totalPlanMonth)} ₽</div>
-          ` : '<div class="kpi-sub" style="margin-top:5px;">план не задан</div>'}
+          <div class="kpi-sub">${monthDelta !== null ? `<span class="kpi-delta ${monthDelta>=0?'up':'down'}">${monthDelta>=0?'▲':'▼'} ${Math.abs(monthDelta)}%</span> к ${MP_MONTHS_SHORT[data.prevRange.month-1]}` : 'нет данных за прошлый месяц'}</div>
+          ${expandedKpis.has('total') ? `<div class="expand-row">
+            <div class="expand-item"><span>🛡 Страховые</span><span class="v b">${fm(monthIns)} ₽</span></div>
+            <div class="expand-item"><span>💵 Розница</span><span class="v g">${fm(monthRetail)} ₽</span></div>
+            ${monthCorp > 0 ? `<div class="expand-item"><span>🏢 Корпоратив</span><span class="v" style="color:var(--purple);">${fm(monthCorp)} ₽</span></div>` : ''}
+            <div class="expand-item"><span>📅 Дней с отчётами</span><span class="v">${data.current.filter(r => +r.total_day > 0).length}</span></div>
+            <div class="expand-item"><span>📌 Записей всего</span><span class="v">${monthBookings}</span></div>
+          </div>` : ''}
         </div>
-        <div class="kpi">
-          <div class="kpi-lbl">Год.вал ${data.range.year}</div>
-          <div class="kpi-val">${fm(yearTotal)} ₽</div>
-          <div class="kpi-sub">розница ${fm(yearRetail)} ₽ · страховые ${fm(yearIns)} ₽</div>
+        <div class="kpi ${profit >= 0 ? 'green' : 'red'}" onclick="toggleExpand('profit', event)">
+          <div class="kpi-lbl">💎 Чистая прибыль</div>
+          <div class="kpi-val ${profit >= 0 ? 'g' : 'r'}">${fm(profit)} ₽</div>
+          <div class="kpi-sub">маржа ${profitMargin}%</div>
+          ${expandedKpis.has('profit') ? `<div class="expand-row">
+            <div class="expand-item"><span>+ Выручка</span><span class="v g">${fm(monthTotal)} ₽</span></div>
+            <div class="expand-item"><span>− ФОТ</span><span class="v r">${fm(fotTotal)} ₽</span></div>
+            <div class="expand-item"><span>− Расходы (аренда, лизинг, кредит)</span><span class="v r">${fm(expWithoutSalary)} ₽</span></div>
+            <div class="expand-item"><span>− Налоги</span><span class="v r">${fm(taxTotal)} ₽</span></div>
+            <div class="expand-item"><b>= Чистая прибыль</b><span class="v ${profit >= 0 ? 'g' : 'r'}">${fm(profit)} ₽</span></div>
+          </div>` : ''}
         </div>
-        <div class="kpi">
-          <div class="kpi-lbl">Средний день</div>
-          <div class="kpi-val g">${fm(avgDay)} ₽</div>
-          <div class="kpi-sub">за ${daysCount} ${daysCount === 1 ? 'день' : 'дн'} в месяце</div>
+        <div class="kpi orange" onclick="toggleExpand('fot', event)">
+          <div class="kpi-lbl">👥 ФОТ</div>
+          <div class="kpi-val o">${fm(fotTotal)} ₽</div>
+          <div class="kpi-sub">${fotPct}% от выручки · ${fot.total_employees || 0} чел</div>
+          ${expandedKpis.has('fot') ? `<div class="expand-row">
+            <div class="expand-item"><span>Совхозная</span><span class="v">${fm(fot.fot_sovhoz)} ₽</span></div>
+            <div class="expand-item"><span>Москва</span><span class="v">${fm(fot.fot_moscow)} ₽</span></div>
+            <div class="expand-item"><span>Пойма</span><span class="v">${fm(fot.fot_poyma)} ₽</span></div>
+            <div class="expand-item"><span>Детейлинг</span><span class="v">${fm(fot.fot_detailing)} ₽</span></div>
+            <div class="expand-item"><b>Норма ФОТ от выручки</b><span class="v">25-30%</span></div>
+          </div>` : ''}
         </div>
-        <div class="kpi">
-          <div class="kpi-lbl">Структура (мес)</div>
-          <div class="kpi-val b">${monthIns ? Math.round(monthIns/monthTotal*100) : 0}%</div>
-          <div class="kpi-sub">страховые от вала · розница ${monthTotal ? Math.round((monthRetail)/monthTotal*100) : 0}%</div>
+        <div class="kpi blue" onclick="toggleExpand('year', event)">
+          <div class="kpi-lbl">🎯 Год.вал ${data.range.year}</div>
+          <div class="kpi-val b">${fm(yearTotal)} ₽</div>
+          <div class="kpi-sub">страх ${yearTotal>0?Math.round(yearIns/yearTotal*100):0}% / розн ${yearTotal>0?Math.round(yearRetail/yearTotal*100):0}%</div>
+          ${expandedKpis.has('year') ? `<div class="expand-row">
+            <div class="expand-item"><span>🛡 Страховые год</span><span class="v b">${fm(yearIns)} ₽</span></div>
+            <div class="expand-item"><span>💵 Розница год</span><span class="v g">${fm(yearRetail)} ₽</span></div>
+            <div class="expand-item"><span>Дней работы</span><span class="v">${data.year.filter(r => +r.total_day > 0).length}</span></div>
+          </div>` : ''}
         </div>
       </div>
+    </div>`;
 
-      <!-- Лидер / Аутсайдер -->
-      <div class="heroes-grid">
-        <div class="hero-card leader">
+    if (leader && outsider && leader.id !== outsider.id) {
+      html += `<div class="heroes">
+        <div class="hero leader">
           <div class="hero-icon">🏆</div>
           <div class="hero-lbl">Лидер месяца</div>
-          <div class="hero-name">${leader.point.name}</div>
-          <div class="hero-amount">${fm(leader.total)} ₽</div>
-          <div class="hero-note">${leader.plan ? `${Math.round(leader.total/leader.plan*100)}% от плана ${fm(leader.plan)} ₽` : 'план не задан'} · ${leader.days.size} дней работы</div>
+          <div class="hero-name">${leader.name}</div>
+          <div class="hero-amount">${fm(pointStats[leader.id].total)} ₽</div>
+          <div class="hero-note">${Math.round(pointStats[leader.id].total / monthTotal * 100)}% от общей выручки</div>
         </div>
-        <div class="hero-card outsider">
-          <div class="hero-icon">😴</div>
-          <div class="hero-lbl">Требует внимания</div>
-          <div class="hero-name">${outsider.point.name}</div>
-          <div class="hero-amount">${fm(outsider.total)} ₽</div>
-          <div class="hero-note">${outsider.plan ? `${Math.round(outsider.total/outsider.plan*100)}% от плана ${fm(outsider.plan)} ₽` : 'план не задан'} · ${outsider.days.size} дней работы</div>
+        <div class="hero outsider">
+          <div class="hero-icon">⚡</div>
+          <div class="hero-lbl">Зона роста</div>
+          <div class="hero-name">${outsider.name}</div>
+          <div class="hero-amount">${fm(pointStats[outsider.id].total)} ₽</div>
+          <div class="hero-note">${Math.round(pointStats[outsider.id].total / monthTotal * 100)}% — есть куда расти</div>
         </div>
-      </div>
+      </div>`;
+    }
 
-      <!-- Графики -->
-      <div class="chart-row">
-        <div class="chart-block">
-          <div class="chart-title">📈 Динамика общего вала</div>
-          <div class="chart-wrap"><canvas id="chart-trend"></canvas></div>
-        </div>
-        <div class="chart-block">
-          <div class="chart-title">🎯 Структура выручки</div>
-          <div class="chart-wrap"><canvas id="chart-donut"></canvas></div>
-        </div>
-      </div>
+    if (sortedPoints.length > 1) {
+      const maxPointTotal = Math.max(...sortedPoints.map(p => pointStats[p.id].total));
+      html += `<div class="section">
+        <div class="section-title">🏪 По точкам</div>
+        <div class="compare-block">`;
+      sortedPoints.forEach(p => {
+        const s = pointStats[p.id];
+        const pctOfMax = maxPointTotal > 0 ? (s.total / maxPointTotal * 100) : 0;
+        const pctOfTotal = monthTotal > 0 ? Math.round(s.total / monthTotal * 100) : 0;
+        const pctClass = pctOfTotal >= 30 ? 'ok' : pctOfTotal >= 10 ? 'warn' : 'bad';
+        html += `<div class="compare-row">
+          <div class="compare-name">${p.name}</div>
+          <div class="compare-bar-wrap">
+            <div class="compare-bar-fill" style="width:${pctOfMax}%"></div>
+            <div class="compare-bar-text">${fm(s.total)} ₽</div>
+          </div>
+          <div class="compare-pct ${pctClass}">${pctOfTotal}%</div>
+        </div>`;
+      });
+      html += `</div></div>`;
+    }
 
-      <!-- Сравнение точек -->
-      <div class="points-compare">
-        <div class="chart-title">📊 Сравнение точек по месяцу</div>
-        ${(() => {
-          const maxTotal = Math.max(...sorted.map(s => s.total), 1);
-          return sorted.map(s => {
-            const pct = s.plan ? Math.round(s.total/s.plan*100) : null;
-            const pctCls = pct === null ? 'muted' : pct >= 90 ? 'ok' : pct >= 70 ? 'warn' : 'bad';
-            return `<div class="pc-row">
-              <div class="pc-name">${s.point.name}</div>
-              <div class="pc-bar-wrap">
-                <div class="pc-bar-fill" style="width:${maxTotal ? Math.max(2, s.total/maxTotal*100) : 0}%"></div>
-                <div class="pc-bar-text">${fm(s.total)} ₽</div>
-              </div>
-              <div class="pc-pct ${pctCls}">${pct !== null ? pct + '%' : '—'}</div>
-            </div>`;
-          }).join('');
-        })()}
-      </div>
-
-      <!-- Финансы -->
-      <div class="finance-grid">
-        <div class="finance-card">
-          <div class="finance-title debt">💰 ДОЛГИ ПО ЗАКАЗ-НАРЯДАМ</div>
-          <div class="finance-val">${fm(lastDebtTotal)} ₽</div>
-          <div class="finance-sub">
-            Розница: ${fm(lastDebtRetail)} ₽<br>
-            Страховые: ${fm(lastDebtIns)} ₽
+    html += `<div class="section">
+      <div class="section-title">📋 Детали по точкам</div>
+      <div class="points-grid">`;
+    data.points.forEach(p => {
+      const s = pointStats[p.id];
+      const isExpanded = expandedPoints.has(p.id);
+      const cityLabel = p.format === 'moscow' ? 'Москва' : 'Ижевск';
+      const planMonth = +s.plan.plan_phys_month || 0;
+      const planCorp = +s.plan.plan_corp_month || 0;
+      const planTotal = planMonth + planCorp;
+      const planPct = planTotal > 0 ? Math.round(s.total / planTotal * 100) : 0;
+      const planColor = planPct >= 80 ? 'var(--green)' : planPct >= 50 ? 'var(--orange)' : 'var(--red)';
+      html += `<div class="point-card ${isExpanded?'expanded':''}" onclick="togglePoint('${p.id}')">
+        <div class="pc-head">
+          <div class="pc-name">${p.name}</div>
+          <div class="pc-city-tag">${cityLabel}</div>
+          <div class="pc-toggle ${isExpanded?'expanded':''}">›</div>
+        </div>
+        <div class="pc-body">
+          <div class="pc-stats">
+            <div class="pc-stat"><div class="pc-stat-lbl">Выручка</div><div class="pc-stat-val t">${fm(s.total)} ₽</div></div>
+            <div class="pc-stat"><div class="pc-stat-lbl">🛡 Страх</div><div class="pc-stat-val b">${fm(s.ins)} ₽</div></div>
+            <div class="pc-stat"><div class="pc-stat-lbl">💵 Розница</div><div class="pc-stat-val g">${fm(s.retail)} ₽</div></div>
+            <div class="pc-stat"><div class="pc-stat-lbl">📅 Записей</div><div class="pc-stat-val t">${s.bookings}</div></div>
+          </div>
+          ${planTotal > 0 ? `
+          <div style="margin-top:8px;font-size:11px;color:var(--muted);display:flex;justify-content:space-between;align-items:center;">
+            <span>План: ${fm(planTotal)} ₽</span>
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:${planColor};letter-spacing:.5px;">${planPct}%</span>
+          </div>
+          <div style="margin-top:5px;height:5px;background:var(--border);border-radius:3px;overflow:hidden;">
+            <div style="height:100%;background:${planColor};width:${Math.min(100,planPct)}%;"></div>
+          </div>` : ''}
+          <div class="pc-details ${isExpanded?'show':''}">
+            <div class="expand-row">
+              <div class="expand-item"><span>📅 Дней с работой</span><span class="v">${s.days.size}</span></div>
+              <div class="expand-item"><span>📅 Средняя выручка/день</span><span class="v">${s.days.size>0?fm(s.total/s.days.size):0} ₽</span></div>
+              ${s.debt > 0 ? `<div class="expand-item"><span>🟡 Нам должны (ЗН)</span><span class="v" style="color:var(--orange);">${fm(s.debt)} ₽</span></div>` : ''}
+              ${s.owe > 0 ? `<div class="expand-item"><span>🔴 Мы должны</span><span class="v r">${fm(s.owe)} ₽</span></div>` : ''}
+              ${planMonth > 0 ? `<div class="expand-item"><span>План физлица</span><span class="v g">${fm(s.phys || s.retail)} / ${fm(planMonth)} ₽</span></div>` : ''}
+              ${planCorp > 0 ? `<div class="expand-item"><span>План корпоратив</span><span class="v" style="color:var(--purple);">${fm(s.corp)} / ${fm(planCorp)} ₽</span></div>` : ''}
+            </div>
           </div>
         </div>
-        <div class="finance-card">
-          <div class="finance-title owe">📤 МЫ ДОЛЖНЫ</div>
-          <div class="finance-val">${fm(lastOweTotal)} ₽</div>
-          <div class="finance-sub">
-            РАВТ: ${fm(lastOweRavt)} ₽<br>
-            Остальные: ${fm(lastOweOther)} ₽
+      </div>`;
+    });
+    html += `</div></div>`;
+
+    if (monthDebtTotal > 0 || monthOweTotal > 0) {
+      html += `<div class="section">
+        <div class="section-title">💸 Долги</div>
+        <div class="finance-grid">
+          <div class="finance-card debt" onclick="toggleExpand('debts', event)">
+            <div class="finance-title orange">🟡 Нам должны (заказ-наряды)</div>
+            <div class="finance-val o">${fm(monthDebtTotal)} ₽</div>
+            <div class="finance-sub">${expandedKpis.has('debts') ? '' : 'тапни чтобы увидеть детали'}</div>
+            ${expandedKpis.has('debts') ? renderDebtBreakdown(data, 'debt', lastByPoint) : ''}
+          </div>
+          <div class="finance-card owe" onclick="toggleExpand('owes', event)">
+            <div class="finance-title red">🔴 Мы должны</div>
+            <div class="finance-val r">${fm(monthOweTotal)} ₽</div>
+            <div class="finance-sub">${expandedKpis.has('owes') ? '' : 'тапни чтобы увидеть детали'}</div>
+            ${expandedKpis.has('owes') ? renderDebtBreakdown(data, 'owe', lastByPoint) : ''}
           </div>
         </div>
-      </div>
+      </div>`;
+    }
 
-      <!-- Кнопки копирования текста -->
-      <div class="copy-section">
-        <div class="copy-title">📋 ТЕКСТОВЫЕ ОТЧЁТЫ ДЛЯ TELEGRAM</div>
-        <div class="copy-buttons">
-          <button class="copy-btn" onclick="copyTextReport('all')">📊 Общий по сети</button>
-          <button class="copy-btn secondary" onclick="copyTextReport('moscow')">📋 Москва</button>
-          <button class="copy-btn secondary" onclick="copyTextReport('izhevsk')">📋 Ижевск</button>
+    if (totalDirsMonth > 0 || totalDirsYear > 0) {
+      html += `<div class="section">
+        <div class="section-title">🛡 Менеджер страховых</div>
+        <div class="sk-widget">
+          <div class="sk-summary">
+            <div class="sk-stat">
+              <div class="sk-stat-val">${totalDirsMonth}</div>
+              <div class="sk-stat-lbl">Направлений в ${MP_MONTHS_SHORT[data.range.month-1]}</div>
+            </div>
+            <div class="sk-stat">
+              <div class="sk-stat-val ${dirsDelta!==null && dirsDelta>=0?'g':dirsDelta!==null?'r':''}">${dirsDelta!==null?(dirsDelta>=0?'+':'')+dirsDelta+'%':'—'}</div>
+              <div class="sk-stat-lbl">К прошлому месяцу</div>
+            </div>
+            <div class="sk-stat">
+              <div class="sk-stat-val">${totalDirsYear}</div>
+              <div class="sk-stat-lbl">За год</div>
+            </div>
+          </div>
+          <div class="sk-cities">
+            <div class="sk-city">
+              <div class="sk-city-name">🏙 Москва</div>
+              <div class="sk-city-val">${byCity.moscow || 0}</div>
+              <div class="sk-city-sub">направлений за месяц</div>
+            </div>
+            <div class="sk-city">
+              <div class="sk-city-name">🏘 Ижевск</div>
+              <div class="sk-city-val">${byCity.izhevsk || 0}</div>
+              <div class="sk-city-sub">направлений за месяц</div>
+            </div>
+          </div>
         </div>
+      </div>`;
+    }
+
+    html += `<div class="chart-row">
+      <div class="chart-block">
+        <div class="chart-title">📈 Динамика по месяцам ${data.range.year}</div>
+        <div class="chart-wrap"><canvas id="ch-monthly"></canvas></div>
       </div>
-    `;
+      <div class="chart-block">
+        <div class="chart-title">🎯 Структура выручки</div>
+        <div class="chart-wrap"><canvas id="ch-structure"></canvas></div>
+      </div>
+    </div>`;
 
     document.getElementById('content').innerHTML = html;
 
-    // Графики после рендера
-    setTimeout(() => renderCharts(data, byPoint), 50);
-  }
-
-  function renderCharts(data, byPoint) {
-    // 1. Линия динамики общего вала
-    const dailySums = {};
-    data.current.forEach(r => {
-      dailySums[r.date] = (dailySums[r.date] || 0) + (+r.total_day || 0);
-    });
-    const sortedDates = Object.keys(dailySums).sort();
-    const labels = sortedDates.map(pdate);
-    const values = sortedDates.map(d => dailySums[d]);
-
-    const trendCtx = document.getElementById('chart-trend');
-    if (trendCtx) {
-      const trend = new Chart(trendCtx, {
-        type: 'line',
+    setTimeout(() => {
+      const monthly = {};
+      for (let m=1; m<=12; m++) monthly[m] = 0;
+      data.year.forEach(r => {
+        const month = +r.date.split('-')[1];
+        monthly[month] = (monthly[month] || 0) + (+r.total_day || 0);
+      });
+      const ctx1 = document.getElementById('ch-monthly');
+      if (ctx1) allCharts.push(new Chart(ctx1, {
+        type: 'bar',
         data: {
-          labels,
+          labels: MP_MONTHS_SHORT,
           datasets: [{
-            label: 'Общий вал',
-            data: values,
-            borderColor: '#e8b84b',
-            backgroundColor: 'rgba(232,184,75,.15)',
-            fill: true,
-            tension: 0.3,
-            borderWidth: 2,
-            pointRadius: 4,
-            pointBackgroundColor: '#e8b84b'
+            label: 'Выручка',
+            data: Object.values(monthly),
+            backgroundColor: Object.values(monthly).map((v,i) => i+1 === data.range.month ? '#e8b84b' : '#2a2a2a'),
+            borderRadius: 5
           }]
         },
         options: {
           responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { ticks: { color: '#909090', font: { size: 10 } }, grid: { color: '#333333' } },
-            y: { ticks: { color: '#909090', font: { size: 10 }, callback: v => fs(v) }, grid: { color: '#333333' } }
+          plugins: { legend: {display:false}, tooltip:{callbacks:{label:c=>fm(c.raw)+' ₽'}} },
+          scales: { x:{ticks:{color:'#909090'},grid:{display:false}}, y:{ticks:{color:'#909090', callback:v=>fs(v)},grid:{color:'#333'}} }
+        }
+      }));
+
+      const ctx2 = document.getElementById('ch-structure');
+      if (ctx2 && monthTotal > 0) {
+        const structureLabels = ['Страховые', 'Розница'];
+        const structureData = [monthIns, monthRetail];
+        const structureColors = ['#2196f3', '#4caf50'];
+        if (monthCorp > 0) {
+          structureLabels.push('Корпоратив');
+          structureData.push(monthCorp);
+          structureColors.push('#9c27b0');
+        }
+        allCharts.push(new Chart(ctx2, {
+          type: 'doughnut',
+          data: { labels: structureLabels, datasets: [{ data: structureData, backgroundColor: structureColors, borderColor: '#222', borderWidth: 2 }] },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: {position:'bottom', labels:{color:'#fff', font:{size:11}}}, tooltip:{callbacks:{label:c=>c.label+': '+fm(c.raw)+' ₽'}} }
           }
-        }
-      });
-      allCharts.push(trend);
-    }
-
-    // 2. Donut: структура выручки
-    let mIns=0, mPhys=0, mCorp=0;
-    data.current.forEach(r => { mIns += +r.ins_day||0; mPhys += +r.phys_day||0; mCorp += +r.corp_day||0; });
-
-    const donutCtx = document.getElementById('chart-donut');
-    if (donutCtx) {
-      const donut = new Chart(donutCtx, {
-        type: 'doughnut',
-        data: {
-          labels: ['Страховые', 'Физлица', 'Корпоратив'],
-          datasets: [{
-            data: [mIns, mPhys, mCorp],
-            backgroundColor: ['rgba(59,130,246,.85)', 'rgba(34,197,94,.85)', 'rgba(168,85,247,.85)'],
-            borderColor: '#222222',
-            borderWidth: 2
-          }]
-        },
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          plugins: {
-            legend: { position: 'bottom', labels: { color: '#ffffff', font: { size: 11 }, padding: 10 } },
-            tooltip: {
-              callbacks: {
-                label: ctx => {
-                  const total = ctx.dataset.data.reduce((a,b) => a+b, 0);
-                  const pct = total ? Math.round(ctx.parsed/total*100) : 0;
-                  return `${ctx.label}: ${fm(ctx.parsed)} ₽ (${pct}%)`;
-                }
-              }
-            }
-          },
-          cutout: '60%'
-        }
-      });
-      allCharts.push(donut);
-    }
-  }
-
-  // ====== Текстовые отчёты ======
-  function buildTextReport(filter) {
-    const data = cachedData;
-    if (!data) return '';
-    const mn = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
-    const monthName = mn[data.range.month-1];
-
-    let points = data.points;
-    let title;
-    if (filter === 'moscow') { points = points.filter(p => p.format !== 'izhevsk'); title = 'Москва'; }
-    else if (filter === 'izhevsk') { points = points.filter(p => p.format === 'izhevsk'); title = 'Ижевск'; }
-    else { title = 'Сеть RG Plaza'; }
-
-    const pointIds = points.map(p => p.id);
-    const filteredCurrent = data.current.filter(r => pointIds.includes(r.point_id));
-    const filteredPrev = data.prev.filter(r => pointIds.includes(r.point_id));
-    const filteredYear = data.year.filter(r => pointIds.includes(r.point_id));
-
-    let mTotal=0, mIns=0, mRet=0, mPhys=0, mCorp=0;
-    filteredCurrent.forEach(r => {
-      mTotal += +r.total_day||0; mIns += +r.ins_day||0; mRet += +r.retail_day||0;
-      mPhys += +r.phys_day||0; mCorp += +r.corp_day||0;
-    });
-    let pTotal=0; filteredPrev.forEach(r => pTotal += +r.total_day||0);
-    const delta = pTotal ? Math.round((mTotal - pTotal) / pTotal * 100) : null;
-
-    let yTotal=0, yRet=0, yIns=0;
-    filteredYear.forEach(r => { yTotal += +r.total_day||0; yRet += +r.retail_day||0; yIns += +r.ins_day||0; });
-    points.forEach(p => {
-      yTotal += +p.year_start_total||0;
-      yRet += +p.year_start_retail||0;
-      yIns += +p.year_start_insurance||0;
-    });
-
-    let totalPlan = 0;
-    data.plans.filter(pl => pointIds.includes(pl.point_id)).forEach(pl => {
-      totalPlan += (+pl.plan_phys_month||0) + (+pl.plan_corp_month||0);
-    });
-    const planPct = totalPlan ? Math.round((mPhys + mCorp) / totalPlan * 100) : null;
-
-    // Топ точек
-    const byPoint = {};
-    points.forEach(p => byPoint[p.id] = { point: p, total: 0, plan: 0 });
-    filteredCurrent.forEach(r => { if (byPoint[r.point_id]) byPoint[r.point_id].total += +r.total_day||0; });
-    data.plans.forEach(pl => { if (byPoint[pl.point_id]) byPoint[pl.point_id].plan = (+pl.plan_phys_month||0) + (+pl.plan_corp_month||0); });
-    const sorted = Object.values(byPoint).sort((a,b) => b.total - a.total);
-
-    // Финансы
-    let dTot=0, dRet=0, dIns=0, oTot=0, oRavt=0, oOther=0;
-    points.forEach(p => {
-      const reports = filteredCurrent.filter(r => r.point_id === p.id).sort((a,b) => b.date.localeCompare(a.date));
-      if (reports[0]) {
-        dTot += +reports[0].debt_total||0; dRet += +reports[0].debt_retail||0; dIns += +reports[0].debt_insurance||0;
-        oTot += +reports[0].owe_total||0; oRavt += +reports[0].owe_ravt||0; oOther += +reports[0].owe_other||0;
+        }));
       }
-    });
-
-    const days = new Set(filteredCurrent.map(r => r.date)).size;
-
-    const todayStr = new Date().toLocaleDateString('ru-RU', { day:'2-digit', month:'2-digit', year:'2-digit' });
-    const medals = ['🥇','🥈','🥉'];
-
-    let txt = `📊 СВОДКА — ${title}
-${monthName} ${data.range.year} · на ${todayStr}
-
-━━━━━━━━━━━━━━━━━━
-ВАЛ ЗА МЕСЯЦ
-━━━━━━━━━━━━━━━━━━
-${fm(mTotal)} ₽${delta !== null ? ` (${delta >= 0 ? '+' : ''}${delta}% к прошлому)` : ''}
-${totalPlan ? `План: ${fm(totalPlan)} ₽ (${planPct}%)` : 'План не задан'}
-
-Структура:
-  Страховые: ${fm(mIns)} ₽ (${mTotal ? Math.round(mIns/mTotal*100) : 0}%)
-  Физлица: ${fm(mPhys)} ₽ (${mTotal ? Math.round(mPhys/mTotal*100) : 0}%)
-  Корпоратив: ${fm(mCorp)} ₽ (${mTotal ? Math.round(mCorp/mTotal*100) : 0}%)
-
-Дней в работе: ${days}
-Средний день: ${fm(days ? mTotal/days : 0)} ₽
-
-━━━━━━━━━━━━━━━━━━
-ГОДОВОЙ ВАЛ ${data.range.year}
-━━━━━━━━━━━━━━━━━━
-${fm(yTotal)} ₽
-  Розница: ${fm(yRet)} ₽
-  Страховые: ${fm(yIns)} ₽
-
-━━━━━━━━━━━━━━━━━━
-ПО ТОЧКАМ
-━━━━━━━━━━━━━━━━━━
-${sorted.map((s,i) => {
-  const pct = s.plan ? Math.round(s.total/s.plan*100) : null;
-  const medal = i < 3 ? medals[i] + ' ' : '   ';
-  return `${medal}${s.point.name}: ${fm(s.total)} ₽${pct !== null ? ` (${pct}%)` : ''}`;
-}).join('\n')}
-
-━━━━━━━━━━━━━━━━━━
-ФИНАНСЫ
-━━━━━━━━━━━━━━━━━━
-Долги по ЗН: ${fm(dTot)} ₽
-  Розница: ${fm(dRet)} ₽
-  Страховые: ${fm(dIns)} ₽
-
-Мы должны: ${fm(oTot)} ₽
-  РАВТ: ${fm(oRavt)} ₽
-  Остальные: ${fm(oOther)} ₽`;
-
-    return txt;
+    }, 50);
   }
 
-  function copyTextReport(filter) {
-    const text = buildTextReport(filter);
-    navigator.clipboard.writeText(text).then(() => {
-      const label = filter === 'all' ? 'Общий отчёт' : filter === 'moscow' ? 'Отчёт Москвы' : 'Отчёт Ижевска';
-      toast(`${label} скопирован`, 'ok');
+  function renderDebtBreakdown(data, type, lastByPoint) {
+    const items = [];
+    data.points.forEach(p => {
+      const r = lastByPoint[p.id];
+      if (!r) return;
+      const v = type === 'debt' ? +r.debt_total || 0 : +r.owe_total || 0;
+      if (v <= 0) return;
+      let detail = '';
+      if (type === 'debt') {
+        const retail = +r.debt_retail || 0;
+        const ins = +r.debt_insurance || 0;
+        if (retail || ins) detail = ` <span style="color:var(--muted);font-size:10px;">(розн ${fm(retail)} + страх ${fm(ins)})</span>`;
+      } else {
+        const ravt = +r.owe_ravt || 0;
+        const other = +r.owe_other || 0;
+        if (ravt || other) detail = ` <span style="color:var(--muted);font-size:10px;">(РАВТ ${fm(ravt)} + прочие ${fm(other)})</span>`;
+      }
+      items.push({ name: p.name, val: v, detail });
     });
+    items.sort((a,b) => b.val - a.val);
+    return `<div class="expand-row">${items.map(i =>
+      `<div class="expand-item"><span><b>${i.name}</b>${i.detail}</span><span class="v">${fm(i.val)} ₽</span></div>`
+    ).join('')}</div>`;
   }
 
-  (function init() {
-    if (sessionStorage.getItem('rgp_owner') === '1') enterApp();
-    else document.getElementById('login-code').focus();
-    document.getElementById('login-code').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
-  })();
+  function toggleExpand(key, ev) {
+    if (ev) ev.stopPropagation();
+    if (expandedKpis.has(key)) expandedKpis.delete(key); else expandedKpis.add(key);
+    if (cachedData) render(cachedData);
+  }
+  function togglePoint(id) {
+    if (expandedPoints.has(id)) expandedPoints.delete(id); else expandedPoints.add(id);
+    if (cachedData) render(cachedData);
+  }
 
-  setInterval(() => {
-    if (sessionStorage.getItem('rgp_owner') === '1' && document.getElementById('app').style.display !== 'none') {
-      loadAll();
+  function exportToExcel() {
+    if (!cachedData) { showToast('Сначала загрузи данные', 'err'); return; }
+    if (typeof XLSX === 'undefined') { showToast('Excel-библиотека не загружена', 'err'); return; }
+    try {
+      const wb = XLSX.utils.book_new();
+      const data = cachedData;
+      const monthName = MP_MONTHS_FULL[data.range.month-1];
+
+      let monthTotal=0, monthIns=0, monthRetail=0;
+      data.current.forEach(r => { monthTotal+=+r.total_day||0; monthIns+=+r.ins_day||0; monthRetail+=+r.retail_day||0; });
+      const fot = data.fot || {};
+      const expWithoutSalary = data.expenses.filter(r => !r.category.startsWith('salary_')).reduce((s,r) => s+(+r.amount), 0);
+      const taxTotal = data.taxes.reduce((s,r) => s+(+r.amount), 0);
+      const profit = monthTotal - expWithoutSalary - (+fot.fot_total||0) - taxTotal;
+
+      const summary = [
+        ['Отчёт RG Plaza', `${monthName} ${data.range.year}`],
+        [],
+        ['ФИНАНСОВАЯ КАРТИНА'],
+        ['Выручка', monthTotal],
+        ['  страховые', monthIns],
+        ['  розница', monthRetail],
+        ['ФОТ', +fot.fot_total||0],
+        ['Расходы (аренда, лизинг, кредит)', expWithoutSalary],
+        ['Налоги', taxTotal],
+        ['= ЧИСТАЯ ПРИБЫЛЬ', profit],
+        ['Маржа, %', monthTotal > 0 ? Math.round(profit/monthTotal*100) : 0]
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), 'Сводка');
+
+      const pointsRows = [['Точка', 'Выручка', 'Страховые', 'Розница', 'Дни работы', 'Долги (нам)', 'Долги (мы)']];
+      const lastByPoint = {};
+      data.current.forEach(r => { if (!lastByPoint[r.point_id] || r.date > lastByPoint[r.point_id].date) lastByPoint[r.point_id] = r; });
+      data.points.forEach(p => {
+        const reports = data.current.filter(r => r.point_id === p.id);
+        const t = reports.reduce((s,r) => s+(+r.total_day||0), 0);
+        const i = reports.reduce((s,r) => s+(+r.ins_day||0), 0);
+        const ret = reports.reduce((s,r) => s+(+r.retail_day||0), 0);
+        const days = new Set(reports.filter(r => +r.total_day > 0).map(r => r.date)).size;
+        const last = lastByPoint[p.id] || {};
+        pointsRows.push([p.name, t, i, ret, days, +last.debt_total||0, +last.owe_total||0]);
+      });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(pointsRows), 'По точкам');
+
+      const daysRows = [['Дата', 'Точка', 'Всего', 'Страх', 'Розница', 'Записей', 'Долги (нам)', 'Долги (мы)']];
+      data.current.slice().sort((a,b) => a.date.localeCompare(b.date)).forEach(r => {
+        const p = data.points.find(x => x.id === r.point_id);
+        daysRows.push([r.date, p?.name || r.point_id, +r.total_day||0, +r.ins_day||0, +r.retail_day||0, +r.bookings||0, +r.debt_total||0, +r.owe_total||0]);
+      });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(daysRows), 'По дням');
+
+      if (data.expenses.length || data.taxes.length) {
+        const expRows = [['Тип', 'Юрлицо', 'Категория', 'Сумма']];
+        data.expenses.forEach(e => expRows.push(['Расход', e.entity_id, e.category, +e.amount||0]));
+        data.taxes.forEach(t => expRows.push(['Налог', t.entity_id, t.tax_type, +t.amount||0]));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(expRows), 'Расходы и налоги');
+      }
+
+      if (data.directions.length) {
+        const dirsRows = [['Период', 'Канал', 'СК', 'Точка', 'Поступило', 'Отозвано']];
+        data.directions.forEach(d => {
+          const ch = data.channels.find(c => c.id === d.channel_id);
+          const co = data.companies.find(c => c.id === d.company_id);
+          const p = data.points.find(x => x.id === d.point_id);
+          dirsRows.push([d.period, ch?.name || '?', co?.name || '?', p?.name || '—', +d.incoming_count||0, +d.withdrawn_count||0]);
+        });
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dirsRows), 'Направления СК');
+      }
+
+      const fileName = `RG-Plaza_${monthName}_${data.range.year}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      showToast('✅ Файл скачан', 'ok');
+    } catch (e) {
+      console.error(e);
+      showToast('Ошибка: '+(e.message||e), 'err');
     }
-  }, 5 * 60 * 1000); // обновление раз в 5 минут
+  }
+
+  document.getElementById('login-code').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  if (sessionStorage.getItem('rgp_owner') === '1') enterApp();
 </script>
 </body>
 </html>
