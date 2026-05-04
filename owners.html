@@ -1036,11 +1036,10 @@
     // Список «допуслуг» которые интересно отслеживать (розничный канал, не основные стёкла)
     const ADDONS = ['Щётки', 'Реализация товаров (герметик, автохимия)', 'Ремонт сколов', 'Полировка', 'Тонировка', 'Бронепленка', 'Шумоизоляция', 'Антидождь'];
 
-    // Топ-5 категорий за месяц (любой канал)
+    // Топ услуг (только розница) — здесь category это название услуги
     const byCategory = {};
-    breakdown.forEach(b => {
-      const key = b.category;
-      byCategory[key] = (byCategory[key] || 0) + (+b.amount || 0);
+    breakdown.filter(b => b.channel === 'retail').forEach(b => {
+      byCategory[b.category] = (byCategory[b.category] || 0) + (+b.amount || 0);
     });
     const topCategories = Object.entries(byCategory)
       .map(([cat, sum]) => ({ cat, sum }))
@@ -1048,11 +1047,10 @@
       .sort((a,b) => b.sum - a.sum)
       .slice(0, 6);
 
-    // Прошлый месяц для сравнения
+    // Прошлый месяц для сравнения (тоже только розница)
     const byCategoryPrev = {};
-    breakdownPrev.forEach(b => {
-      const key = b.category;
-      byCategoryPrev[key] = (byCategoryPrev[key] || 0) + (+b.amount || 0);
+    breakdownPrev.filter(b => b.channel === 'retail').forEach(b => {
+      byCategoryPrev[b.category] = (byCategoryPrev[b.category] || 0) + (+b.amount || 0);
     });
 
     const totalSum = topCategories.reduce((s,x) => s + x.sum, 0);
@@ -1087,7 +1085,7 @@
 
     // Карточка 1: Топ услуг
     html += `<div class="top-card">
-      <div class="top-title">💰 Топ услуг по выручке</div>
+      <div class="top-title">💰 Топ услуг розницы</div>
       <div class="top-list">`;
     topCategories.forEach((c, i) => {
       const prev = byCategoryPrev[c.cat] || 0;
