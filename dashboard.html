@@ -509,9 +509,21 @@
     return count;
   }
   function getMonthRange() {
-    const v = document.getElementById('month-pick').value || new Date().toISOString().substring(0,7);
-    const [y,m] = v.split('-');
-    return { start: `${y}-${m}-01`, end: new Date(+y, +m, 0).toISOString().split('T')[0], year:+y, month:+m };
+    // Берём текущий месяц локально (без toISOString — он сдвигает в UTC)
+    const now = new Date();
+    const fallback = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    const v = document.getElementById('month-pick').value || fallback;
+    const [yStr, mStr] = v.split('-');
+    const y = +yStr, m = +mStr;
+    // Последний день месяца — собираем строкой, без toISOString (тот сдвигает на UTC и теряет 1 день)
+    const lastDay = new Date(y, m, 0).getDate();
+    const pad = n => String(n).padStart(2, '0');
+    return {
+      start: `${y}-${pad(m)}-01`,
+      end: `${y}-${pad(m)}-${pad(lastDay)}`,
+      year: y,
+      month: m
+    };
   }
 
   async function loadAll() {
@@ -523,6 +535,7 @@
     const range = getMonthRange();
     const yearStart = `${range.year}-01-01`;
     const period = `${range.year}-${String(range.month).padStart(2,'0')}`;
+    console.log('[RG Plaza] Загрузка периода:', period, '· диапазон:', range.start, '→', range.end);
     try {
       // Хелпер: если таблица не существует — возвращает пустой массив вместо краша
       const safe = async (q) => {
@@ -550,6 +563,12 @@
 
       const allPoints = pointsRes.data || [];
       const revenuePoints = allPoints.filter(p => p.is_revenue_point !== false && !['detailing','school','mgt','other'].includes(p.id));
+
+      console.log('[RG Plaza] Получено отчётов за месяц:', (reportsRes.data || []).length);
+      if ((reportsRes.data || []).length > 0) {
+        const dates = [...new Set((reportsRes.data || []).map(r => r.date))].sort();
+        console.log('[RG Plaza] Даты в выборке:', dates.join(', '));
+      }
 
       cachedData = {
         points: revenuePoints,
@@ -672,7 +691,9 @@
 
     // 1. Точки которые не отчитались до 19:00 локального времени
     if (isCurrentMonth) {
-      const todayStr = today.toISOString().substring(0,10);
+      // Локальная дата без UTC-сдвига (вечером в МСК ISO даёт уже завтрашний день)
+      const _pad = n => String(n).padStart(2, '0');
+      const todayStr = `${today.getFullYear()}-${_pad(today.getMonth()+1)}-${_pad(today.getDate())}`;
       const dayOfWeek = today.getDay();
       const reportedToday = new Set();
       data.reports.forEach(r => { if (r.date === todayStr && +r.total_day > 0) reportedToday.add(r.point_id); });
@@ -1126,9 +1147,16 @@
     return data || [];
   }
 
+  // Локальная сегодняшняя дата без UTC-сдвига
+  function todayLocalISO() {
+    const d = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  }
+
   async function renderMyReport(data) {
     const range = data.range;
-    const date = document.getElementById('myreport-date')?.value || new Date().toISOString().split('T')[0];
+    const date = document.getElementById('myreport-date')?.value || todayLocalISO();
 
     // Грузим данные за весь год (для накопительного годового вала)
     let yearData = yearDataCache;
