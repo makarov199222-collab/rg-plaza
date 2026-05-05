@@ -1809,17 +1809,39 @@
         return t;
       };
 
-      if (yearChannelFilter === 'all' && availableChannels.length > 1) {
-        // Режим "Все" — показываем две (или более) таблицы под друг другом
-        availableChannels.forEach(chName => {
-          const allowedIds = channels.filter(c => c.name === chName).map(c => c.id);
-          const sub = dirs.filter(d => allowedIds.includes(d.channel_id));
-          if (sub.length) {
-            html += renderCompanyTable(sub, ` · ${chName}`);
-          }
+      if (yearChannelFilter === 'all' && (availableChannels.length > 1 || points.length > 1)) {
+        // Режим "Все" — показываем матрицу (точка × канал)
+        // Порядок: для каждой точки — все её каналы
+        points.forEach(pt => {
+          availableChannels.forEach(chName => {
+            const allowedIds = channels.filter(c => c.name === chName).map(c => c.id);
+            const sub = dirs.filter(d =>
+              allowedIds.includes(d.channel_id) &&
+              d.point_id === pt.id
+            );
+            if (!sub.length) return;
+            // Заголовок: "Калужская" или "Совхозная · РАВТ"
+            const suffix = availableChannels.length > 1
+              ? ` · ${pt.name} · ${chName}`
+              : ` · ${pt.name}`;
+            html += renderCompanyTable(sub, suffix);
+          });
         });
+      } else if (yearChannelFilter !== 'all') {
+        // Один канал выбран — также делим по точкам
+        const allowedIds = channels.filter(c => c.name === yearChannelFilter).map(c => c.id);
+        if (points.length > 1) {
+          points.forEach(pt => {
+            const sub = dirs.filter(d => allowedIds.includes(d.channel_id) && d.point_id === pt.id);
+            if (sub.length) {
+              html += renderCompanyTable(sub, `${filterLabel} · ${pt.name}`);
+            }
+          });
+        } else {
+          html += renderCompanyTable(dirs, filterLabel);
+        }
       } else {
-        // Один канал выбран — одна таблица как раньше
+        // Только одна точка и один канал — одна таблица
         html += renderCompanyTable(dirs, filterLabel);
       }
     }
