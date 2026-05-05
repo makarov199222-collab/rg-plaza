@@ -275,8 +275,9 @@
     font-size:11px; min-width:680px;
   }
   .year-table-cell{
-    background:var(--surface); padding:7px 6px;
+    background:var(--surface); padding:6px 6px;
     text-align:center; color:var(--text);
+    min-height:38px; display:flex; flex-direction:column; justify-content:center; align-items:center;
   }
   .year-table-cell.head{
     background:var(--bg-dark); color:var(--text-dim);
@@ -291,6 +292,16 @@
     font-family:var(--font-display); font-size:13px;
   }
   .year-table-cell.zero{color:var(--text-dim);}
+  .year-table-cell .num{ font-weight:600; }
+  .year-table-cell .delta{
+    display:block; font-size:9px; line-height:1.1; margin-top:2px;
+    font-weight:500; letter-spacing:.2px;
+  }
+  .year-table-cell .delta.up   { color:#34d399; }   /* зелёный */
+  .year-table-cell .delta.down { color:#f87171; }   /* красный */
+  .year-table-cell .delta.flat { color:var(--text-dim); }
+  .year-table-cell .delta.new  { color:#60a5fa; }   /* синий — "ожила" */
+  .year-table-cell .delta.gone { color:var(--text-dim); }
 
   /* ============== PULL TO REFRESH ============== */
   .pull-indicator{
@@ -1724,6 +1735,25 @@
 
     // Таблица СК × месяцы
     if (topCompanies.length) {
+      // Формирователь дельты к предыдущему месяцу
+      // prev=undefined (нет данных за прошлый месяц) → ничего не показывать
+      // prev>0, curr=0 → "ушла" (gone)
+      // prev=0, curr>0 → "NEW" (new)
+      // ±5% порог для flat
+      const formatDelta = (curr, prev) => {
+        if (prev === undefined || prev === null) return '';
+        if (prev === 0 && curr === 0) return '';
+        if (prev === 0 && curr > 0) return `<span class="delta new">↑ NEW</span>`;
+        if (prev > 0 && curr === 0) return `<span class="delta gone">↓ ушла</span>`;
+        const diff = curr - prev;
+        const pct = Math.round((diff / prev) * 100);
+        if (Math.abs(pct) < 5) return `<span class="delta flat">→</span>`;
+        const arrow = pct > 0 ? '↑' : '↓';
+        const cls = pct > 0 ? 'up' : 'down';
+        const sign = pct > 0 ? '+' : '';
+        return `<span class="delta ${cls}">${arrow}${sign}${pct}%</span>`;
+      };
+
       // Хелпер для рендера одной таблицы по подмножеству direction-записей
       const renderCompanyTable = (subDirs, titleSuffix = '') => {
         // Считаем агрегаты по только этим записям
@@ -1755,7 +1785,23 @@
           for (let m = 1; m <= 12; m++) {
             const period = `${year}-${String(m).padStart(2,'0')}`;
             const v = byMonthCompany[period][comp.id] || 0;
-            t += `<div class="year-table-cell ${v === 0 ? 'zero' : ''}">${v || '—'}</div>`;
+            // Дельта к прошлому месяцу — показываем только начиная со 2-го месяца
+            // и только если в обоих месяцах есть хоть какие-то данные по точке
+            // (иначе если месяц вообще не отчитан — не маркируем "ушла")
+            let deltaHtml = '';
+            if (m > 1) {
+              const prevPeriod = `${year}-${String(m-1).padStart(2,'0')}`;
+              // Был ли вообще трафик за прошлый месяц у любой СК?
+              const prevMonthHasData = Object.values(byMonthCompany[prevPeriod] || {}).some(x => x > 0);
+              const currMonthHasData = Object.values(byMonthCompany[period] || {}).some(x => x > 0);
+              if (prevMonthHasData && currMonthHasData) {
+                const prevV = byMonthCompany[prevPeriod][comp.id] || 0;
+                deltaHtml = formatDelta(v, prevV);
+              }
+            }
+            t += `<div class="year-table-cell ${v === 0 ? 'zero' : ''}">
+              <span class="num">${v || '—'}</span>${deltaHtml}
+            </div>`;
           }
           t += `<div class="year-table-cell total">${comp.count}</div>`;
         });
