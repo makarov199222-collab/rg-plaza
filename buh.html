@@ -1472,7 +1472,243 @@
           Скиньте файл в чат и он будет добавлен в БД в течение нескольких минут.
         </div>
       </div>
+
+      <div class="data-block" style="margin-top:16px;">
+        <div class="block-title">📊 ОВР · Бухгалтерский отчёт за месяц</div>
+        <p style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:14px;">
+          ОВР закрытого месяца от бухгалтерии. Появляется в дашборде как сравнение с операционным валом из дневных отчётов менеджеров.<br>
+          Можно ввести руками или загрузить xlsx — парсер попытается найти ВСЕГО / РАВТ / Розница.
+        </p>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+          <div class="form-group">
+            <label class="form-label">Точка</label>
+            <select id="ovr-point" class="form-input">
+              <option value="kaluga">Калужская</option>
+              <option value="serpuhov">Серпуховская</option>
+              <option value="sovhoz">Совхозная</option>
+              <option value="poyma">Пойма</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Период (YYYY-MM)</label>
+            <input id="ovr-period" class="form-input" type="month" />
+          </div>
+        </div>
+
+        <div class="upload-zone" id="upload-zone-ovr" onclick="document.getElementById('file-ovr').click()" style="margin-bottom:14px;">
+          <div class="upload-icon">📎</div>
+          <div class="upload-text">Опционально: загрузить xlsx</div>
+          <div class="upload-hint">Парсер попытается найти ВСЕГО / РАВТ / Розница и подставить значения</div>
+          <div class="upload-status" id="status-ovr"></div>
+        </div>
+        <input type="file" id="file-ovr" accept=".xlsx" style="display:none" onchange="handleOvrXlsx(this)">
+
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+          <div class="form-group">
+            <label class="form-label">💰 ВСЕГО (₽)</label>
+            <input id="ovr-total" class="form-input" type="number" step="0.01" placeholder="0" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">🛡 Страховые (₽)</label>
+            <input id="ovr-insurance" class="form-input" type="number" step="0.01" placeholder="0" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">🛒 Розница (₽)</label>
+            <input id="ovr-retail" class="form-input" type="number" step="0.01" placeholder="0" />
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;align-items:center;margin-top:6px;">
+          <button class="btn" onclick="saveOvr()" style="flex:0 0 auto;">💾 Сохранить ОВР</button>
+          <div id="ovr-warn" style="font-size:12px;color:var(--muted);"></div>
+        </div>
+      </div>
+
+      <div class="data-block" style="margin-top:16px;">
+        <div class="block-title">📋 Загруженные ОВР</div>
+        <div id="ovr-list">Загрузка...</div>
+      </div>
     `;
+    // Дефолт: предыдущий месяц
+    const d = new Date();
+    d.setDate(0);
+    document.getElementById('ovr-period').value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    loadOvrList();
+  }
+
+  // === ОВР ===
+  // Парсер xlsx — ищет числа рядом с ключевыми словами "ВСЕГО", "РАВТ", "РОЗНИЧН"
+  // Поддерживает оба формата: год-в-одном-файле или один-месяц.
+  // Если нашёл — подставляет в поля. Не нашёл — пользователь введёт руками.
+  async function handleOvrXlsx(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const status = document.getElementById('status-ovr');
+    status.style.color = 'var(--orange)';
+    status.textContent = '⏳ Читаю файл...';
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+      // Какой месяц нужен? Смотрим выбранный период
+      const period = document.getElementById('ovr-period').value;  // 2026-04
+      const monthIdx = period ? +period.split('-')[1] : null;       // 4
+      const result = parseOvrRows(rows, monthIdx);
+
+      if (result.total === null && result.insurance === null && result.retail === null) {
+        status.style.color = 'var(--red)';
+        status.textContent = '⚠ Не нашёл ключевые слова. Введи руками.';
+        return;
+      }
+
+      // Подставляем
+      if (result.total     !== null) document.getElementById('ovr-total').value     = result.total;
+      if (result.insurance !== null) document.getElementById('ovr-insurance').value = result.insurance;
+      if (result.retail    !== null) document.getElementById('ovr-retail').value    = result.retail;
+
+      // Предупреждение если total ≠ insurance + retail
+      const warnEl = document.getElementById('ovr-warn');
+      if (result.total && result.insurance !== null && result.retail !== null) {
+        const diff = +result.total - (+result.insurance + +result.retail);
+        if (Math.abs(diff) > Math.abs(result.total) * 0.01) {
+          warnEl.textContent = `⚠ Δ ${diff.toLocaleString('ru-RU')} ₽ между ВСЕГО и (СК+Розница)`;
+          warnEl.style.color = 'var(--orange)';
+        } else {
+          warnEl.textContent = '✓ ВСЕГО = СК + Розница';
+          warnEl.style.color = 'var(--green)';
+        }
+      }
+
+      status.style.color = 'var(--green)';
+      const found = ['total','insurance','retail'].filter(k => result[k] !== null).length;
+      status.textContent = `✓ Распознал ${found}/3 значения. Проверь и нажми «Сохранить».`;
+    } catch (e) {
+      status.style.color = 'var(--red)';
+      status.textContent = '⚠ Ошибка: ' + (e.message || e);
+    }
+  }
+
+  function parseOvrRows(rows, monthIdx) {
+    // Ищем 3 строки по ключевым словам в первых 2 колонках
+    // monthIdx=4 → апрель → колонка [5] (если в файле формат как ОВР_Апрель_Москва: A=пусто/№, B=название, C-N=янв-дек)
+    // Но если файл — один месяц, единственная числовая колонка ≠ месячный индекс. Пробуем оба варианта.
+    const result = { total: null, insurance: null, retail: null };
+    const matchKey = (text, keywords) => {
+      const t = String(text || '').toLowerCase();
+      return keywords.some(k => t.includes(k));
+    };
+    for (const row of rows) {
+      if (!row || row.length === 0) continue;
+      // Объединяем первые 3 колонки как метку (в файле метка может быть в [0], [1] или [2])
+      const label = [row[0], row[1], row[2]].map(x => x == null ? '' : String(x)).join(' ').toLowerCase();
+      if (!label.trim()) continue;
+
+      // Определим какое значение ожидаем
+      let key = null;
+      if (matchKey(label, ['розничные продажи всего', 'розница всего'])) key = 'retail';
+      else if (matchKey(label, ['страховые компании', 'страховые:'])) key = 'insurance';
+      else if (matchKey(label, ['всего выполненных работ', 'всего вр'])) key = 'total';
+      // Запасной: «ВСЕГО Коммунарка/Совхозная/Пойма/Серпуховская» — общий итог точки
+      else if (result.total === null && /всего\s+(коммунарка|калужская|серпух|совхоз|пойм)/i.test(label)) key = 'total';
+      // Запасной: одиночное «РАВТ» (для конкретного канала)
+      else if (result.insurance === null && /^\s*равт\s*$/i.test((row[1]||row[0]||'')+'')) key = 'insurance';
+
+      if (!key || result[key] !== null) continue;
+
+      // Берём первое числовое значение в строке.
+      // Если знаем monthIdx, пробуем сначала колонку monthIdx+1 (или +2 в зависимости от смещения)
+      const candidates = [];
+      // Большинство ОВР: колонка C (idx=2) = январь, поэтому monthIdx-индекс=2+monthIdx-1=monthIdx+1
+      if (monthIdx) candidates.push(monthIdx + 1);
+      // Иначе пробуем все числовые
+      for (let i = 2; i < row.length; i++) candidates.push(i);
+      const toNum = (v) => {
+        if (v == null) return null;
+        if (typeof v === 'number') return isFinite(v) ? v : null;
+        // Строка может быть "6 175 853,94" или "6,175,853.94" или "6175853.94"
+        const s = String(v).replace(/\s+/g,'').replace(/,/g,'.');
+        // Если несколько точек — оставляем только последнюю как разделитель дробной
+        const parts = s.split('.');
+        let normalized;
+        if (parts.length > 2) normalized = parts.slice(0,-1).join('') + '.' + parts.slice(-1);
+        else normalized = s;
+        const n = parseFloat(normalized);
+        return isFinite(n) ? n : null;
+      };
+      for (const i of candidates) {
+        const n = toNum(row[i]);
+        if (n !== null && n > 0) {
+          result[key] = n;
+          break;
+        }
+      }
+    }
+    return result;
+  }
+
+  async function saveOvr() {
+    const point_id = document.getElementById('ovr-point').value;
+    const period   = document.getElementById('ovr-period').value;
+    const total     = parseFloat(document.getElementById('ovr-total').value) || 0;
+    const insurance = parseFloat(document.getElementById('ovr-insurance').value) || 0;
+    const retail    = parseFloat(document.getElementById('ovr-retail').value) || 0;
+    if (!period) { showToast('Укажи период', 'err'); return; }
+    if (total === 0 && insurance === 0 && retail === 0) { showToast('Заполни хоть одно поле', 'err'); return; }
+    try {
+      const { error } = await sb.from('monthly_ovr').upsert({
+        point_id, period, total, insurance, retail, source: 'manual'
+      });
+      if (error) throw error;
+      showToast('ОВР сохранён', 'ok');
+      loadOvrList();
+    } catch (e) {
+      showToast('Ошибка: '+(e.message||e), 'err');
+    }
+  }
+
+  async function loadOvrList() {
+    const el = document.getElementById('ovr-list');
+    if (!el) return;
+    try {
+      const { data, error } = await sb.from('monthly_ovr').select('*').order('period', { ascending:false }).order('point_id');
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        el.innerHTML = '<div style="color:var(--muted);font-size:13px;">Нет загруженных ОВР</div>';
+        return;
+      }
+      const pointName = id => ({kaluga:'Калужская',serpuhov:'Серпуховская',sovhoz:'Совхозная',poyma:'Пойма'}[id] || id);
+      const fmt = n => Number(n).toLocaleString('ru-RU', {maximumFractionDigits: 0});
+      let html = '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+      html += '<tr style="border-bottom:1px solid var(--border);color:var(--muted);"><th style="text-align:left;padding:6px 4px;">Период</th><th style="text-align:left;padding:6px 4px;">Точка</th><th style="text-align:right;padding:6px 4px;">ВСЕГО</th><th style="text-align:right;padding:6px 4px;">СК</th><th style="text-align:right;padding:6px 4px;">Розница</th><th></th></tr>';
+      data.forEach(r => {
+        html += `<tr style="border-bottom:1px solid var(--border-dim);">
+          <td style="padding:6px 4px;">${r.period}</td>
+          <td style="padding:6px 4px;">${pointName(r.point_id)}</td>
+          <td style="padding:6px 4px;text-align:right;">${fmt(r.total)}</td>
+          <td style="padding:6px 4px;text-align:right;color:var(--blue,#60a5fa);">${fmt(r.insurance)}</td>
+          <td style="padding:6px 4px;text-align:right;color:var(--green);">${fmt(r.retail)}</td>
+          <td style="padding:6px 4px;text-align:right;"><button class="btn secondary" style="padding:3px 8px;font-size:11px;" onclick="deleteOvr('${r.point_id}','${r.period}')">×</button></td>
+        </tr>`;
+      });
+      html += '</table>';
+      el.innerHTML = html;
+    } catch (e) {
+      el.innerHTML = '<div style="color:var(--red);font-size:13px;">Ошибка: '+(e.message||e)+'</div>';
+    }
+  }
+
+  async function deleteOvr(point_id, period) {
+    if (!confirm(`Удалить ОВР ${period} · ${point_id}?`)) return;
+    try {
+      const { error } = await sb.from('monthly_ovr').delete().eq('point_id', point_id).eq('period', period);
+      if (error) throw error;
+      showToast('Удалено', 'ok');
+      loadOvrList();
+    } catch (e) {
+      showToast('Ошибка: '+(e.message||e), 'err');
+    }
   }
 
   function handleUpload(type, input) {
