@@ -1538,9 +1538,69 @@
   }
 
   // === ОВР ===
-  // Парсер xlsx — ищет числа рядом с ключевыми словами "ВСЕГО", "РАВТ", "РОЗНИЧН"
-  // Поддерживает оба формата: год-в-одном-файле или один-месяц.
-  // Если нашёл — подставляет в поля. Не нашёл — пользователь введёт руками.
+  // Авто-категоризация позиции по ключевым словам
+  const OVR_CATEGORIES = {
+    glass_replace:  'Замена стёкол',
+    glass_repair:   'Ремонт стёкол',
+    glass_sale:     'Продажа стёкол',
+    glass_parts:    'Стёкло-комплектующие',
+    armoring:       'Бронирование (плёнка)',
+    tinting:        'Тонировка',
+    hydrophob:      'Антидождь',
+    polish_lights:  'Полировка фар',
+    wipers:         'Щётки',
+    rain_sensor:    'Датчик дождя',
+    logistics:      'Выезд / доставка',
+    service:        'Слесарка / прочие услуги',
+    partner_b2b:    'B2B / Партнёры',
+    returns:        'Возвраты',
+    staff:          'Для сотрудников',
+    bonus:          'Бонусы клиентам',
+    other_sales:    'Прочие продажи',
+    other:          'Другое',
+  };
+
+  function categorizeOvrItem(name) {
+    const n = String(name || '').toLowerCase();
+    if (n.includes('реализация стекла')) return 'glass_sale';
+    if (/замена.*стекл/.test(n)) return 'glass_replace';
+    if (n.includes('переклейка') && n.includes('стекл')) return 'glass_replace';
+    if (/^\s*(лобовое|боковое|заднее|панорамн)/.test(n)) return 'glass_replace';
+    if (n.includes('молдинг')) return 'glass_parts';
+    if (/ремонт.*стекл|ремонт ветрового/.test(n)) return 'glass_repair';
+    if (n.includes('полировка лобового') || n.includes('полировка стекла')) return 'glass_repair';
+    if (n.includes('бронирован')) return 'armoring';
+    if (n.includes('тонировк')) return 'tinting';
+    if (n.includes('антидожд') || n.includes('гидрофоб')) return 'hydrophob';
+    if (n.includes('полировка') && n.includes('фар')) return 'polish_lights';
+    if (n.includes('щет') || n.includes('щёт')) return 'wipers';
+    if (n.includes('датчик')) return 'rain_sensor';
+    if (n.includes('выезд') || n.includes('доставк')) return 'logistics';
+    if (n.includes('слесар')) return 'service';
+    if (/защита.*коррози/.test(n) || n.includes('демонтаж пленки') || n.includes('устранение остатков клея')) return 'service';
+    if (/филавто|авто а1|обслуживание личн/.test(n)) return 'partner_b2b';
+    if (n.includes('возврат')) return 'returns';
+    if (n.includes('для сотрудник')) return 'staff';
+    if (n.includes('бонус')) return 'bonus';
+    if (n.includes('прочие продажи') || n.includes('(то)')) return 'other_sales';
+    return 'other';
+  }
+
+  // Конверсия значения в число с поддержкой "1 234 567,89" / "1,234,567.89" / 1234567.89
+  function ovrToNum(v) {
+    if (v == null) return null;
+    if (typeof v === 'number') return isFinite(v) ? v : null;
+    const s = String(v).replace(/\s+/g,'').replace(/,/g,'.');
+    const parts = s.split('.');
+    const normalized = parts.length > 2 ? parts.slice(0,-1).join('') + '.' + parts.slice(-1) : s;
+    const n = parseFloat(normalized);
+    return isFinite(n) ? n : null;
+  }
+
+  // Состояние парсинга — храним последний результат для сохранения в БД
+  let parsedOvr = null;  // { totals: {total, insurance, retail}, items: [...] }
+
+  // Парсер xlsx — поддерживает оба формата (год-в-одном-файле или один-месяц).
   async function handleOvrXlsx(input) {
     const file = input.files[0];
     if (!file) return;
@@ -1552,27 +1612,25 @@
       const wb = XLSX.read(buf, { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
-      // Какой месяц нужен? Смотрим выбранный период
-      const period = document.getElementById('ovr-period').value;  // 2026-04
-      const monthIdx = period ? +period.split('-')[1] : null;       // 4
+      const period = document.getElementById('ovr-period').value;
+      const monthIdx = period ? +period.split('-')[1] : null;
+
       const result = parseOvrRows(rows, monthIdx);
+      parsedOvr = result;
 
-      if (result.total === null && result.insurance === null && result.retail === null) {
-        status.style.color = 'var(--red)';
-        status.textContent = '⚠ Не нашёл ключевые слова. Введи руками.';
-        return;
-      }
+      // Подставляем итоги
+      if (result.totals.total     !== null) document.getElementById('ovr-total').value     = result.totals.total;
+      if (result.totals.insurance !== null) document.getElementById('ovr-insurance').value = result.totals.insurance;
+      if (result.totals.retail    !== null) document.getElementById('ovr-retail').value    = result.totals.retail;
 
-      // Подставляем
-      if (result.total     !== null) document.getElementById('ovr-total').value     = result.total;
-      if (result.insurance !== null) document.getElementById('ovr-insurance').value = result.insurance;
-      if (result.retail    !== null) document.getElementById('ovr-retail').value    = result.retail;
+      // Превью таблицы позиций
+      renderOvrPreview(result.items);
 
       // Предупреждение если total ≠ insurance + retail
       const warnEl = document.getElementById('ovr-warn');
-      if (result.total && result.insurance !== null && result.retail !== null) {
-        const diff = +result.total - (+result.insurance + +result.retail);
-        if (Math.abs(diff) > Math.abs(result.total) * 0.01) {
+      if (result.totals.total && result.totals.insurance !== null && result.totals.retail !== null) {
+        const diff = +result.totals.total - (+result.totals.insurance + +result.totals.retail);
+        if (Math.abs(diff) > Math.abs(result.totals.total) * 0.01) {
           warnEl.textContent = `⚠ Δ ${diff.toLocaleString('ru-RU')} ₽ между ВСЕГО и (СК+Розница)`;
           warnEl.style.color = 'var(--orange)';
         } else {
@@ -1582,8 +1640,10 @@
       }
 
       status.style.color = 'var(--green)';
-      const found = ['total','insurance','retail'].filter(k => result[k] !== null).length;
-      status.textContent = `✓ Распознал ${found}/3 значения. Проверь и нажми «Сохранить».`;
+      const found = ['total','insurance','retail'].filter(k => result.totals[k] !== null).length;
+      const itemsCount = result.items.length;
+      const itemsActive = result.items.filter(x => !x.excluded).length;
+      status.textContent = `✓ Распознал ${found}/3 итога и ${itemsCount} позиций (${itemsActive} активных). Проверь и нажми «Сохранить».`;
     } catch (e) {
       status.style.color = 'var(--red)';
       status.textContent = '⚠ Ошибка: ' + (e.message || e);
@@ -1591,61 +1651,173 @@
   }
 
   function parseOvrRows(rows, monthIdx) {
-    // Ищем 3 строки по ключевым словам в первых 2 колонках
-    // monthIdx=4 → апрель → колонка [5] (если в файле формат как ОВР_Апрель_Москва: A=пусто/№, B=название, C-N=янв-дек)
-    // Но если файл — один месяц, единственная числовая колонка ≠ месячный индекс. Пробуем оба варианта.
-    const result = { total: null, insurance: null, retail: null };
+    // Возвращает { totals: {...}, items: [...] }
+    const totals = { total: null, insurance: null, retail: null };
+    const items = [];
+
+    // Регексы для определения подытоговых строк (которые НЕ являются позициями)
+    const subtotalRe = [
+      /всего выполненных работ/i,
+      /всего\s+(коммунарка|калужская|серпух|совхоз|пойм)/i,
+      /страховые компании/i,
+      /розничные продажи всего/i,
+      /розничные продажи стоа/i,
+      /^\s*равт\s*$/i,
+      /^[\s\d]*-?\s*услуги\s*$/i,    // "1 - услуги"
+      /^[\s\d]*-?\s*стекл[оа]\s*$/i, // "2 - стекло"
+    ];
+    // Позиции которые исключаем из деталей (они входят в розницу через формулу,
+    // но не являются собственно "услугой" — это партнёры и сотрудники)
+    const excludeFromDetailsRe = [
+      /^филавто$/i,
+      /^авто а1$/i,
+      /реализация товаров для сотрудников/i,
+      /обслуживание личного транспорта/i,
+      /бонусы для клиентов/i,
+      /возвраты поставщикам/i,
+    ];
+
+    let section = null;       // 'insurance' | 'retail' | null
+    let subsection = null;    // 'service' | 'glass' | 'ravt' | null
+
     const matchKey = (text, keywords) => {
       const t = String(text || '').toLowerCase();
       return keywords.some(k => t.includes(k));
     };
+
+    const labelOfRow = (row) => [row[0], row[1], row[2]].map(x => x == null ? '' : String(x)).join(' ').trim();
+    const colName1   = (row) => String(row[1] || row[0] || '').trim();
+
     for (const row of rows) {
       if (!row || row.length === 0) continue;
-      // Объединяем первые 3 колонки как метку (в файле метка может быть в [0], [1] или [2])
-      const label = [row[0], row[1], row[2]].map(x => x == null ? '' : String(x)).join(' ').toLowerCase();
-      if (!label.trim()) continue;
+      const labelFull = labelOfRow(row);
+      if (!labelFull) continue;
+      const label = labelFull.toLowerCase();
 
-      // Определим какое значение ожидаем
-      let key = null;
-      if (matchKey(label, ['розничные продажи всего', 'розница всего'])) key = 'retail';
-      else if (matchKey(label, ['страховые компании', 'страховые:'])) key = 'insurance';
-      else if (matchKey(label, ['всего выполненных работ', 'всего вр'])) key = 'total';
-      // Запасной: «ВСЕГО Коммунарка/Совхозная/Пойма/Серпуховская» — общий итог точки
-      else if (result.total === null && /всего\s+(коммунарка|калужская|серпух|совхоз|пойм)/i.test(label)) key = 'total';
-      // Запасной: одиночное «РАВТ» (для конкретного канала)
-      else if (result.insurance === null && /^\s*равт\s*$/i.test((row[1]||row[0]||'')+'')) key = 'insurance';
+      // ----- ИТОГИ (как раньше) -----
+      let totalKey = null;
+      if (matchKey(label, ['розничные продажи всего', 'розница всего'])) totalKey = 'retail';
+      else if (matchKey(label, ['страховые компании', 'страховые:'])) totalKey = 'insurance';
+      else if (matchKey(label, ['всего выполненных работ', 'всего вр'])) totalKey = 'total';
+      else if (totals.total === null && /всего\s+(коммунарка|калужская|серпух|совхоз|пойм)/i.test(label)) totalKey = 'total';
+      else if (totals.insurance === null && /^\s*равт\s*$/i.test(colName1(row))) totalKey = 'insurance';
 
-      if (!key || result[key] !== null) continue;
-
-      // Берём первое числовое значение в строке.
-      // Если знаем monthIdx, пробуем сначала колонку monthIdx+1 (или +2 в зависимости от смещения)
-      const candidates = [];
-      // Большинство ОВР: колонка C (idx=2) = январь, поэтому monthIdx-индекс=2+monthIdx-1=monthIdx+1
-      if (monthIdx) candidates.push(monthIdx + 1);
-      // Иначе пробуем все числовые
-      for (let i = 2; i < row.length; i++) candidates.push(i);
-      const toNum = (v) => {
-        if (v == null) return null;
-        if (typeof v === 'number') return isFinite(v) ? v : null;
-        // Строка может быть "6 175 853,94" или "6,175,853.94" или "6175853.94"
-        const s = String(v).replace(/\s+/g,'').replace(/,/g,'.');
-        // Если несколько точек — оставляем только последнюю как разделитель дробной
-        const parts = s.split('.');
-        let normalized;
-        if (parts.length > 2) normalized = parts.slice(0,-1).join('') + '.' + parts.slice(-1);
-        else normalized = s;
-        const n = parseFloat(normalized);
-        return isFinite(n) ? n : null;
-      };
-      for (const i of candidates) {
-        const n = toNum(row[i]);
-        if (n !== null && n > 0) {
-          result[key] = n;
-          break;
+      if (totalKey && totals[totalKey] === null) {
+        const candidates = [];
+        if (monthIdx) candidates.push(monthIdx + 1);
+        for (let i = 2; i < row.length; i++) candidates.push(i);
+        for (const i of candidates) {
+          const n = ovrToNum(row[i]);
+          if (n !== null && n > 0) { totals[totalKey] = n; break; }
         }
       }
+
+      // ----- РАЗДЕЛЫ (для трекинга section/subsection) -----
+      if (matchKey(label, ['страховые компании'])) { section = 'insurance'; subsection = null; continue; }
+      if (matchKey(label, ['розничные продажи всего'])) { section = 'retail'; subsection = null; continue; }
+      if (section === 'insurance' && /^\s*равт\s*$/i.test(colName1(row))) { subsection = 'ravt'; continue; }
+      if (section === 'insurance' && /^[\s\d]*-?\s*услуги\s*$/i.test(colName1(row))) { subsection = 'service'; continue; }
+      if (section === 'insurance' && /^[\s\d]*-?\s*стекл[оа]\s*$/i.test(colName1(row))) { subsection = 'glass'; continue; }
+
+      // Если строка похожа на подытог — пропускаем
+      if (subtotalRe.some(re => re.test(label))) continue;
+
+      // ----- ПОЗИЦИИ -----
+      // Имя позиции — обычно в колонке [1]
+      const itemName = String(row[1] || '').trim();
+      if (!itemName) continue;
+      if (!section) continue;
+
+      // Берём значение из колонки выбранного месяца
+      const amountCol = monthIdx ? monthIdx + 1 : null;
+      let amount = null;
+      if (amountCol !== null && amountCol < row.length) {
+        amount = ovrToNum(row[amountCol]);
+      }
+      // Если в нужной колонке нет — пробуем найти первое положительное (для one-month-формата)
+      if (amount === null || amount === 0) {
+        for (let i = 2; i < row.length; i++) {
+          if (i === amountCol) continue;
+          const n = ovrToNum(row[i]);
+          if (n !== null && n > 0) { amount = n; break; }
+        }
+      }
+      if (amount === null || amount === 0) continue;
+
+      // Категория + признак исключения
+      const category = categorizeOvrItem(itemName);
+      const excluded = excludeFromDetailsRe.some(re => re.test(itemName));
+
+      items.push({
+        section, subsection,
+        item_name: itemName,
+        amount,
+        category,
+        category_ru: OVR_CATEGORIES[category] || category,
+        excluded,
+      });
     }
-    return result;
+    return { totals, items };
+  }
+
+  function renderOvrPreview(items) {
+    let el = document.getElementById('ovr-preview');
+    if (!el) {
+      // Создаём контейнер превью если его нет
+      const wrapAfter = document.querySelector('#upload-content .data-block:nth-of-type(2)');
+      if (!wrapAfter) return;
+      el = document.createElement('div');
+      el.id = 'ovr-preview';
+      el.style.cssText = 'margin-top:14px;padding:12px;background:#141414;border-radius:8px;font-size:12px;';
+      wrapAfter.appendChild(el);
+    }
+    if (!items.length) { el.innerHTML = ''; return; }
+    const fmt = n => Number(n).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
+    const sumActive = items.filter(x => !x.excluded).reduce((a,b) => a + b.amount, 0);
+    const sumExcluded = items.filter(x => x.excluded).reduce((a,b) => a + b.amount, 0);
+    let html = `<div style="display:flex;justify-content:space-between;margin-bottom:10px;">
+      <b style="color:var(--text);">Распознано позиций: ${items.length}</b>
+      <span style="color:var(--muted);">Σ активных: ${fmt(sumActive)} · Σ исключённых: ${fmt(sumExcluded)}</span>
+    </div>`;
+    html += `<div style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;">
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead style="position:sticky;top:0;background:var(--surface);">
+          <tr style="color:var(--muted);text-align:left;">
+            <th style="padding:6px 8px;">№</th>
+            <th style="padding:6px 8px;">Раздел</th>
+            <th style="padding:6px 8px;">Категория</th>
+            <th style="padding:6px 8px;">Услуга</th>
+            <th style="padding:6px 8px;text-align:right;">Сумма</th>
+            <th style="padding:6px 8px;">✓</th>
+          </tr>
+        </thead>
+        <tbody>`;
+    items.forEach((it, idx) => {
+      const sectionRu = it.section === 'insurance' ? 'СК' + (it.subsection ? ' · '+it.subsection : '') : 'Розница';
+      const opacity = it.excluded ? '0.5' : '1';
+      const textDeco = it.excluded ? 'line-through' : 'none';
+      html += `<tr style="border-bottom:1px solid var(--border-dim);opacity:${opacity};">
+        <td style="padding:5px 8px;color:var(--muted);">${idx+1}</td>
+        <td style="padding:5px 8px;color:var(--muted);">${sectionRu}</td>
+        <td style="padding:5px 8px;">${it.category_ru}</td>
+        <td style="padding:5px 8px;text-decoration:${textDeco};">${it.item_name}</td>
+        <td style="padding:5px 8px;text-align:right;font-weight:600;">${fmt(it.amount)}</td>
+        <td style="padding:5px 8px;"><input type="checkbox" ${!it.excluded?'checked':''} onchange="toggleOvrItem(${idx})"></td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+    html += `<div style="margin-top:8px;font-size:11px;color:var(--muted);">
+      💡 Снимите галку у позиций которые НЕ нужно сохранять как детали (партнёры, внутр.продажи).
+      Они будут учтены в итогах ВСЕГО/СК/Розница, но не попадут в анализ "топ-услуг".
+    </div>`;
+    el.innerHTML = html;
+  }
+
+  // Toggle excluded в позиции (по индексу)
+  function toggleOvrItem(idx) {
+    if (!parsedOvr || !parsedOvr.items[idx]) return;
+    parsedOvr.items[idx].excluded = !parsedOvr.items[idx].excluded;
+    renderOvrPreview(parsedOvr.items);
   }
 
   async function saveOvr() {
@@ -1657,12 +1829,48 @@
     if (!period) { showToast('Укажи период', 'err'); return; }
     if (total === 0 && insurance === 0 && retail === 0) { showToast('Заполни хоть одно поле', 'err'); return; }
     try {
-      const { error } = await sb.from('monthly_ovr').upsert({
-        point_id, period, total, insurance, retail, source: 'manual'
+      // 1. Сохраняем итоги
+      const { error: e1 } = await sb.from('monthly_ovr').upsert({
+        point_id, period, total, insurance, retail,
+        source: parsedOvr ? 'xlsx' : 'manual'
       });
-      if (error) throw error;
-      showToast('ОВР сохранён', 'ok');
+      if (e1) throw e1;
+
+      // 2. Если есть распарсенные позиции — перезаписываем items
+      if (parsedOvr && parsedOvr.items && parsedOvr.items.length) {
+        // Удаляем старые позиции этого периода
+        const { error: eDel } = await sb.from('monthly_ovr_items')
+          .delete()
+          .eq('point_id', point_id)
+          .eq('period', period);
+        if (eDel) throw eDel;
+
+        // Сохраняем только активные (не excluded)
+        const activeItems = parsedOvr.items
+          .filter(x => !x.excluded)
+          .map(it => ({
+            point_id, period,
+            section: it.section,
+            subsection: it.subsection,
+            item_name: it.item_name,
+            amount: it.amount,
+            category: it.category,
+            category_ru: it.category_ru,
+            excluded: false,
+          }));
+        if (activeItems.length) {
+          const { error: eIns } = await sb.from('monthly_ovr_items').insert(activeItems);
+          if (eIns) throw eIns;
+        }
+        showToast(`Сохранено: итоги + ${activeItems.length} позиций`, 'ok');
+      } else {
+        showToast('ОВР сохранён (только итоги)', 'ok');
+      }
       loadOvrList();
+      // Сбрасываем парсинг (если бухгалтер захочет загрузить ещё один файл — заново)
+      parsedOvr = null;
+      const prev = document.getElementById('ovr-preview');
+      if (prev) prev.innerHTML = '';
     } catch (e) {
       showToast('Ошибка: '+(e.message||e), 'err');
     }
@@ -1702,6 +1910,8 @@
   async function deleteOvr(point_id, period) {
     if (!confirm(`Удалить ОВР ${period} · ${point_id}?`)) return;
     try {
+      // Сначала items, потом сам monthly_ovr
+      await sb.from('monthly_ovr_items').delete().eq('point_id', point_id).eq('period', period);
       const { error } = await sb.from('monthly_ovr').delete().eq('point_id', point_id).eq('period', period);
       if (error) throw error;
       showToast('Удалено', 'ok');
