@@ -858,48 +858,76 @@
 
     await loadRavtSettlements();
 
-    // Текущий долг РАВТу из daily_reports (последний отчёт где owe_ravt > 0)
-    let currentOweRavt = 0;
+    // Текущие долги РАВТу из daily_reports — по регионам
+    const oweByRegion = { moscow: 0, izhevsk: 0 };
     try {
       const { data: dr } = await sb.from('daily_reports')
-        .select('point_id,date,owe_ravt')
+        .select('point_id,date,owe_ravt,points(id,format)')
         .gt('owe_ravt', 0)
         .order('date', { ascending: false })
-        .limit(50);
+        .limit(100);
       const lastByPoint = {};
       (dr || []).forEach(r => {
         if (!lastByPoint[r.point_id]) lastByPoint[r.point_id] = r;
       });
-      currentOweRavt = Object.values(lastByPoint).reduce((s,r) => s + (+r.owe_ravt || 0), 0);
+      // Маппинг точка → регион
+      const regionMap = { kaluga: 'moscow', serpuhov: 'moscow', sovhoz: 'izhevsk', poyma: 'izhevsk' };
+      Object.values(lastByPoint).forEach(r => {
+        const region = regionMap[r.point_id];
+        if (region) oweByRegion[region] += +r.owe_ravt || 0;
+      });
     } catch (e) { console.error(e); }
 
-    const lastSettlement = ravtSettlements[0];
-    const lastNet = lastSettlement ? (+lastSettlement.ravt_owes_us - +lastSettlement.we_owe_ravt) : null;
-    const daysSinceSettlement = lastSettlement ? Math.floor((Date.now() - new Date(lastSettlement.settlement_date).getTime()) / (24*60*60*1000)) : null;
+    // Группируем акты по регионам и берём последний из каждого
+    const lastByRegion = { moscow: null, izhevsk: null };
+    ravtSettlements.forEach(s => {
+      const r = s.region || 'moscow';
+      if (!lastByRegion[r] || s.settlement_date > lastByRegion[r].settlement_date) {
+        lastByRegion[r] = s;
+      }
+    });
+
+    // Хелпер: рендер блока по региону
+    const renderRegionBlock = (regionKey, regionName, regionIcon) => {
+      const lastAct = lastByRegion[regionKey];
+      const owe = oweByRegion[regionKey];
+      const lastNet = lastAct ? (+lastAct.ravt_owes_us - +lastAct.we_owe_ravt) : null;
+      const days = lastAct ? Math.floor((Date.now() - new Date(lastAct.settlement_date).getTime()) / (24*60*60*1000)) : null;
+
+      return `
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:15px;color:var(--accent);letter-spacing:1.5px;margin-bottom:10px;">${regionIcon} ${regionName}</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px;">
+            <div style="background:#141414;border-left:3px solid var(--red);border-radius:7px;padding:9px 11px;">
+              <div style="font-size:8px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:3px;">Мы должны</div>
+              <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--red);">${fm(owe)} ₽</div>
+              <div style="font-size:9px;color:var(--muted);">из ежедн. отчётов</div>
+            </div>
+            <div style="background:#141414;border-left:3px solid var(--ok);border-radius:7px;padding:9px 11px;">
+              <div style="font-size:8px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:3px;">РАВТ должен (по акту)</div>
+              <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--ok);">${lastAct ? fm(lastAct.ravt_owes_us) : '—'} ₽</div>
+              <div style="font-size:9px;color:var(--muted);">${lastAct ? `${formatDate(lastAct.settlement_date)} (${days}дн)` : 'актов нет'}</div>
+            </div>
+            <div style="background:#141414;border-left:3px solid ${lastNet !== null && lastNet >= 0 ? 'var(--ok)' : 'var(--warn)'};border-radius:7px;padding:9px 11px;">
+              <div style="font-size:8px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:3px;">Чистая позиция</div>
+              <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:${lastNet !== null && lastNet >= 0 ? 'var(--ok)' : 'var(--warn)'};">${lastAct ? (lastNet >= 0 ? '+' : '') + fm(lastNet) : '—'} ₽</div>
+              <div style="font-size:9px;color:var(--muted);">${lastAct ? (lastNet >= 0 ? 'РАВТ заплатит нам' : 'мы заплатим') : '—'}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    };
 
     let html = `
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px;">
         <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--accent);letter-spacing:2px;margin-bottom:6px;">🔄 ВЗАИМОЗАЧЁТ С РАВТ</div>
-        <div style="font-size:12px;color:var(--muted);line-height:1.55;margin-bottom:14px;">
-          После каждого подписанного <b style="color:var(--text);">акта взаимозачёта</b> с РАВТ — заведи его сюда. Это позволит видеть <b style="color:var(--text);">реальную позицию</b> (мы должны / РАВТ должен), а не только нашу одностороннюю задолженность.
+        <div style="font-size:12px;color:var(--muted);line-height:1.55;margin-bottom:12px;">
+          После каждого подписанного <b style="color:var(--text);">акта взаимозачёта</b> с РАВТ — заведи его сюда. <b style="color:var(--text);">Москва</b> и <b style="color:var(--text);">Ижевск</b> работают независимо.
         </div>
 
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:14px;">
-          <div style="background:#141414;border-left:3px solid var(--red);border-radius:8px;padding:11px 13px;">
-            <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;">МЫ ДОЛЖНЫ РАВТу СЕЙЧАС</div>
-            <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--red);letter-spacing:.5px;">${fm(currentOweRavt)} ₽</div>
-            <div style="font-size:10px;color:var(--muted);margin-top:3px;">из ежедневных отчётов</div>
-          </div>
-          <div style="background:#141414;border-left:3px solid var(--ok);border-radius:8px;padding:11px 13px;">
-            <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;">РАВТ ДОЛЖЕН НАМ (ПО ПОСЛ. АКТУ)</div>
-            <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--ok);letter-spacing:.5px;">${lastSettlement ? fm(lastSettlement.ravt_owes_us) : '—'} ₽</div>
-            <div style="font-size:10px;color:var(--muted);margin-top:3px;">${lastSettlement ? `от ${formatDate(lastSettlement.settlement_date)} (${daysSinceSettlement} дн назад)` : 'актов ещё нет'}</div>
-          </div>
-          <div style="background:#141414;border-left:3px solid ${lastNet !== null && lastNet >= 0 ? 'var(--ok)' : 'var(--warn)'};border-radius:8px;padding:11px 13px;">
-            <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;">ЧИСТАЯ ПОЗИЦИЯ (ПО АКТУ)</div>
-            <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:${lastNet !== null && lastNet >= 0 ? 'var(--ok)' : 'var(--warn)'};letter-spacing:.5px;">${lastSettlement ? (lastNet >= 0 ? '+' : '') + fm(lastNet) : '—'} ₽</div>
-            <div style="font-size:10px;color:var(--muted);margin-top:3px;">${lastSettlement ? (lastNet >= 0 ? 'РАВТ заплатит нам' : 'мы заплатим РАВТу') : '—'}</div>
-          </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+          ${renderRegionBlock('moscow', 'МОСКВА (Калужская + Серпуховская)', '🏢')}
+          ${renderRegionBlock('izhevsk', 'ИЖЕВСК (Совхозная + Пойма)', '🏭')}
         </div>
 
         <button onclick="openAddRavtModal()" style="width:100%;background:var(--accent);color:#000;border:none;border-radius:10px;padding:13px;font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1.5px;cursor:pointer;">➕ ДОБАВИТЬ АКТ ВЗАИМОЗАЧЁТА</button>
@@ -913,9 +941,13 @@
         <div style="display:flex;flex-direction:column;gap:8px;">`;
       ravtSettlements.forEach(s => {
         const net = +s.ravt_owes_us - +s.we_owe_ravt;
+        const region = s.region || 'moscow';
+        const regionIcon = region === 'moscow' ? '🏢' : '🏭';
+        const regionName = region === 'moscow' ? 'Москва' : 'Ижевск';
         html += `<div style="background:#141414;border:1px solid var(--border);border-radius:10px;padding:11px 13px;">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
             <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--accent);letter-spacing:1px;">📅 ${formatDate(s.settlement_date)}</div>
+            <div style="background:#222;padding:2px 8px;border-radius:5px;font-size:11px;color:var(--text);">${regionIcon} ${regionName}</div>
             <div style="font-size:11px;color:var(--muted);">за период ${s.period}</div>
             <button onclick="deleteRavtSettlement('${s.id}')" style="margin-left:auto;background:none;border:none;color:var(--crit);font-size:14px;cursor:pointer;padding:3px 7px;border-radius:5px;">🗑</button>
           </div>
@@ -944,6 +976,19 @@
     document.getElementById('modal-title').textContent = '🔄 Новый акт взаимозачёта РАВТ';
     document.getElementById('modal-body').innerHTML = `
       <div style="display:flex;flex-direction:column;gap:11px;">
+        <div>
+          <label style="font-size:11px;color:var(--accent);font-weight:600;display:block;margin-bottom:4px;">🌍 Регион</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <label style="background:#141414;border:1px solid var(--border);border-radius:8px;padding:11px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;">
+              <input type="radio" name="ravt-region" value="moscow" checked style="cursor:pointer;">
+              🏢 Москва <span style="color:var(--muted);font-size:11px;">(Калужская+Серпуховская)</span>
+            </label>
+            <label style="background:#141414;border:1px solid var(--border);border-radius:8px;padding:11px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;">
+              <input type="radio" name="ravt-region" value="izhevsk" style="cursor:pointer;">
+              🏭 Ижевск <span style="color:var(--muted);font-size:11px;">(Совхозная+Пойма)</span>
+            </label>
+          </div>
+        </div>
         <div>
           <label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px;">Дата подписания акта</label>
           <input type="date" id="ravt-date" value="${today}" style="width:100%;background:#141414;border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:8px;font-family:inherit;font-size:13px;outline:none;">
@@ -975,6 +1020,7 @@
   async function saveRavtSettlement() {
     const settlement_date = document.getElementById('ravt-date').value;
     const period = document.getElementById('ravt-period').value;
+    const region = document.querySelector('input[name="ravt-region"]:checked')?.value || 'moscow';
     const ravt_owes_us = +document.getElementById('ravt-owes-us').value || 0;
     const we_owe_ravt = +document.getElementById('we-owe-ravt').value || 0;
     const notes = document.getElementById('ravt-notes').value.trim() || null;
@@ -983,7 +1029,7 @@
 
     try {
       const { error } = await sb.from('ravt_settlements').insert({
-        settlement_date, period, ravt_owes_us, we_owe_ravt, notes
+        settlement_date, period, region, ravt_owes_us, we_owe_ravt, notes
       });
       if (error) throw error;
       closeModal();
