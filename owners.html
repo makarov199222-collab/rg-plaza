@@ -750,19 +750,42 @@
             ${monthOweOther > 0 ? `<div class="expand-item"><span>📦 Прочим поставщикам <small style="color:var(--muted);font-size:9px;">(требуют оплаты)</small></span><span class="v r">${fm(monthOweOther)} ₽</span></div>` : ''}
             ${oweDelta !== null ? `<div class="expand-item"><span>vs прошлый месяц общий</span><span class="v ${oweDelta>=0?'r':'g'}">${oweDelta>=0?'+':''}${oweDelta}% (${fm(prevOweTotal)} → ${fm(monthOweTotal)})</span></div>` : ''}
             ${(function() {
-              const lastAct = (data.ravtSettlements || [])[0];
-              if (!lastAct) return '';
-              const net = +lastAct.ravt_owes_us - +lastAct.we_owe_ravt;
-              const days = Math.floor((Date.now() - new Date(lastAct.settlement_date).getTime()) / (24*60*60*1000));
-              const [yA,mA,dA] = lastAct.settlement_date.split('-');
-              const dateStr = `${dA}.${mA}.${yA.substring(2)}`;
-              const netColor = net >= 0 ? 'var(--green)' : 'var(--red)';
-              const netLabel = net >= 0 ? 'РАВТ заплатит нам' : 'мы заплатим РАВТу';
-              return `<div class="expand-item" style="margin-top:6px;padding-top:8px;border-top:1px dashed var(--border);background:rgba(33,150,243,.08);border-radius:7px;padding:9px 11px;">
-                <span style="font-size:11px;line-height:1.55;">
-                  📋 <b style="color:var(--blue);">Последний акт от ${dateStr}</b> (${days} дн назад)<br>
-                  <span style="color:var(--muted);">РАВТ нам ${fm(lastAct.ravt_owes_us)} − мы РАВТу ${fm(lastAct.we_owe_ravt)}</span><br>
-                  <span style="color:${netColor};font-weight:600;">→ Чистая позиция: ${net >= 0 ? '+' : ''}${fm(net)} ₽ — ${netLabel}</span>
+              // Группируем акты по регионам, берём последний из каждого
+              const acts = data.ravtSettlements || [];
+              if (acts.length === 0) return '';
+              const lastByRegion = { moscow: null, izhevsk: null };
+              acts.forEach(s => {
+                const r = s.region || 'moscow';
+                if (!lastByRegion[r] || s.settlement_date > lastByRegion[r].settlement_date) {
+                  lastByRegion[r] = s;
+                }
+              });
+
+              const renderRegion = (regKey, regName, regIcon) => {
+                const a = lastByRegion[regKey];
+                if (!a) return `<div style="background:#0e0e0e;border-radius:7px;padding:8px 11px;margin-top:5px;">
+                  <span style="font-size:11px;color:var(--muted);">${regIcon} <b style="color:var(--text);">${regName}</b> — актов ещё нет</span>
+                </div>`;
+                const net = +a.ravt_owes_us - +a.we_owe_ravt;
+                const days = Math.floor((Date.now() - new Date(a.settlement_date).getTime()) / (24*60*60*1000));
+                const [yA,mA,dA] = a.settlement_date.split('-');
+                const dateStr = `${dA}.${mA}.${yA.substring(2)}`;
+                const netColor = net >= 0 ? 'var(--green)' : 'var(--red)';
+                const netLabel = net >= 0 ? 'РАВТ заплатит нам' : 'мы заплатим РАВТу';
+                return `<div style="background:rgba(33,150,243,.08);border-radius:7px;padding:9px 11px;margin-top:5px;">
+                  <div style="font-size:11px;line-height:1.55;">
+                    ${regIcon} <b style="color:var(--blue);">${regName}</b> · акт от ${dateStr} (${days} дн)<br>
+                    <span style="color:var(--muted);">РАВТ нам ${fm(a.ravt_owes_us)} − мы РАВТу ${fm(a.we_owe_ravt)}</span><br>
+                    <span style="color:${netColor};font-weight:600;">→ ${net >= 0 ? '+' : ''}${fm(net)} ₽ — ${netLabel}</span>
+                  </div>
+                </div>`;
+              };
+
+              return `<div class="expand-item" style="grid-column:1/-1;margin-top:6px;padding-top:8px;border-top:1px dashed var(--border);">
+                <span style="width:100%;">
+                  <div style="font-size:11px;color:var(--accent);font-weight:600;letter-spacing:.5px;text-transform:uppercase;margin-bottom:5px;">📋 Последние акты по регионам</div>
+                  ${renderRegion('moscow', 'Москва', '🏢')}
+                  ${renderRegion('izhevsk', 'Ижевск', '🏭')}
                 </span><span></span>
               </div>`;
             })()}
