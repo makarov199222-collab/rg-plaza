@@ -527,7 +527,7 @@
     document.getElementById('app').style.display = 'block';
     document.getElementById('point-name').textContent = currentPoint.name;
     document.getElementById('blbl').textContent = currentPoint.name;
-    document.getElementById('date').value = new Date().toISOString().split('T')[0];
+    document.getElementById('date').value = todayLocalISO();
     updateTitle();
     refreshAll();
   }
@@ -546,10 +546,19 @@
   function ch(k, d) { C[k] = Math.max(0, C[k]+d); document.getElementById(k+'-v').textContent = C[k]; }
   function cs(k, d) { C[k] = Math.max(0, C[k]+d); document.getElementById(k+'-v').textContent = C[k]; C.ret = C.phy + C.cop; document.getElementById('ret-v').textContent = C.ret; }
 
-  function getDateValue() { return document.getElementById('date').value || new Date().toISOString().split('T')[0]; }
+  // Локальная сегодняшняя дата без UTC-сдвига
+  function todayLocalISO() {
+    const d = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  }
+  function getDateValue() { return document.getElementById('date').value || todayLocalISO(); }
   function getMonthRange(dateStr) {
     const d = new Date(dateStr);
-    return { start: new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0], end: new Date(d.getFullYear(), d.getMonth()+1, 0).toISOString().split('T')[0] };
+    const y = d.getFullYear(), m = d.getMonth() + 1;
+    const lastDay = new Date(y, m, 0).getDate();
+    const pad = n => String(n).padStart(2, '0');
+    return { start: `${y}-${pad(m)}-01`, end: `${y}-${pad(m)}-${pad(lastDay)}` };
   }
   function updateTitle() {
     const d = new Date(getDateValue());
