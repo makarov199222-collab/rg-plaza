@@ -963,7 +963,7 @@
       const [cR, chR, pR, dR, rR, prevR] = await Promise.all([
         sb.from('insurance_companies').select('*').eq('is_active', true).order('display_order'),
         sb.from('insurance_channels').select('*').eq('city', city).eq('is_active', true).order('display_order'),
-        sb.from('points').select('*').eq('format', city === 'moscow' ? 'moscow' : 'izhevsk').order('id'),
+        sb.from('points').select('*').eq('format', city === 'moscow' ? 'moscow' : 'izhevsk').neq('is_revenue_point', false).order('id'),
         sb.from('insurance_directions').select('*').eq('period', period),
         sb.from('insurance_ravt_check').select('*').eq('period', period),
         sb.from('insurance_directions').select('*').eq('period', prevPeriod)
