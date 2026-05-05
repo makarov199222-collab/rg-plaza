@@ -1724,21 +1724,58 @@
 
     // Таблица СК × месяцы
     if (topCompanies.length) {
-      html += `<div class="year-table"><div style="font-family:var(--font-display);font-size:14px;color:var(--accent);letter-spacing:1.5px;margin-bottom:11px;">📋 По компаниям и месяцам</div>`;
-      html += `<div class="year-table-grid">`;
-      html += `<div class="year-table-cell head label">СК</div>`;
-      months.forEach(m => html += `<div class="year-table-cell head">${m}</div>`);
-      html += `<div class="year-table-cell head">Год</div>`;
-      topCompanies.slice(0, 16).forEach(comp => {
-        html += `<div class="year-table-cell label">${comp.name}</div>`;
+      // Хелпер для рендера одной таблицы по подмножеству direction-записей
+      const renderCompanyTable = (subDirs, titleSuffix = '') => {
+        // Считаем агрегаты по только этим записям
+        const byMonthCompany = {};
+        const byYearCompany = {};
         for (let m = 1; m <= 12; m++) {
-          const period = `${year}-${String(m).padStart(2,'0')}`;
-          const v = monthly[period].byCompany[comp.id] || 0;
-          html += `<div class="year-table-cell ${v === 0 ? 'zero' : ''}">${v || '—'}</div>`;
+          byMonthCompany[`${year}-${String(m).padStart(2,'0')}`] = {};
         }
-        html += `<div class="year-table-cell total">${comp.count}</div>`;
-      });
-      html += `</div></div>`;
+        subDirs.forEach(d => {
+          if (!byMonthCompany[d.period]) return;
+          const cid = d.company_id;
+          byMonthCompany[d.period][cid] = (byMonthCompany[d.period][cid] || 0) + (+d.incoming_count || 0);
+          byYearCompany[cid] = (byYearCompany[cid] || 0) + (+d.incoming_count || 0);
+        });
+        const localTop = Object.entries(byYearCompany)
+          .map(([id, count]) => ({ id, count, name: companies.find(c => c.id === id)?.name || id }))
+          .filter(x => x.count > 0)
+          .sort((a,b) => b.count - a.count);
+        if (!localTop.length) return '';
+
+        let t = `<div class="year-table" style="margin-top:18px;">
+          <div style="font-family:var(--font-display);font-size:14px;color:var(--accent);letter-spacing:1.5px;margin-bottom:11px;">📋 По компаниям и месяцам${titleSuffix}</div>`;
+        t += `<div class="year-table-grid">`;
+        t += `<div class="year-table-cell head label">СК</div>`;
+        months.forEach(m => t += `<div class="year-table-cell head">${m}</div>`);
+        t += `<div class="year-table-cell head">Год</div>`;
+        localTop.slice(0, 16).forEach(comp => {
+          t += `<div class="year-table-cell label">${comp.name}</div>`;
+          for (let m = 1; m <= 12; m++) {
+            const period = `${year}-${String(m).padStart(2,'0')}`;
+            const v = byMonthCompany[period][comp.id] || 0;
+            t += `<div class="year-table-cell ${v === 0 ? 'zero' : ''}">${v || '—'}</div>`;
+          }
+          t += `<div class="year-table-cell total">${comp.count}</div>`;
+        });
+        t += `</div></div>`;
+        return t;
+      };
+
+      if (yearChannelFilter === 'all' && availableChannels.length > 1) {
+        // Режим "Все" — показываем две (или более) таблицы под друг другом
+        availableChannels.forEach(chName => {
+          const allowedIds = channels.filter(c => c.name === chName).map(c => c.id);
+          const sub = dirs.filter(d => allowedIds.includes(d.channel_id));
+          if (sub.length) {
+            html += renderCompanyTable(sub, ` · ${chName}`);
+          }
+        });
+      } else {
+        // Один канал выбран — одна таблица как раньше
+        html += renderCompanyTable(dirs, filterLabel);
+      }
     }
 
     document.getElementById('year-content').innerHTML = html;
