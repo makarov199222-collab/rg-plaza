@@ -190,10 +190,10 @@
   .copy-btn{display:block;width:calc(100% - 28px);margin:14px;padding:14px;background:var(--accent);border:none;border-radius:10px;color:#000;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;cursor:pointer;flex-shrink:0;}
   .copy-btn.ok{background:var(--green);}
 
-  .toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 18px;font-size:13px;color:var(--text);z-index:300;opacity:0;transition:opacity .3s;pointer-events:none;border-left:3px solid var(--accent);}
+  .toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 18px;font-size:13px;color:var(--text);z-index:300;opacity:0;transition:opacity .3s;pointer-events:none;border-left:3px solid var(--accent);max-width:90vw;text-align:center;line-height:1.4;}
   .toast.show{opacity:1;}
   .toast.ok{border-left-color:var(--green);}
-  .toast.err{border-left-color:var(--red);}
+  .toast.err{border-left-color:var(--red);pointer-events:auto;cursor:pointer;}
 
   .page{display:none;} .page.active{display:block;}
 
@@ -533,7 +533,15 @@
   }
 
   function setSync(s) { const el = document.getElementById('sync-dot'); el.classList.remove('offline','syncing'); if (s==='syncing') el.classList.add('syncing'); if (s==='offline') el.classList.add('offline'); }
-  function toast(msg, type) { const t = document.getElementById('toast'); t.textContent = msg; t.className = 'toast show ' + (type||''); setTimeout(()=>t.classList.remove('show'),2500); }
+  function toast(msg, type) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show ' + (type||'');
+    // Ошибки показываем дольше (10 сек) и можно тапнуть чтобы закрыть
+    const dur = type === 'err' ? 10000 : 2500;
+    t.onclick = () => t.classList.remove('show');
+    setTimeout(() => t.classList.remove('show'), dur);
+  }
 
   function showTab(t) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -827,7 +835,13 @@
     try {
       await saveDayToCloud(); await loadMonth(); updatePlanProgress();
       setSync('ok'); toast('Сохранено в облако ☁️', 'ok'); generate();
-    } catch (e) { console.error(e); setSync('offline'); toast('Ошибка сохранения', 'err'); }
+    } catch (e) {
+      console.error(e);
+      setSync('offline');
+      // Показываем полный текст ошибки чтобы можно было диагностировать на телефоне
+      const msg = e?.message || e?.error_description || (typeof e === 'string' ? e : JSON.stringify(e));
+      toast('Ошибка: ' + msg, 'err');
+    }
     finally { saving = false; btn.disabled = false; btn.textContent = 'СОХРАНИТЬ И СОБРАТЬ ОТЧЁТ'; }
   }
 
