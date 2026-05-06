@@ -1496,13 +1496,23 @@
           </div>
         </div>
 
-        <div class="upload-zone" id="upload-zone-ovr" onclick="document.getElementById('file-ovr').click()" style="margin-bottom:14px;">
+        <div class="upload-zone" id="upload-zone-ovr" onclick="document.getElementById('file-ovr').click()" style="margin-bottom:10px;">
           <div class="upload-icon">📎</div>
-          <div class="upload-text">Опционально: загрузить xlsx</div>
-          <div class="upload-hint">Парсер попытается найти ВСЕГО / РАВТ / Розница и подставить значения</div>
+          <div class="upload-text">Опционально: загрузить xlsx (один месяц)</div>
+          <div class="upload-hint">Парсер найдёт ВСЕГО / РАВТ / Розница для выбранного периода выше</div>
           <div class="upload-status" id="status-ovr"></div>
         </div>
         <input type="file" id="file-ovr" accept=".xlsx" style="display:none" onchange="handleOvrXlsx(this)">
+
+        <div class="upload-zone" id="upload-zone-ovr-year" onclick="document.getElementById('file-ovr-year').click()" style="margin-bottom:14px;border-color:var(--accent);">
+          <div class="upload-icon">📚</div>
+          <div class="upload-text">Загрузить xlsx за весь год</div>
+          <div class="upload-hint">Если в файле колонки янв-дек — распарсит все ненулевые месяцы и покажет превью</div>
+          <div class="upload-status" id="status-ovr-year"></div>
+        </div>
+        <input type="file" id="file-ovr-year" accept=".xlsx" style="display:none" onchange="handleOvrXlsxYear(this)">
+
+        <div id="ovr-year-preview" style="margin-bottom:14px;"></div>
 
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
           <div class="form-group">
@@ -1650,7 +1660,7 @@
     }
   }
 
-  function parseOvrRows(rows, monthIdx) {
+  function parseOvrRows(rows, monthIdx, strictColumn = false) {
     // Возвращает { totals: {...}, items: [...] }
     const totals = { total: null, insurance: null, retail: null };
     const items = [];
@@ -1705,7 +1715,12 @@
       if (totalKey && totals[totalKey] === null) {
         const candidates = [];
         if (monthIdx) candidates.push(monthIdx + 1);
-        for (let i = 2; i < row.length; i++) candidates.push(i);
+        if (!strictColumn) {
+          for (let i = 2; i < row.length; i++) {
+            if (i === monthIdx + 1) continue;
+            candidates.push(i);
+          }
+        }
         for (const i of candidates) {
           const n = ovrToNum(row[i]);
           if (n !== null && n > 0) { totals[totalKey] = n; break; }
@@ -1735,7 +1750,8 @@
         amount = ovrToNum(row[amountCol]);
       }
       // Если в нужной колонке нет — пробуем найти первое положительное (для one-month-формата)
-      if (amount === null || amount === 0) {
+      // В strictColumn-режиме (годовая загрузка) — не делаем fallback, иначе май-дек подхватят январские числа
+      if ((amount === null || amount === 0) && !strictColumn) {
         for (let i = 2; i < row.length; i++) {
           if (i === amountCol) continue;
           const n = ovrToNum(row[i]);
@@ -1818,6 +1834,171 @@
     if (!parsedOvr || !parsedOvr.items[idx]) return;
     parsedOvr.items[idx].excluded = !parsedOvr.items[idx].excluded;
     renderOvrPreview(parsedOvr.items);
+  }
+
+  // === ЗАГРУЗКА ВСЕГО ГОДА ===
+  // Состояние парсинга по году. Структура: { 'YYYY-MM': {totals, items} }
+  let parsedOvrYear = null;
+
+  async function handleOvrXlsxYear(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const status = document.getElementById('status-ovr-year');
+    status.style.color = 'var(--orange)';
+    status.textContent = '⏳ Читаю файл...';
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+
+      // Год берём из выбранного периода (если выбран)
+      const periodEl = document.getElementById('ovr-period').value;
+      const year = periodEl ? periodEl.split('-')[0] : new Date().getFullYear().toString();
+
+      // Прогоняем парсер 12 раз, по одному месяцу
+      // strictColumn=true: не падать в первое попавшееся число — иначе пустые месяцы скопируют январь
+      const months = {};
+      for (let m = 1; m <= 12; m++) {
+        const result = parseOvrRows(rows, m, true);
+        // Считаем "есть ли данные" — если есть хотя бы один итог > 0
+        const hasData = (result.totals.total || 0) > 0 ||
+                        (result.totals.insurance || 0) > 0 ||
+                        (result.totals.retail || 0) > 0;
+        if (hasData) {
+          months[`${year}-${String(m).padStart(2,'0')}`] = result;
+        }
+      }
+
+      parsedOvrYear = months;
+      const cnt = Object.keys(months).length;
+      if (cnt === 0) {
+        status.style.color = 'var(--red)';
+        status.textContent = '⚠ Не нашёл ни одного месяца с данными.';
+        return;
+      }
+
+      renderOvrYearPreview(months);
+      status.style.color = 'var(--green)';
+      status.textContent = `✓ Распознано ${cnt} ненулевых месяцев. Проверь превью и нажми «Сохранить все».`;
+    } catch (e) {
+      status.style.color = 'var(--red)';
+      status.textContent = '⚠ Ошибка: ' + (e.message || e);
+    }
+  }
+
+  function renderOvrYearPreview(months) {
+    const el = document.getElementById('ovr-year-preview');
+    if (!el) return;
+    const fmt = n => Number(n||0).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
+    const monthNames = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'];
+
+    let html = '<div class="data-block" style="margin-top:0;background:#101010;">';
+    html += `<div class="block-title">📚 Превью годовой загрузки</div>`;
+    html += `<div style="font-size:12px;color:var(--muted);margin-bottom:10px;">
+      Точка <b style="color:var(--text);">${document.getElementById('ovr-point').selectedOptions[0].text}</b>.
+      Снимите галку у месяцев которые НЕ нужно сохранять.
+    </div>`;
+    html += '<div style="overflow-x:auto;border:1px solid var(--border);border-radius:6px;">';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+    html += `<thead style="background:var(--surface);color:var(--muted);">
+      <tr>
+        <th style="padding:7px 8px;text-align:left;">Период</th>
+        <th style="padding:7px 8px;text-align:right;">ВСЕГО</th>
+        <th style="padding:7px 8px;text-align:right;">СК</th>
+        <th style="padding:7px 8px;text-align:right;">Розница</th>
+        <th style="padding:7px 8px;text-align:right;">Позиций</th>
+        <th style="padding:7px 8px;text-align:center;">✓</th>
+      </tr></thead><tbody>`;
+    const keys = Object.keys(months).sort();
+    let sumTotal = 0;
+    keys.forEach(period => {
+      const r = months[period];
+      const m = +period.split('-')[1];
+      const itemsCnt = (r.items || []).filter(x => !x.excluded).length;
+      sumTotal += r.totals.total || 0;
+      html += `<tr style="border-top:1px solid var(--border-dim);">
+        <td style="padding:6px 8px;font-weight:600;">${monthNames[m-1]} ${period.split('-')[0]}</td>
+        <td style="padding:6px 8px;text-align:right;font-weight:600;">${fmt(r.totals.total)}</td>
+        <td style="padding:6px 8px;text-align:right;color:var(--blue,#60a5fa);">${fmt(r.totals.insurance)}</td>
+        <td style="padding:6px 8px;text-align:right;color:var(--green);">${fmt(r.totals.retail)}</td>
+        <td style="padding:6px 8px;text-align:right;color:var(--muted);">${itemsCnt}</td>
+        <td style="padding:6px 8px;text-align:center;"><input type="checkbox" data-period="${period}" checked></td>
+      </tr>`;
+    });
+    html += `<tr style="border-top:2px solid var(--accent);background:#1a1a1a;font-weight:700;">
+      <td style="padding:8px;">ИТОГО</td>
+      <td style="padding:8px;text-align:right;">${fmt(sumTotal)}</td>
+      <td colspan="4"></td>
+    </tr>`;
+    html += '</tbody></table></div>';
+    html += `<div style="display:flex;gap:10px;align-items:center;margin-top:10px;">
+      <button class="btn" onclick="saveOvrYear()">💾 Сохранить все отмеченные</button>
+      <button class="btn secondary" onclick="cancelOvrYear()">Отмена</button>
+    </div>`;
+    html += '</div>';
+    el.innerHTML = html;
+  }
+
+  function cancelOvrYear() {
+    parsedOvrYear = null;
+    document.getElementById('ovr-year-preview').innerHTML = '';
+    document.getElementById('status-ovr-year').textContent = '';
+    document.getElementById('file-ovr-year').value = '';
+  }
+
+  async function saveOvrYear() {
+    if (!parsedOvrYear) { showToast('Нет данных для сохранения', 'err'); return; }
+    const point_id = document.getElementById('ovr-point').value;
+    // Какие месяцы пользователь оставил отмеченными
+    const checkboxes = document.querySelectorAll('#ovr-year-preview input[type="checkbox"][data-period]');
+    const periods = Array.from(checkboxes).filter(c => c.checked).map(c => c.dataset.period);
+    if (periods.length === 0) { showToast('Не выбран ни один месяц', 'err'); return; }
+
+    if (!confirm(`Сохранить ${periods.length} месяцев для точки «${point_id}»? Существующие данные за эти периоды будут перезаписаны.`)) return;
+
+    let okCount = 0;
+    let failCount = 0;
+    for (const period of periods) {
+      const r = parsedOvrYear[period];
+      try {
+        // 1. Итоги
+        const { error: e1 } = await sb.from('monthly_ovr').upsert({
+          point_id, period,
+          total: r.totals.total || 0,
+          insurance: r.totals.insurance || 0,
+          retail: r.totals.retail || 0,
+          source: 'xlsx'
+        });
+        if (e1) throw e1;
+
+        // 2. Items: удалить старые + вставить новые активные
+        await sb.from('monthly_ovr_items').delete().eq('point_id', point_id).eq('period', period);
+        const activeItems = (r.items || []).filter(x => !x.excluded).map(it => ({
+          point_id, period,
+          section: it.section, subsection: it.subsection,
+          item_name: it.item_name, amount: it.amount,
+          category: it.category, category_ru: it.category_ru,
+          excluded: false,
+        }));
+        if (activeItems.length) {
+          const { error: eIns } = await sb.from('monthly_ovr_items').insert(activeItems);
+          if (eIns) throw eIns;
+        }
+        okCount++;
+      } catch (e) {
+        failCount++;
+        console.error(`Ошибка сохранения ${period}:`, e);
+      }
+    }
+
+    if (failCount === 0) {
+      showToast(`✓ Сохранено ${okCount} месяцев`, 'ok');
+    } else {
+      showToast(`Сохранено ${okCount}, ошибок ${failCount}. См. консоль.`, 'err');
+    }
+    cancelOvrYear();
+    loadOvrList();
   }
 
   async function saveOvr() {
