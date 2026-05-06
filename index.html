@@ -148,6 +148,7 @@
   .car-sel.страх{border-color:var(--blue);color:var(--blue);}
   .car-sel.розн{border-color:var(--green);color:var(--green);}
   .car-sel.корп{border-color:var(--purple);color:var(--purple);}
+  .car-sel.детейл{border-color:var(--accent);color:var(--accent);}
   .car-sum{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px 11px;color:var(--accent);font-family:'Inter',sans-serif;font-size:13px;font-weight:600;outline:none;-webkit-appearance:none;text-align:right;}
   .car-sum:focus{border-color:var(--accent);}
   .car-sum::placeholder{color:var(--border);font-weight:400;}
@@ -319,6 +320,12 @@
           </div>
         </div>
         <div class="snote">Физлица + Корпоратив = Розница</div>
+        <div class="rsplit detailing-only" id="row-detailing-cnt" style="display:none;margin-top:8px;">
+          <div class="sblock" style="grid-column: span 2;">
+            <div class="slbl" style="color:var(--accent);">🛠 Детейлинг</div>
+            <div class="sctrl"><button class="sbtn" onclick="ch('det',-1)">−</button><div class="sval" id="det-v">0</div><button class="sbtn" onclick="ch('det',1)">+</button></div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -341,6 +348,7 @@
           <div class="ablock"><div class="albl g">Розница всего</div><input class="ainp" type="number" id="dret" placeholder="0"></div>
           <div class="ablock"><div class="albl g">Физлица</div><input class="ainp" type="number" id="dphy" placeholder="0" oninput="updatePlanProgress()"></div>
           <div class="ablock"><div class="albl p">Корпоратив</div><input class="ainp" type="number" id="dcop" placeholder="0" oninput="updatePlanProgress()"></div>
+          <div class="ablock detailing-only" id="row-detailing-day" style="display:none;"><div class="albl" style="color:var(--accent);">🛠 Детейлинг</div><input class="ainp" type="number" id="ddet" placeholder="0"></div>
         </div>
 
         <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;text-transform:uppercase;margin:13px 0 6px;">Итого за месяц — общий по точке (со всех устройств)</div>
@@ -490,7 +498,7 @@
   const SUPABASE_KEY = 'sb_publishable_bg1BRofqJsjkV_9eXzn2Pg__YJ-xRMK';
   const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-  const C = {bk:0,ins:0,ret:0,phy:0,cop:0,mx:0,rv:0,fl:0};
+  const C = {bk:0,ins:0,ret:0,phy:0,cop:0,det:0,mx:0,rv:0,fl:0};
   let currentPoint = null;
   let monthData = { days: [] };
   let planData = { plan_phys_day: 0, plan_phys_month: 0, plan_corp_day: 0, plan_corp_month: 0 };
@@ -527,6 +535,11 @@
     document.getElementById('app').style.display = 'block';
     document.getElementById('point-name').textContent = currentPoint.name;
     document.getElementById('blbl').textContent = currentPoint.name;
+    // Детейлинг: показываем секции только для Совхозной (id='sovhoz')
+    const showDetailing = currentPoint.id === 'sovhoz';
+    document.querySelectorAll('.detailing-only').forEach(el => {
+      el.style.display = showDetailing ? '' : 'none';
+    });
     document.getElementById('date').value = todayLocalISO();
     updateTitle();
     refreshAll();
@@ -590,9 +603,10 @@
         document.getElementById('bnote').value = data.bookings_note || '';
         C.bk = data.bookings || 0; C.ins = data.cars_insurance || 0; C.ret = data.cars_retail || 0;
         C.phy = data.cars_phys || 0; C.cop = data.cars_corp || 0;
+        C.det = data.cars_detail || 0;
         C.mx = data.max_subs || 0; C.rv = data.reviews || 0;
         C.fl = data.flow_directions || 0;
-        ['bk','ins','ret','phy','cop','mx','rv','fl'].forEach(k => { const el = document.getElementById(k+'-v'); if (el) el.textContent = C[k]; });
+        ['bk','ins','ret','phy','cop','det','mx','rv','fl'].forEach(k => { const el = document.getElementById(k+'-v'); if (el) el.textContent = C[k]; });
         document.getElementById('bn').value = data.cash_card || '';
         document.getElementById('nal').value = data.cash_money || '';
         document.getElementById('dtotal').value = data.total_day || '';
@@ -600,6 +614,8 @@
         document.getElementById('dret').value = data.retail_day || '';
         document.getElementById('dphy').value = data.phys_day || '';
         document.getElementById('dcop').value = data.corp_day || '';
+        const ddEl = document.getElementById('ddet');
+        if (ddEl) ddEl.value = data.detail_day || '';
         document.getElementById('debt_total').value = data.debt_total || '';
         document.getElementById('debt_retail').value = data.debt_retail || '';
         document.getElementById('debt_insurance').value = data.debt_insurance || '';
@@ -664,6 +680,7 @@
       point_id: currentPoint.id, date,
       bookings: C.bk, bookings_note: document.getElementById('bnote').value || null,
       cars_insurance: C.ins, cars_retail: C.ret, cars_phys: C.phy, cars_corp: C.cop,
+      cars_detail: C.det || 0,
       cash_card: +document.getElementById('bn').value || 0,
       cash_money: +document.getElementById('nal').value || 0,
       total_day: +document.getElementById('dtotal').value || 0,
@@ -671,6 +688,7 @@
       retail_day: +document.getElementById('dret').value || 0,
       phys_day: +document.getElementById('dphy').value || 0,
       corp_day: +document.getElementById('dcop').value || 0,
+      detail_day: +(document.getElementById('ddet')?.value || 0),
       max_subs: C.mx, reviews: C.rv, cars_list: carsList,
       debt_total: +document.getElementById('debt_total').value || 0,
       debt_retail: +document.getElementById('debt_retail').value || 0,
@@ -793,19 +811,21 @@
     const t = (data && data.type) || 'страх';
     row.innerHTML = `<div class="car-line-1">
         <input class="car-inp" type="text" placeholder="Номер, марка, владелец, вид работ" value="${data ? escapeHtml(data.text||'') : ''}">
-        <button class="rmbtn" onclick="this.closest('.car-row').remove();updateCarsSummary()">×</button>
+        <button class="rmbtn" onclick="this.closest('.car-row').remove();updateCarsSummary();updateCountersFromCars();">×</button>
       </div>
       <div class="car-line-2">
-        <input class="car-sum" type="number" placeholder="₽ сумма ЗН" oninput="updateCarsSummary()" value="${data && data.sum ? data.sum : ''}">
-        <select class="car-sel ${t}" onchange="this.className='car-sel '+this.value">
+        <input class="car-sum" type="number" placeholder="₽ сумма ЗН" oninput="updateCarsSummary();updateCountersFromCars();" value="${data && data.sum ? data.sum : ''}">
+        <select class="car-sel ${t}" onchange="this.className='car-sel '+this.value;updateCarsSummary();updateCountersFromCars();">
           <option value="страх" ${t==='страх'?'selected':''}>Страх</option>
           <option value="розн" ${t==='розн'?'selected':''}>Розн</option>
           <option value="корп" ${t==='корп'?'selected':''}>Корп</option>
+          <option value="детейл" ${t==='детейл'?'selected':''}>Детейл</option>
         </select>
       </div>`;
     list.appendChild(row);
     if (!data) row.querySelector('input.car-inp').focus();
     updateCarsSummary();
+    updateCountersFromCars();
   }
   function toggleShowSums() { showCarSums = !showCarSums; document.getElementById('show-sums-toggle').classList.toggle('on', showCarSums); }
   function updateCarsSummary() {
@@ -825,6 +845,72 @@
     if (Math.abs(diff) < 1) { diffEl.textContent = `✅ Сходится с "Всего за день" (${fm(dayTotal)} ₽)`; diffEl.className = 'cs-diff ok'; }
     else if (diff > 0) { diffEl.textContent = `⚠️ Сумма машин больше "Всего за день" на ${fm(diff)} ₽`; diffEl.className = 'cs-diff bad'; }
     else { diffEl.textContent = `⚠️ Не хватает ${fm(-diff)} ₽ до "Всего за день" (${fm(dayTotal)} ₽)`; diffEl.className = 'cs-diff bad'; }
+  }
+
+  // Автозаполнение счётчиков и дневного вала из карточек машин.
+  // Считает кол-во и сумму по типам страх/розн/корп/детейл и записывает в C.* и в поля.
+  // Чтобы не затирать ручные правки: запоминаем "последнее авто-значение" и перезаписываем поле
+  // только если оно совпадает с прошлым авто (т.е. пользователь его не трогал руками).
+  let lastAuto = { ins:0, phy:0, cop:0, det:0, dins:0, dphy:0, dcop:0, ddet:0, dtotal:0 };
+  function updateCountersFromCars() {
+    const rows = document.querySelectorAll('.car-row');
+    const stat = { ins:0, phy:0, cop:0, det:0, dins:0, dphy:0, dcop:0, ddet:0 };
+    rows.forEach(r => {
+      const sum = +r.querySelector('.car-sum').value || 0;
+      const sel = r.querySelector('select.car-sel');
+      const type = sel ? sel.value : 'страх';
+      if (type === 'страх')      { stat.ins++; stat.dins += sum; }
+      else if (type === 'розн')  { stat.phy++; stat.dphy += sum; }
+      else if (type === 'корп')  { stat.cop++; stat.dcop += sum; }
+      else if (type === 'детейл'){ stat.det++; stat.ddet += sum; }
+    });
+
+    // Хелпер: обновить число в C[key], только если пользователь не правил его руками
+    const writeCounter = (key, newVal) => {
+      // Если текущее значение совпадает с прошлым авто — не было ручных правок, перезаписываем
+      if (C[key] === lastAuto[key]) {
+        C[key] = newVal;
+        const el = document.getElementById(key+'-v');
+        if (el) el.textContent = newVal;
+      }
+      lastAuto[key] = newVal;
+    };
+    writeCounter('ins', stat.ins);
+    writeCounter('phy', stat.phy);
+    writeCounter('cop', stat.cop);
+    writeCounter('det', stat.det);
+    // Розница = физ + корп (это уже само пересчитывается в cs())
+    C.ret = C.phy + C.cop;
+    const retEl = document.getElementById('ret-v');
+    if (retEl) retEl.textContent = C.ret;
+
+    // Хелпер: обновить input-поле дневного вала, если не правили руками
+    const writeField = (id, autoKey, newVal) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const cur = +el.value || 0;
+      if (cur === lastAuto[autoKey] || cur === 0) {
+        el.value = newVal > 0 ? newVal : '';
+      }
+      lastAuto[autoKey] = newVal;
+    };
+    writeField('dins', 'dins', stat.dins);
+    writeField('dphy', 'dphy', stat.dphy);
+    writeField('dcop', 'dcop', stat.dcop);
+
+    // Розничный вал и детейлинг
+    const dret = stat.dphy + stat.dcop;
+    writeField('dret', 'dret', dret);
+
+    // Поле детейлинга: может не существовать в HTML (если ещё не добавили) — мягко пропускаем
+    writeField('ddet', 'ddet', stat.ddet);
+
+    // Общий дневной вал = страх + розн (детейлинг идёт ОТДЕЛЬНО, не плюсуется в total_day)
+    const dtotal = stat.dins + dret;
+    writeField('dtotal', 'dtotal', dtotal);
+
+    // Обновляем сверку (cars-summary видит изменения dtotal)
+    updateCarsSummary();
   }
 
   async function saveAndGenerate() {
