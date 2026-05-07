@@ -925,8 +925,15 @@
 
   function renderPointCard(entry, range, lastDebtsByPoint) {
     const { point, reports, plan } = entry;
-    let t=0,i=0,phys=0,c=0;
-    reports.forEach(d => { t+=+d.total_day||0; i+=+d.ins_day||0; phys+=+d.phys_day||0; c+=+d.corp_day||0; });
+    let t=0,i=0,phys=0,c=0,det=0,detCnt=0;
+    reports.forEach(d => {
+      t+=+d.total_day||0;
+      i+=+d.ins_day||0;
+      phys+=+d.phys_day||0;
+      c+=+d.corp_day||0;
+      det+=+d.detail_day||0;
+      detCnt+=+d.cars_detail||0;
+    });
 
     // Долги точки
     const lastDebt = lastDebtsByPoint ? lastDebtsByPoint[point.id] : null;
@@ -968,6 +975,7 @@
             <div class="pc-stat"><div class="pc-stat-lbl">Страховые</div><div class="pc-stat-val b">${fm(i)} ₽</div></div>
             <div class="pc-stat"><div class="pc-stat-lbl">Физлица</div><div class="pc-stat-val g">${fm(phys)} ₽</div></div>
             <div class="pc-stat"><div class="pc-stat-lbl">Корпоратив</div><div class="pc-stat-val p">${fm(c)} ₽</div></div>
+            ${det > 0 ? `<div class="pc-stat"><div class="pc-stat-lbl">🛠 Детейлинг ${detCnt ? `(${detCnt})` : ''}</div><div class="pc-stat-val" style="color:var(--accent);">${fm(det)} ₽</div></div>` : ''}
           </div>
           ${(pointDebt > 0 || pointOwe > 0) ? `
           <div style="display:flex;gap:8px;margin-top:8px;font-size:11px;">
