@@ -611,7 +611,7 @@
       reports.forEach(r => {
         allTotal += +r.total_day || 0;
         allInsur += +r.ins_day || 0;
-        allPhys += +r.phys_day || 0;
+        allPhys += (+r.phys_day || 0) + (+r.detail_day || 0); // детейл — часть физлиц
         allCorp += +r.corp_day || 0;
         allRetail += +r.retail_day || 0;
         dateSet.add(r.date);
@@ -908,7 +908,7 @@
         const ctx = document.getElementById('chart-'+p.id);
         if (!ctx) return;
         const labels = entry.reports.map(d => pdate(d.date));
-        const physData = entry.reports.map(d => +d.phys_day || 0);
+        const physData = entry.reports.map(d => (+d.phys_day || 0) + (+d.detail_day || 0));
         const corpData = entry.reports.map(d => +d.corp_day || 0);
         const ch = new Chart(ctx, {
           type: 'bar',
@@ -973,9 +973,9 @@
           <div class="pc-stats">
             <div class="pc-stat"><div class="pc-stat-lbl">Всего</div><div class="pc-stat-val t">${fm(t)} ₽</div></div>
             <div class="pc-stat"><div class="pc-stat-lbl">Страховые</div><div class="pc-stat-val b">${fm(i)} ₽</div></div>
-            <div class="pc-stat"><div class="pc-stat-lbl">Физлица</div><div class="pc-stat-val g">${fm(phys)} ₽</div></div>
+            <div class="pc-stat"><div class="pc-stat-lbl">Физлица</div><div class="pc-stat-val g">${fm(phys + det)} ₽</div></div>
             <div class="pc-stat"><div class="pc-stat-lbl">Корпоратив</div><div class="pc-stat-val p">${fm(c)} ₽</div></div>
-            ${det > 0 ? `<div class="pc-stat"><div class="pc-stat-lbl">🛠 Детейлинг ${detCnt ? `(${detCnt})` : ''}</div><div class="pc-stat-val" style="color:var(--accent);">${fm(det)} ₽</div></div>` : ''}
+            ${det > 0 ? `<div class="pc-stat" style="opacity:.75;"><div class="pc-stat-lbl">🛠 Детейлинг ${detCnt ? `(${detCnt})` : ''} <span style="font-size:8px;color:var(--muted);font-weight:400;">в физлицах</span></div><div class="pc-stat-val" style="color:var(--accent);">${fm(det)} ₽</div></div>` : ''}
           </div>
           ${(pointDebt > 0 || pointOwe > 0) ? `
           <div style="display:flex;gap:8px;margin-top:8px;font-size:11px;">
@@ -983,7 +983,7 @@
             ${pointOwe > 0 ? `<div style="flex:1;padding:7px 10px;background:#141414;border-radius:6px;border-left:2px solid var(--red);"><div style="color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px;">🔴 Мы должны</div><div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--red);letter-spacing:.4px;">${fm(pointOwe)} ₽</div></div>` : ''}
           </div>` : ''}
           ${progressBlock('Страховые', 'b', plan.plan_ins_month, i)}
-          ${progressBlock('Физлица', 'g', plan.plan_phys_month, phys)}
+          ${progressBlock('Физлица', 'g', plan.plan_phys_month, phys + det)}
           ${progressBlock('Корпоратив', 'p', plan.plan_corp_month, c)}
           ${reports.length ? `<div class="pc-chart"><div class="pc-chart-title">📈 Физ vs Корп по дням</div><canvas id="chart-${point.id}" height="120"></canvas></div>` : ''}
         </div>
@@ -1172,7 +1172,7 @@
     const start = `${year}-01-01`;
     const end = `${year}-12-31`;
     const { data, error } = await sb.from('daily_reports')
-      .select('point_id,date,total_day,retail_day,ins_day,phys_day,corp_day')
+      .select('point_id,date,total_day,retail_day,ins_day,phys_day,corp_day,detail_day,cars_detail')
       .gte('date', start).lte('date', end);
     if (error) throw error;
     return data || [];
