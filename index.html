@@ -421,7 +421,7 @@
             <div class="mstat"><div class="mval b" id="mi">0</div><div class="mstat-lbl">Страх</div></div>
             <div class="mstat"><div class="mval g" id="mr">0</div><div class="mstat-lbl">Физлица</div></div>
             <div class="mstat"><div class="mval p" id="mc">0</div><div class="mstat-lbl">Корпор</div></div>
-            <div class="mstat detailing-only" style="display:none;"><div class="mval" id="md" style="color:var(--accent);">0</div><div class="mstat-lbl">🛠 Детейл</div></div>
+            <div class="mstat detailing-only" style="display:none;opacity:.75;"><div class="mval" id="md" style="color:var(--accent);">0</div><div class="mstat-lbl">🛠 Детейл<span style="font-size:8px;display:block;color:var(--muted);font-weight:400;margin-top:1px;">в физлицах</span></div></div>
           </div>
           <div class="mnote">☁️ Данные хранятся в облаке. Все менеджеры точки видят одну сводку.</div>
           <div class="hpanel" id="hpanel"></div>
@@ -918,7 +918,8 @@
     });
     document.getElementById('mt').textContent = fs(t);
     document.getElementById('mi').textContent = fs(i);
-    document.getElementById('mr').textContent = fs(p); // показываем физлица отдельно
+    // Физлица в "Итого за месяц" = чистые физлица + детейл (детейл часть розничного направления физиков)
+    document.getElementById('mr').textContent = fs(p + det);
     document.getElementById('mc').textContent = fs(c);
     const mdEl = document.getElementById('md');
     if (mdEl) mdEl.textContent = fs(det);
@@ -986,16 +987,20 @@
     const physDayActual = +document.getElementById('dphy').value || 0;
     const corpDayActual = +document.getElementById('dcop').value || 0;
     const insDayActual  = +document.getElementById('dins').value || 0;
+    // Физлица за день включают детейл (детейл — часть физического розничного направления)
+    const detDayActual  = +(document.getElementById('ddet')?.value || 0);
+    const physDayWithDetail = physDayActual + detDayActual;
     let physMonth = 0, corpMonth = 0, insMonth = 0;
     monthData.days.forEach(d => {
       const phy = +d.phys_day || 0;
       const cop = +d.corp_day || 0;
+      const det = +d.detail_day || 0;
       const ret = +d.retail_day || 0;
       // Для старых отчётов (где разбивки на физ/корп ещё не было), вся розница идёт как физлица
       if (phy + cop === 0 && ret > 0) {
-        physMonth += ret;
+        physMonth += ret; // ret уже включает detail после фикса
       } else {
-        physMonth += phy;
+        physMonth += phy + det; // детейл — это тоже физлица
         corpMonth += cop;
       }
       insMonth += +d.ins_day || 0;
@@ -1006,7 +1011,7 @@
                     || planData.plan_ins_day  || planData.plan_ins_month;
     if (!hasAnyPlan) { wrap.style.display='none'; return; }
     wrap.style.display='block';
-    updateProgressBar('pp-phys-day-bar', 'pp-phys-day-vals', physDayActual, planData.plan_phys_day);
+    updateProgressBar('pp-phys-day-bar', 'pp-phys-day-vals', physDayWithDetail, planData.plan_phys_day);
     updateProgressBar('pp-phys-month-bar', 'pp-phys-month-vals', physMonth, planData.plan_phys_month);
     updateProgressBar('pp-corp-day-bar', 'pp-corp-day-vals', corpDayActual, planData.plan_corp_day);
     updateProgressBar('pp-corp-month-bar', 'pp-corp-month-vals', corpMonth, planData.plan_corp_month);
