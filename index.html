@@ -720,13 +720,13 @@
     document.getElementById('app').style.display = 'block';
     document.getElementById('point-name').textContent = currentPoint.name;
     document.getElementById('blbl').textContent = currentPoint.name;
-    // Детейлинг и вкладка Машины: только для Совхозной
-    const showSovhozOnly = currentPoint.id === 'sovhoz';
+    // Детейлинг: только Совхозная. Передача смен (Машины): все точки.
+    const showDetailing = currentPoint.id === 'sovhoz';
     document.querySelectorAll('.detailing-only').forEach(el => {
-      el.style.display = showSovhozOnly ? '' : 'none';
+      el.style.display = showDetailing ? '' : 'none';
     });
     document.querySelectorAll('.cars-only').forEach(el => {
-      el.style.display = showSovhozOnly ? '' : 'none';
+      el.style.display = '';
     });
     document.getElementById('date').value = todayLocalISO();
     updateTitle();
@@ -815,8 +815,8 @@
       }
       if (document.querySelectorAll('.car-row').length === 0) addCar();
       updateCarsSummary();
-      // Совхозная: загрузить выданные сегодня машины из cars_in_work
-      if (currentPoint.id === 'sovhoz') await loadDayIssuedCars(date);
+      // Загружаем выданные машины из cars_in_work за выбранный день (для всех точек)
+      await loadDayIssuedCars(date);
       setSync('ok');
     } catch (e) { console.error(e); setSync('offline'); toast('Ошибка загрузки дня', 'err'); }
   }
@@ -1365,7 +1365,7 @@ ${planLine}
   const STATUS_GROUP_ORDER = ['in_work','ready','wait_payment','wait_docs','wait_pickup'];
 
   async function loadCars() {
-    if (!currentPoint || currentPoint.id !== 'sovhoz') return;
+    if (!currentPoint) return;
     try {
       const { data, error } = await sb.from('cars_in_work')
         .select('*')
@@ -1608,7 +1608,7 @@ ${planLine}
     }
   }
   async function loadArchive() {
-    if (!currentPoint || currentPoint.id !== 'sovhoz') return;
+    if (!currentPoint) return;
     const el = document.getElementById('cw-archive');
     el.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:8px 0;">Загрузка...</div>';
     const weekAgo = new Date();
@@ -1652,7 +1652,7 @@ ${planLine}
   setInterval(() => {
     if (currentPoint) {
       loadMonth(); loadPlan();
-      if (currentPoint.id === 'sovhoz' && document.getElementById('tab-cars')?.classList.contains('active')) {
+      if (document.getElementById('tab-cars')?.classList.contains('active')) {
         loadCars();
       }
     }
