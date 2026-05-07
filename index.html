@@ -788,6 +788,9 @@
       document.getElementById('bnote').value = '';
       Object.keys(C).forEach(k => { C[k]=0; const el = document.getElementById(k+'-v'); if (el) el.textContent='0'; });
       document.getElementById('cars').innerHTML = '';
+      // Сбрасываем выданные машины и lastAuto — иначе с прошлого дня могут "подсунуть" числа
+      dayIssuedCars = [];
+      lastAuto = { ins:0, phy:0, cop:0, det:0, dins:0, dphy:0, dcop:0, dret:0, ddet:0, dtotal:0 };
       if (data) {
         document.getElementById('bnote').value = data.bookings_note || '';
         C.bk = data.bookings || 0; C.ins = data.cars_insurance || 0; C.ret = data.cars_retail || 0;
@@ -840,16 +843,17 @@
         .order('closed_at');
       if (error) throw error;
       const issued = data || [];
+      // Сохраняем в глобальную для пересчёта счётчиков/вала
+      dayIssuedCars = issued;
       if (issued.length === 0) {
         block.style.display = 'none';
         labelEl.style.display = 'none';
+        updateCountersFromCars();
         return;
       }
       block.style.display = '';
       labelEl.style.display = '';
       const sumTotal = issued.reduce((a,b) => a + (+b.amount || 0), 0);
-      const cntByType = {};
-      issued.forEach(c => { cntByType[c.service_type] = (cntByType[c.service_type]||0) + 1; });
       summaryEl.textContent = ` · ${issued.length} шт · ${fm(sumTotal)} ₽`;
       let html = '';
       issued.forEach(c => {
@@ -861,8 +865,11 @@
         </div>`;
       });
       listEl.innerHTML = html;
+      // После загрузки выданных — пересчитать вал/счётчики (они учитывают оба источника)
+      updateCountersFromCars();
     } catch (e) {
       console.error('loadDayIssuedCars error:', e);
+      dayIssuedCars = [];
       block.style.display = '';
       listEl.innerHTML = '<span style="color:var(--red);">Ошибка: '+(e.message||e)+'</span>';
     }
@@ -1122,14 +1129,16 @@
     else { diffEl.textContent = `⚠️ Не хватает ${fm(-diff)} ₽ до "Всего за день" (${fm(dayTotal)} ₽)`; diffEl.className = 'cs-diff bad'; }
   }
 
-  // Автозаполнение счётчиков и дневного вала из карточек машин.
+  // Автозаполнение счётчиков и дневного вала из карточек машин + выданных машин cars_in_work.
   // Считает кол-во и сумму по типам страх/розн/корп/детейл и записывает в C.* и в поля.
   // Чтобы не затирать ручные правки: запоминаем "последнее авто-значение" и перезаписываем поле
   // только если оно совпадает с прошлым авто (т.е. пользователь его не трогал руками).
-  let lastAuto = { ins:0, phy:0, cop:0, det:0, dins:0, dphy:0, dcop:0, ddet:0, dtotal:0 };
+  let lastAuto = { ins:0, phy:0, cop:0, det:0, dins:0, dphy:0, dcop:0, dret:0, ddet:0, dtotal:0 };
+  let dayIssuedCars = []; // выданные за выбранный день из cars_in_work (заполняется в loadDayIssuedCars)
   function updateCountersFromCars() {
     const rows = document.querySelectorAll('.car-row');
     const stat = { ins:0, phy:0, cop:0, det:0, dins:0, dphy:0, dcop:0, ddet:0 };
+    // Источник 1: карточки cars_list (разовые в дневном отчёте)
     rows.forEach(r => {
       const sum = +r.querySelector('.car-sum').value || 0;
       const sel = r.querySelector('select.car-sel');
@@ -1139,10 +1148,18 @@
       else if (type === 'корп')  { stat.cop++; stat.dcop += sum; }
       else if (type === 'детейл'){ stat.det++; stat.ddet += sum; }
     });
+    // Источник 2: машины выданные из cars_in_work за этот день
+    dayIssuedCars.forEach(c => {
+      const sum = +c.amount || 0;
+      const type = c.service_type || 'розн';
+      if (type === 'страх')      { stat.ins++; stat.dins += sum; }
+      else if (type === 'розн')  { stat.phy++; stat.dphy += sum; }
+      else if (type === 'корп')  { stat.cop++; stat.dcop += sum; }
+      else if (type === 'детейл'){ stat.det++; stat.ddet += sum; }
+    });
 
     // Хелпер: обновить число в C[key], только если пользователь не правил его руками
     const writeCounter = (key, newVal) => {
-      // Если текущее значение совпадает с прошлым авто — не было ручных правок, перезаписываем
       if (C[key] === lastAuto[key]) {
         C[key] = newVal;
         const el = document.getElementById(key+'-v');
@@ -1154,7 +1171,7 @@
     writeCounter('phy', stat.phy);
     writeCounter('cop', stat.cop);
     writeCounter('det', stat.det);
-    // Розница = физ + корп (это уже само пересчитывается в cs())
+    // Розница = физ + корп
     C.ret = C.phy + C.cop;
     const retEl = document.getElementById('ret-v');
     if (retEl) retEl.textContent = C.ret;
