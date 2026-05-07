@@ -535,7 +535,7 @@
     document.getElementById('app').style.display = 'block';
     document.getElementById('point-name').textContent = currentPoint.name;
     document.getElementById('blbl').textContent = currentPoint.name;
-    // Детейлинг: показываем секции только для Совхозной (id='sovhoz')
+    // Детейлинг: показываем секции только для Совхозной
     const showDetailing = currentPoint.id === 'sovhoz';
     document.querySelectorAll('.detailing-only').forEach(el => {
       el.style.display = showDetailing ? '' : 'none';
@@ -809,6 +809,10 @@
     const row = document.createElement('div');
     row.className = 'car-row';
     const t = (data && data.type) || 'страх';
+    const showDetail = currentPoint && currentPoint.id === 'sovhoz';
+    const detailOption = showDetail
+      ? `<option value="детейл" ${t==='детейл'?'selected':''}>Детейл</option>`
+      : '';
     row.innerHTML = `<div class="car-line-1">
         <input class="car-inp" type="text" placeholder="Номер, марка, владелец, вид работ" value="${data ? escapeHtml(data.text||'') : ''}">
         <button class="rmbtn" onclick="this.closest('.car-row').remove();updateCarsSummary();updateCountersFromCars();">×</button>
@@ -819,7 +823,7 @@
           <option value="страх" ${t==='страх'?'selected':''}>Страх</option>
           <option value="розн" ${t==='розн'?'selected':''}>Розн</option>
           <option value="корп" ${t==='корп'?'selected':''}>Корп</option>
-          <option value="детейл" ${t==='детейл'?'selected':''}>Детейл</option>
+          ${detailOption}
         </select>
       </div>`;
     list.appendChild(row);
