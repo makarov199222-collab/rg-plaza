@@ -182,6 +182,11 @@
   .plan-field.g input{color:var(--green);}
   .plan-field.p input{color:var(--purple);}
   .plan-field.b input{color:var(--blue);}
+  .day-input-wrap{display:flex;gap:6px;align-items:stretch;}
+  .day-input-wrap input{flex:1;}
+  .auto-btn{flex:0 0 auto;background:#1a1a1a;border:1px solid var(--border);color:var(--muted);font-size:11px;padding:0 10px;border-radius:6px;cursor:pointer;font-weight:600;letter-spacing:.3px;white-space:nowrap;}
+  .auto-btn:hover{border-color:var(--accent);color:var(--accent);}
+  .auto-btn:active{transform:scale(.96);}
 
   .plan-helper{font-size:11px;color:var(--muted);margin-top:12px;line-height:1.6;padding:11px;background:#141414;border-radius:8px;}
   .plan-helper b{color:var(--text);}
@@ -1045,7 +1050,10 @@
             </div>
             <div class="plan-field b">
               <div class="plan-field-lbl b">📅 Страховые / день <span style="color:var(--muted);font-weight:600;text-transform:none;font-size:9px;letter-spacing:0;">${autoInsDay ? `(авто: ${fm(autoInsDay)})` : ''}</span></div>
-              <input type="number" placeholder="${autoInsDay || '0'}" value="${plan.plan_ins_day || ''}" data-pid="${point.id}" data-field="plan_ins_day" oninput="onPlanInput(this)">
+              <div class="day-input-wrap">
+                <input type="number" placeholder="${autoInsDay || '0'}" value="${plan.plan_ins_day || ''}" data-pid="${point.id}" data-field="plan_ins_day" oninput="onPlanInput(this)">
+                <button class="auto-btn" onclick="resetToAuto('${point.id}', 'plan_ins_day', 'plan_ins_month')" title="Пересчитать из месячного">↻ авто</button>
+              </div>
             </div>
             <div class="plan-field g">
               <div class="plan-field-lbl g">📆 Физлица / месяц</div>
@@ -1053,7 +1061,10 @@
             </div>
             <div class="plan-field g">
               <div class="plan-field-lbl g">📅 Физлица / день <span style="color:var(--muted);font-weight:600;text-transform:none;font-size:9px;letter-spacing:0;">${autoPhysDay ? `(авто: ${fm(autoPhysDay)})` : ''}</span></div>
-              <input type="number" placeholder="${autoPhysDay || '0'}" value="${plan.plan_phys_day || ''}" data-pid="${point.id}" data-field="plan_phys_day" oninput="onPlanInput(this)">
+              <div class="day-input-wrap">
+                <input type="number" placeholder="${autoPhysDay || '0'}" value="${plan.plan_phys_day || ''}" data-pid="${point.id}" data-field="plan_phys_day" oninput="onPlanInput(this)">
+                <button class="auto-btn" onclick="resetToAuto('${point.id}', 'plan_phys_day', 'plan_phys_month')" title="Пересчитать из месячного">↻ авто</button>
+              </div>
             </div>
             <div class="plan-field p">
               <div class="plan-field-lbl p">📆 Корпоратив / месяц</div>
@@ -1061,7 +1072,10 @@
             </div>
             <div class="plan-field p">
               <div class="plan-field-lbl p">📅 Корпоратив / день <span style="color:var(--muted);font-weight:600;text-transform:none;font-size:9px;letter-spacing:0;">${autoCorpDay ? `(авто: ${fm(autoCorpDay)})` : ''}</span></div>
-              <input type="number" placeholder="${autoCorpDay || '0'}" value="${plan.plan_corp_day || ''}" data-pid="${point.id}" data-field="plan_corp_day" oninput="onPlanInput(this)">
+              <div class="day-input-wrap">
+                <input type="number" placeholder="${autoCorpDay || '0'}" value="${plan.plan_corp_day || ''}" data-pid="${point.id}" data-field="plan_corp_day" oninput="onPlanInput(this)">
+                <button class="auto-btn" onclick="resetToAuto('${point.id}', 'plan_corp_day', 'plan_corp_month')" title="Пересчитать из месячного">↻ авто</button>
+              </div>
             </div>
           </div>
         </div>
@@ -1098,6 +1112,23 @@
     status.textContent = '⌛ сохраняю...';
     if (saveTimers[pid]) clearTimeout(saveTimers[pid]);
     saveTimers[pid] = setTimeout(() => savePlan(pid), 1000);
+  }
+
+  // Сбросить дневное поле к авто-значению (месяц / рабочих дней)
+  function resetToAuto(pid, dayField, monthField) {
+    const dayInput   = document.querySelector(`input[data-pid="${pid}"][data-field="${dayField}"]`);
+    const monthInput = document.querySelector(`input[data-pid="${pid}"][data-field="${monthField}"]`);
+    if (!dayInput || !monthInput) return;
+    const point = cachedData.points.find(p => p.id === pid);
+    const wd = point?.work_days || 7;
+    const now = new Date();
+    const totalWork = workDaysInMonth(now.getFullYear(), now.getMonth()+1, wd);
+    const monthVal = +monthInput.value || 0;
+    const autoDay = monthVal && totalWork ? Math.round(monthVal / totalWork) : 0;
+    dayInput.value = autoDay || '';
+    dayInput.placeholder = autoDay || '0';
+    // Триггерим сохранение через onPlanInput
+    onPlanInput(dayInput);
   }
 
   async function savePlan(pid) {
