@@ -110,6 +110,7 @@
   .progress-section-title{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;margin-bottom:7px;}
   .progress-section-title.g{color:var(--green);}
   .progress-section-title.p{color:var(--purple);}
+  .progress-section-title.b{color:var(--blue);}
   .prog-row{display:flex;flex-direction:column;gap:4px;margin-bottom:6px;}
   .prog-labels{display:flex;justify-content:space-between;font-size:11px;}
   .prog-name{color:var(--muted);font-weight:500;}
@@ -118,6 +119,7 @@
   .prog-fill{height:100%;border-radius:3px;transition:width .4s ease;}
   .prog-fill.day-g{background:var(--green);} .prog-fill.month-g{background:var(--green);opacity:.6;}
   .prog-fill.day-p{background:var(--purple);} .prog-fill.month-p{background:var(--purple);opacity:.6;}
+  .prog-fill.day-b{background:var(--blue);} .prog-fill.month-b{background:var(--blue);opacity:.6;}
   .prog-fill.over{background:var(--orange) !important;}
 
   .mcard{background:#141414;border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:3px;}
@@ -256,6 +258,17 @@
       <div class="plan-block">
         <div class="plan-title">🎯 Прогресс по плану</div>
         <div class="progress-section">
+          <div class="progress-section-title b">Страховые</div>
+          <div class="prog-row">
+            <div class="prog-labels"><span class="prog-name">День</span><span class="prog-vals" id="pp-ins-day-vals">0 / 0 ₽</span></div>
+            <div class="prog-bar"><div class="prog-fill day-b" id="pp-ins-day-bar" style="width:0%"></div></div>
+          </div>
+          <div class="prog-row">
+            <div class="prog-labels"><span class="prog-name">Месяц</span><span class="prog-vals" id="pp-ins-month-vals">0 / 0 ₽</span></div>
+            <div class="prog-bar"><div class="prog-fill month-b" id="pp-ins-month-bar" style="width:0%"></div></div>
+          </div>
+        </div>
+        <div class="progress-section">
           <div class="progress-section-title g">Розница (физлица)</div>
           <div class="prog-row">
             <div class="prog-labels"><span class="prog-name">День</span><span class="prog-vals" id="pp-phys-day-vals">0 / 0 ₽</span></div>
@@ -344,7 +357,7 @@
       <div class="card-body">
         <div class="agrid">
           <div class="ablock full"><div class="albl t">Всего за день</div><input class="ainp" type="number" id="dtotal" placeholder="0" oninput="updateCarsSummary()"></div>
-          <div class="ablock"><div class="albl b">Страховые</div><input class="ainp" type="number" id="dins" placeholder="0"></div>
+          <div class="ablock"><div class="albl b">Страховые</div><input class="ainp" type="number" id="dins" placeholder="0" oninput="updatePlanProgress()"></div>
           <div class="ablock"><div class="albl g">Розница всего</div><input class="ainp" type="number" id="dret" placeholder="0"></div>
           <div class="ablock"><div class="albl g">Физлица</div><input class="ainp" type="number" id="dphy" placeholder="0" oninput="updatePlanProgress()"></div>
           <div class="ablock"><div class="albl p">Корпоратив</div><input class="ainp" type="number" id="dcop" placeholder="0" oninput="updatePlanProgress()"></div>
@@ -444,6 +457,14 @@
           План задаёт руководитель в дашборде. Здесь только просмотр текущих значений и статуса выполнения.
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div style="background:var(--surface2);border-radius:8px;padding:10px;">
+            <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px;">📅 Страховые / день</div>
+            <div id="plan-ins-day-view" style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--blue);">— ₽</div>
+          </div>
+          <div style="background:var(--surface2);border-radius:8px;padding:10px;">
+            <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px;">📆 Страховые / месяц</div>
+            <div id="plan-ins-month-view" style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--blue);">— ₽</div>
+          </div>
           <div style="background:var(--surface2);border-radius:8px;padding:10px;">
             <div style="font-size:10px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px;">📅 Физлица / день</div>
             <div id="plan-phys-day-view" style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--green);">— ₽</div>
@@ -646,11 +667,15 @@
     try {
       const { data, error } = await sb.from('plans').select('*').eq('point_id', currentPoint.id).maybeSingle();
       if (error) throw error;
-      planData = data || { plan_phys_day: 0, plan_phys_month: 0, plan_corp_day: 0, plan_corp_month: 0 };
+      planData = data || { plan_phys_day: 0, plan_phys_month: 0, plan_corp_day: 0, plan_corp_month: 0, plan_ins_day: 0, plan_ins_month: 0 };
       document.getElementById('plan-phys-day-view').textContent = (planData.plan_phys_day ? fm(planData.plan_phys_day) : '—') + ' ₽';
       document.getElementById('plan-phys-month-view').textContent = (planData.plan_phys_month ? fm(planData.plan_phys_month) : '—') + ' ₽';
       document.getElementById('plan-corp-day-view').textContent = (planData.plan_corp_day ? fm(planData.plan_corp_day) : '—') + ' ₽';
       document.getElementById('plan-corp-month-view').textContent = (planData.plan_corp_month ? fm(planData.plan_corp_month) : '—') + ' ₽';
+      const insDayEl = document.getElementById('plan-ins-day-view');
+      const insMonEl = document.getElementById('plan-ins-month-view');
+      if (insDayEl) insDayEl.textContent = (planData.plan_ins_day ? fm(planData.plan_ins_day) : '—') + ' ₽';
+      if (insMonEl) insMonEl.textContent = (planData.plan_ins_month ? fm(planData.plan_ins_month) : '—') + ' ₽';
     } catch (e) { console.error(e); }
   }
 
@@ -726,23 +751,51 @@
   function updatePlanProgress() {
     const physDayActual = +document.getElementById('dphy').value || 0;
     const corpDayActual = +document.getElementById('dcop').value || 0;
-    let physMonth = 0, corpMonth = 0;
-    monthData.days.forEach(d => { physMonth += +d.phys_day||0; corpMonth += +d.corp_day||0; });
+    const insDayActual  = +document.getElementById('dins').value || 0;
+    let physMonth = 0, corpMonth = 0, insMonth = 0;
+    monthData.days.forEach(d => {
+      const phy = +d.phys_day || 0;
+      const cop = +d.corp_day || 0;
+      const ret = +d.retail_day || 0;
+      // Для старых отчётов (где разбивки на физ/корп ещё не было), вся розница идёт как физлица
+      if (phy + cop === 0 && ret > 0) {
+        physMonth += ret;
+      } else {
+        physMonth += phy;
+        corpMonth += cop;
+      }
+      insMonth += +d.ins_day || 0;
+    });
     const wrap = document.getElementById('plan-progress');
-    const hasAnyPlan = planData.plan_phys_day || planData.plan_phys_month || planData.plan_corp_day || planData.plan_corp_month;
+    const hasAnyPlan = planData.plan_phys_day || planData.plan_phys_month
+                    || planData.plan_corp_day || planData.plan_corp_month
+                    || planData.plan_ins_day  || planData.plan_ins_month;
     if (!hasAnyPlan) { wrap.style.display='none'; return; }
     wrap.style.display='block';
     updateProgressBar('pp-phys-day-bar', 'pp-phys-day-vals', physDayActual, planData.plan_phys_day);
     updateProgressBar('pp-phys-month-bar', 'pp-phys-month-vals', physMonth, planData.plan_phys_month);
     updateProgressBar('pp-corp-day-bar', 'pp-corp-day-vals', corpDayActual, planData.plan_corp_day);
     updateProgressBar('pp-corp-month-bar', 'pp-corp-month-vals', corpMonth, planData.plan_corp_month);
+    updateProgressBar('pp-ins-day-bar',  'pp-ins-day-vals',  insDayActual,  planData.plan_ins_day);
+    updateProgressBar('pp-ins-month-bar', 'pp-ins-month-vals', insMonth,    planData.plan_ins_month);
   }
 
   function renderPlanStatus() {
-    let physMonth=0, corpMonth=0;
-    monthData.days.forEach(d => { physMonth += +d.phys_day||0; corpMonth += +d.corp_day||0; });
+    let physMonth=0, corpMonth=0, insMonth=0;
+    monthData.days.forEach(d => {
+      const phy = +d.phys_day || 0;
+      const cop = +d.corp_day || 0;
+      const ret = +d.retail_day || 0;
+      if (phy + cop === 0 && ret > 0) {
+        physMonth += ret;
+      } else {
+        physMonth += phy;
+        corpMonth += cop;
+      }
+      insMonth += +d.ins_day || 0;
+    });
     const body = document.getElementById('plan-status-body');
-    const hasAnyPlan = planData.plan_phys_month || planData.plan_corp_month;
+    const hasAnyPlan = planData.plan_phys_month || planData.plan_corp_month || planData.plan_ins_month;
     if (!hasAnyPlan) { body.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:13px;padding:10px 0">План пока не задан</div>'; return; }
     const d = new Date(getDateValue());
     const totalWorkDays = workDaysInMonth(d.getFullYear(), d.getMonth());
@@ -766,6 +819,7 @@
     const wd = currentPoint?.work_days || 7;
     const scheduleNote = wd >= 7 ? '7 дней в неделю' : '6/1 (вс — выходной)';
     body.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:10px;">График: ${scheduleNote} · Прошло ${passedWorkDays} из ${totalWorkDays} рабочих дней (календарных: ${calendarDaysPassed}/${calendarDaysInMonth})</div>
+      ${block('Страховые', planData.plan_ins_month, insMonth)}
       ${block('Розница (физлица)', planData.plan_phys_month, physMonth)}
       ${block('Корпоратив', planData.plan_corp_month, corpMonth)}`;
   }
