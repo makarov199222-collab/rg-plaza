@@ -546,8 +546,8 @@
         <button class="add-car-btn" onclick="openCarEdit(null)">+ Машина</button>
       </div>
       <div class="card-body">
-        <div id="cars-summary" style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6;">Загрузка...</div>
-        <div id="cars-groups"></div>
+        <div id="cw-summary" style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6;">Загрузка...</div>
+        <div id="cw-groups"></div>
       </div>
     </div>
     <div class="card" style="margin-top:14px;">
@@ -555,7 +555,7 @@
         <div class="card-title">📦 Архив (выданные за неделю)</div>
         <button class="tab-mini" onclick="toggleArchive()" id="archive-toggle">показать</button>
       </div>
-      <div class="card-body" id="cars-archive" style="display:none;">
+      <div class="card-body" id="cw-archive" style="display:none;">
         <div style="color:var(--muted);font-size:13px;text-align:center;padding:8px 0;">Загрузка...</div>
       </div>
     </div>
@@ -1331,14 +1331,14 @@ ${planLine}
       renderCars();
     } catch (e) {
       console.error('loadCars error:', e);
-      const el = document.getElementById('cars-summary');
+      const el = document.getElementById('cw-summary');
       if (el) el.innerHTML = '<span style="color:var(--red);">Ошибка загрузки: '+(e.message||e)+'</span>';
     }
   }
 
   function renderCars() {
-    const summaryEl = document.getElementById('cars-summary');
-    const groupsEl = document.getElementById('cars-groups');
+    const summaryEl = document.getElementById('cw-summary');
+    const groupsEl = document.getElementById('cw-groups');
     if (!summaryEl || !groupsEl) return;
 
     if (carsInWork.length === 0) {
@@ -1534,7 +1534,7 @@ ${planLine}
       closeCloseDialog();
       closeCarEdit();
       loadCars();
-      if (document.getElementById('cars-archive')?.style.display !== 'none') loadArchive();
+      if (document.getElementById('cw-archive')?.style.display !== 'none') loadArchive();
     } catch (e) {
       toast('Ошибка: '+(e.message||e), 'err');
     }
@@ -1542,7 +1542,7 @@ ${planLine}
 
   // === Архив ===
   async function toggleArchive() {
-    const el = document.getElementById('cars-archive');
+    const el = document.getElementById('cw-archive');
     const btn = document.getElementById('archive-toggle');
     if (el.style.display === 'none') {
       el.style.display = '';
@@ -1555,7 +1555,7 @@ ${planLine}
   }
   async function loadArchive() {
     if (!currentPoint || currentPoint.id !== 'sovhoz') return;
-    const el = document.getElementById('cars-archive');
+    const el = document.getElementById('cw-archive');
     el.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:8px 0;">Загрузка...</div>';
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
