@@ -451,6 +451,11 @@
           <div class="toggle-lbl">Показывать суммы машин в текстовом отчёте</div>
           <div class="toggle on" id="show-sums-toggle" onclick="toggleShowSums()"></div>
         </div>
+        <div class="cars-only" id="day-issued-block" style="display:none;margin-bottom:14px;padding:10px;background:#141414;border-radius:8px;border-left:3px solid var(--green);">
+          <div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">📦 Выданы из «🚗 Машины» <span id="issued-summary" style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;"></span></div>
+          <div id="issued-list" style="font-size:12px;color:var(--text);line-height:1.6;"></div>
+        </div>
+        <div class="cars-only" id="day-oneoff-label" style="display:none;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">➕ Разовые (без вкладки):</div>
         <div class="cars-list" id="cars"></div>
         <button class="add-btn" onclick="addCar()">+ Добавить машину</button>
         <div class="cars-summary" id="cars-summary" style="display:none;">
@@ -571,16 +576,8 @@
     <div class="sheet-body">
       <div class="cf-grid">
         <div class="cf-row">
-          <label class="cf-lbl">Номер</label>
-          <input id="ce-plate" type="text" placeholder="Р640УС18 или Б/Н" class="cf-inp">
-        </div>
-        <div class="cf-row">
-          <label class="cf-lbl">Марка / Модель</label>
-          <input id="ce-brand" type="text" placeholder="Renault DUSTER" class="cf-inp">
-        </div>
-        <div class="cf-row">
-          <label class="cf-lbl">Клиент (для юрлиц)</label>
-          <input id="ce-client" type="text" placeholder="КУЛЯБИНОАГРО ООО" class="cf-inp">
+          <label class="cf-lbl">Номер · Марка · Клиент <span style="color:var(--muted);font-weight:400;text-transform:none;">(вставь из 1С)</span></label>
+          <textarea id="ce-info" class="cf-inp" rows="2" placeholder="Р640УС18 Renault DUSTER Иванов И.И."></textarea>
         </div>
         <div class="cf-row-2">
           <div>
@@ -818,8 +815,57 @@
       }
       if (document.querySelectorAll('.car-row').length === 0) addCar();
       updateCarsSummary();
+      // Совхозная: загрузить выданные сегодня машины из cars_in_work
+      if (currentPoint.id === 'sovhoz') await loadDayIssuedCars(date);
       setSync('ok');
     } catch (e) { console.error(e); setSync('offline'); toast('Ошибка загрузки дня', 'err'); }
+  }
+
+  // Грузим машины выданные за выбранный день (closed_at::date = date)
+  async function loadDayIssuedCars(date) {
+    const block = document.getElementById('day-issued-block');
+    const labelEl = document.getElementById('day-oneoff-label');
+    const listEl = document.getElementById('issued-list');
+    const summaryEl = document.getElementById('issued-summary');
+    if (!block || !listEl) return;
+    try {
+      // closed_at — timestamptz. Фильтруем диапазоном суток.
+      const dayStart = `${date}T00:00:00`;
+      const dayEnd   = `${date}T23:59:59`;
+      const { data, error } = await sb.from('cars_in_work')
+        .select('*')
+        .eq('point_id', currentPoint.id)
+        .gte('closed_at', dayStart)
+        .lte('closed_at', dayEnd)
+        .order('closed_at');
+      if (error) throw error;
+      const issued = data || [];
+      if (issued.length === 0) {
+        block.style.display = 'none';
+        labelEl.style.display = 'none';
+        return;
+      }
+      block.style.display = '';
+      labelEl.style.display = '';
+      const sumTotal = issued.reduce((a,b) => a + (+b.amount || 0), 0);
+      const cntByType = {};
+      issued.forEach(c => { cntByType[c.service_type] = (cntByType[c.service_type]||0) + 1; });
+      summaryEl.textContent = ` · ${issued.length} шт · ${fm(sumTotal)} ₽`;
+      let html = '';
+      issued.forEach(c => {
+        const title = c.info || ((c.plate||'') + ' ' + (c.brand||'')).trim();
+        const typeBadge = `<span style="font-size:10px;padding:1px 6px;background:#222;border-radius:4px;color:var(--muted);margin-left:5px;">${c.service_type}</span>`;
+        html += `<div style="padding:4px 0;border-top:1px solid var(--border-dim);display:flex;justify-content:space-between;gap:8px;">
+          <span>${escapeHtml(title)} ${typeBadge}</span>
+          <b style="color:var(--accent);">${fm(c.amount||0)} ₽</b>
+        </div>`;
+      });
+      listEl.innerHTML = html;
+    } catch (e) {
+      console.error('loadDayIssuedCars error:', e);
+      block.style.display = '';
+      listEl.innerHTML = '<span style="color:var(--red);">Ошибка: '+(e.message||e)+'</span>';
+    }
   }
 
   async function loadMonth() {
@@ -1391,8 +1437,8 @@ ${planLine}
     } else {
       metaText = `${daysInWork} дн в работе`;
     }
-    const titleParts = [c.plate, c.brand].filter(Boolean).join(' · ');
-    const clientLine = c.client ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">👤 ${escapeHtml(c.client)}</div>` : '';
+    const titleParts = c.info || [c.plate, c.brand].filter(Boolean).join(' · ');
+    const clientLine = (!c.info && c.client) ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">👤 ${escapeHtml(c.client)}</div>` : '';
     const desc = c.description ? `<div class="cc-desc">${escapeHtml(c.description)}</div>` : '';
     const todo = c.todo ? `<div class="cc-todo">📌 ${escapeHtml(c.todo)}</div>` : '';
     const amountText = c.amount > 0 ? `<span class="cc-amount">${fm(c.amount)} ₽</span>` : '';
@@ -1424,10 +1470,12 @@ ${planLine}
       // Редактирование существующей
       const c = carsInWork.find(x => x.id === id);
       if (!c) return;
-      titleEl.textContent = `${c.plate} · ${c.brand || ''}`.trim();
-      document.getElementById('ce-plate').value = c.plate || '';
-      document.getElementById('ce-brand').value = c.brand || '';
-      document.getElementById('ce-client').value = c.client || '';
+      // Заголовок: info или fallback на старые поля
+      const title = c.info || [c.plate, c.brand].filter(Boolean).join(' · ');
+      titleEl.textContent = title || 'Машина';
+      // Поле info: либо новое значение, либо собранное из старых полей
+      const infoVal = c.info || [c.plate, c.brand, c.client].filter(Boolean).join(' ');
+      document.getElementById('ce-info').value = infoVal;
       document.getElementById('ce-type').value = c.service_type || 'розн';
       document.getElementById('ce-status').value = c.status || 'in_work';
       document.getElementById('ce-desc').value = c.description || '';
@@ -1441,9 +1489,7 @@ ${planLine}
     } else {
       // Новая
       titleEl.textContent = '+ Новая машина';
-      document.getElementById('ce-plate').value = '';
-      document.getElementById('ce-brand').value = '';
-      document.getElementById('ce-client').value = '';
+      document.getElementById('ce-info').value = '';
       document.getElementById('ce-type').value = 'розн';
       document.getElementById('ce-status').value = 'in_work';
       document.getElementById('ce-desc').value = '';
@@ -1464,11 +1510,15 @@ ${planLine}
   }
 
   async function saveCar() {
+    const info = document.getElementById('ce-info').value.trim();
+    if (!info) { toast('Заполни «Номер · Марка · Клиент»', 'err'); return; }
+    // Извлекаем plate (первое слово) для legacy-поля и сортировки
+    const firstWord = info.split(/\s+/)[0] || '';
     const payload = {
       point_id: currentPoint.id,
-      plate: document.getElementById('ce-plate').value.trim(),
-      brand: document.getElementById('ce-brand').value.trim(),
-      client: document.getElementById('ce-client').value.trim(),
+      info: info,
+      plate: firstWord,
+      brand: '', client: '',  // больше не используем
       service_type: document.getElementById('ce-type').value,
       status: document.getElementById('ce-status').value,
       description: document.getElementById('ce-desc').value.trim(),
@@ -1478,7 +1528,6 @@ ${planLine}
       expected_at: document.getElementById('ce-expected').value || null,
       expected_time: document.getElementById('ce-time').value.trim(),
     };
-    if (!payload.plate) { toast('Укажи номер машины', 'err'); return; }
     try {
       if (editingCarId) {
         const { error } = await sb.from('cars_in_work').update(payload).eq('id', editingCarId);
@@ -1534,6 +1583,11 @@ ${planLine}
       closeCloseDialog();
       closeCarEdit();
       loadCars();
+      // Если выдача = текущий день в Отчёте — обновляем read-only список
+      const currentDate = getDateValue();
+      if (dateStr === currentDate) {
+        loadDayIssuedCars(currentDate);
+      }
       if (document.getElementById('cw-archive')?.style.display !== 'none') loadArchive();
     } catch (e) {
       toast('Ошибка: '+(e.message||e), 'err');
@@ -1576,9 +1630,10 @@ ${planLine}
       let html = '';
       carsArchive.forEach(c => {
         const closedDate = c.closed_at ? c.closed_at.split('T')[0] : '';
+        const title = c.info || ((c.plate||'') + ' · ' + (c.brand||''));
         html += `<div class="car-card t-${c.service_type||'розн'}" style="cursor:default;opacity:.85;">
           <div class="cc-line1">
-            <div><div class="cc-plate">${escapeHtml((c.plate||'') + ' · ' + (c.brand||''))}</div></div>
+            <div><div class="cc-plate">${escapeHtml(title)}</div></div>
             <div class="cc-meta">выдана ${closedDate}</div>
           </div>
           ${c.description ? `<div class="cc-desc" style="font-size:11px;">${escapeHtml(c.description)}</div>` : ''}
