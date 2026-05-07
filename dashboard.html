@@ -150,12 +150,12 @@
   .pc-plan{background:#141414;border:1px solid var(--border);border-radius:8px;padding:11px;margin-bottom:8px;}
   .pc-plan-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;}
   .pc-plan-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;}
-  .pc-plan-title.g{color:var(--green);} .pc-plan-title.p{color:var(--purple);}
+  .pc-plan-title.g{color:var(--green);} .pc-plan-title.p{color:var(--purple);} .pc-plan-title.b{color:var(--blue);}
   .pc-plan-pct{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:.5px;}
   .pc-plan-pct.ok{color:var(--green);} .pc-plan-pct.warn{color:var(--orange);} .pc-plan-pct.bad{color:var(--red);}
   .pc-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:5px;}
   .pc-bar-fill{height:100%;border-radius:3px;transition:width .4s;}
-  .pc-bar-fill.g{background:var(--green);} .pc-bar-fill.p{background:var(--purple);} .pc-bar-fill.r{background:var(--red);}
+  .pc-bar-fill.g{background:var(--green);} .pc-bar-fill.p{background:var(--purple);} .pc-bar-fill.b{background:var(--blue);} .pc-bar-fill.r{background:var(--red);}
   .pc-plan-text{font-size:10px;color:var(--muted);}
 
   .pc-chart{background:#141414;border:1px solid var(--border);border-radius:8px;padding:11px;margin-top:10px;}
@@ -173,14 +173,15 @@
   .plan-fields-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
   @media (max-width: 600px) { .plan-fields-grid{grid-template-columns:1fr;} }
   .plan-field{background:#141414;border:1px solid var(--border);border-radius:8px;padding:11px;}
-  .plan-field.g{border-left:3px solid var(--green);} .plan-field.p{border-left:3px solid var(--purple);}
+  .plan-field.g{border-left:3px solid var(--green);} .plan-field.p{border-left:3px solid var(--purple);} .plan-field.b{border-left:3px solid var(--blue);}
   .plan-field-lbl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;}
-  .plan-field-lbl.g{color:var(--green);} .plan-field-lbl.p{color:var(--purple);}
+  .plan-field-lbl.g{color:var(--green);} .plan-field-lbl.p{color:var(--purple);} .plan-field-lbl.b{color:var(--blue);}
   .plan-field input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;color:var(--text);font-family:'Inter',sans-serif;font-size:15px;font-weight:600;outline:none;-webkit-appearance:none;}
   .plan-field input:focus{border-color:var(--accent);}
   .plan-field input::placeholder{color:var(--border);}
   .plan-field.g input{color:var(--green);}
   .plan-field.p input{color:var(--purple);}
+  .plan-field.b input{color:var(--blue);}
 
   .plan-helper{font-size:11px;color:var(--muted);margin-top:12px;line-height:1.6;padding:11px;background:#141414;border-radius:8px;}
   .plan-helper b{color:var(--text);}
@@ -509,21 +510,9 @@
     return count;
   }
   function getMonthRange() {
-    // Берём текущий месяц локально (без toISOString — он сдвигает в UTC)
-    const now = new Date();
-    const fallback = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-    const v = document.getElementById('month-pick').value || fallback;
-    const [yStr, mStr] = v.split('-');
-    const y = +yStr, m = +mStr;
-    // Последний день месяца — собираем строкой, без toISOString (тот сдвигает на UTC и теряет 1 день)
-    const lastDay = new Date(y, m, 0).getDate();
-    const pad = n => String(n).padStart(2, '0');
-    return {
-      start: `${y}-${pad(m)}-01`,
-      end: `${y}-${pad(m)}-${pad(lastDay)}`,
-      year: y,
-      month: m
-    };
+    const v = document.getElementById('month-pick').value || new Date().toISOString().substring(0,7);
+    const [y,m] = v.split('-');
+    return { start: `${y}-${m}-01`, end: new Date(+y, +m, 0).toISOString().split('T')[0], year:+y, month:+m };
   }
 
   async function loadAll() {
@@ -535,7 +524,6 @@
     const range = getMonthRange();
     const yearStart = `${range.year}-01-01`;
     const period = `${range.year}-${String(range.month).padStart(2,'0')}`;
-    console.log('[RG Plaza] Загрузка периода:', period, '· диапазон:', range.start, '→', range.end);
     try {
       // Хелпер: если таблица не существует — возвращает пустой массив вместо краша
       const safe = async (q) => {
@@ -563,12 +551,6 @@
 
       const allPoints = pointsRes.data || [];
       const revenuePoints = allPoints.filter(p => p.is_revenue_point !== false && !['detailing','school','mgt','other'].includes(p.id));
-
-      console.log('[RG Plaza] Получено отчётов за месяц:', (reportsRes.data || []).length);
-      if ((reportsRes.data || []).length > 0) {
-        const dates = [...new Set((reportsRes.data || []).map(r => r.date))].sort();
-        console.log('[RG Plaza] Даты в выборке:', dates.join(', '));
-      }
 
       cachedData = {
         points: revenuePoints,
@@ -601,7 +583,7 @@
     data.points.forEach(p => byPoint[p.id] = {
       point: p,
       reports: [],
-      plan: data.plans.find(pl => pl.point_id === p.id) || { plan_phys_day: 0, plan_phys_month: 0, plan_corp_day: 0, plan_corp_month: 0 }
+      plan: data.plans.find(pl => pl.point_id === p.id) || { plan_phys_day: 0, plan_phys_month: 0, plan_corp_day: 0, plan_corp_month: 0, plan_ins_day: 0, plan_ins_month: 0 }
     });
     data.reports.forEach(r => { if (byPoint[r.point_id]) byPoint[r.point_id].reports.push(r); });
     return byPoint;
@@ -618,7 +600,7 @@
     const moscowPoints = data.points.filter(p => p.format !== 'izhevsk');
     const izhevskPoints = data.points.filter(p => p.format === 'izhevsk');
 
-    let allTotal=0, allInsur=0, allPhys=0, allCorp=0, allRetail=0, allPlanPhysM=0, allPlanCorpM=0;
+    let allTotal=0, allInsur=0, allPhys=0, allCorp=0, allRetail=0, allPlanPhysM=0, allPlanCorpM=0, allPlanInsM=0;
     const dateSet = new Set();
     Object.values(byPoint).forEach(({reports, plan}) => {
       reports.forEach(r => {
@@ -631,10 +613,12 @@
       });
       allPlanPhysM += +plan.plan_phys_month || 0;
       allPlanCorpM += +plan.plan_corp_month || 0;
+      allPlanInsM  += +plan.plan_ins_month  || 0;
     });
     const physPct = allPlanPhysM ? Math.round(allPhys/allPlanPhysM*100) : null;
     const corpPct = allPlanCorpM ? Math.round(allCorp/allPlanCorpM*100) : null;
-    const allPlanTotal = allPlanPhysM + allPlanCorpM;
+    const insPct  = allPlanInsM  ? Math.round(allInsur/allPlanInsM*100) : null;
+    const allPlanTotal = allPlanPhysM + allPlanCorpM + allPlanInsM;
     const planPct = allPlanTotal > 0 ? Math.round(allTotal / allPlanTotal * 100) : null;
 
     // === Долги (берём последний отчёт где долги > 0 за весь год до конца месяца) ===
@@ -691,9 +675,7 @@
 
     // 1. Точки которые не отчитались до 19:00 локального времени
     if (isCurrentMonth) {
-      // Локальная дата без UTC-сдвига (вечером в МСК ISO даёт уже завтрашний день)
-      const _pad = n => String(n).padStart(2, '0');
-      const todayStr = `${today.getFullYear()}-${_pad(today.getMonth()+1)}-${_pad(today.getDate())}`;
+      const todayStr = today.toISOString().substring(0,10);
       const dayOfWeek = today.getDay();
       const reportedToday = new Set();
       data.reports.forEach(r => { if (r.date === todayStr && +r.total_day > 0) reportedToday.add(r.point_id); });
@@ -987,6 +969,7 @@
             ${pointDebt > 0 ? `<div style="flex:1;padding:7px 10px;background:#141414;border-radius:6px;border-left:2px solid var(--orange);"><div style="color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px;">🟡 Нам должны</div><div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--orange);letter-spacing:.4px;">${fm(pointDebt)} ₽</div></div>` : ''}
             ${pointOwe > 0 ? `<div style="flex:1;padding:7px 10px;background:#141414;border-radius:6px;border-left:2px solid var(--red);"><div style="color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px;">🔴 Мы должны</div><div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--red);letter-spacing:.4px;">${fm(pointOwe)} ₽</div></div>` : ''}
           </div>` : ''}
+          ${progressBlock('Страховые', 'b', plan.plan_ins_month, i)}
           ${progressBlock('Физлица', 'g', plan.plan_phys_month, phys)}
           ${progressBlock('Корпоратив', 'p', plan.plan_corp_month, c)}
           ${reports.length ? `<div class="pc-chart"><div class="pc-chart-title">📈 Физ vs Корп по дням</div><canvas id="chart-${point.id}" height="120"></canvas></div>` : ''}
@@ -1043,6 +1026,7 @@
     const totalWork = workDaysInMonth(now.getFullYear(), now.getMonth()+1, wd);
     const autoPhysDay = plan.plan_phys_month ? Math.round(plan.plan_phys_month / totalWork) : 0;
     const autoCorpDay = plan.plan_corp_month ? Math.round(plan.plan_corp_month / totalWork) : 0;
+    const autoInsDay  = plan.plan_ins_month  ? Math.round(plan.plan_ins_month  / totalWork) : 0;
     return `
       <div class="plan-editor">
         <div class="plan-editor-head">
@@ -1055,6 +1039,14 @@
             Введи <b style="color:var(--text)">план на месяц</b> — план на день предложится автоматически (с учётом графика ${schedule}, ${totalWork} рабочих дней в этом месяце). При желании можно переписать дневной план вручную.
           </div>
           <div class="plan-fields-grid">
+            <div class="plan-field b">
+              <div class="plan-field-lbl b">📆 Страховые / месяц</div>
+              <input type="number" placeholder="0" value="${plan.plan_ins_month || ''}" data-pid="${point.id}" data-field="plan_ins_month" data-pair="plan_ins_day" oninput="onPlanInput(this)">
+            </div>
+            <div class="plan-field b">
+              <div class="plan-field-lbl b">📅 Страховые / день <span style="color:var(--muted);font-weight:600;text-transform:none;font-size:9px;letter-spacing:0;">${autoInsDay ? `(авто: ${fm(autoInsDay)})` : ''}</span></div>
+              <input type="number" placeholder="${autoInsDay || '0'}" value="${plan.plan_ins_day || ''}" data-pid="${point.id}" data-field="plan_ins_day" oninput="onPlanInput(this)">
+            </div>
             <div class="plan-field g">
               <div class="plan-field-lbl g">📆 Физлица / месяц</div>
               <input type="number" placeholder="0" value="${plan.plan_phys_month || ''}" data-pid="${point.id}" data-field="plan_phys_month" data-pair="plan_phys_day" oninput="onPlanInput(this)">
@@ -1147,16 +1139,9 @@
     return data || [];
   }
 
-  // Локальная сегодняшняя дата без UTC-сдвига
-  function todayLocalISO() {
-    const d = new Date();
-    const pad = n => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-  }
-
   async function renderMyReport(data) {
     const range = data.range;
-    const date = document.getElementById('myreport-date')?.value || todayLocalISO();
+    const date = document.getElementById('myreport-date')?.value || new Date().toISOString().split('T')[0];
 
     // Грузим данные за весь год (для накопительного годового вала)
     let yearData = yearDataCache;
