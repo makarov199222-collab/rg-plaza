@@ -382,7 +382,7 @@
         <div class="rsplit detailing-only" id="row-detailing-cnt" style="display:none;margin-top:8px;">
           <div class="sblock" style="grid-column: span 2;">
             <div class="slbl" style="color:var(--accent);">🛠 Детейлинг</div>
-            <div class="sctrl"><button class="sbtn" onclick="ch('det',-1)">−</button><div class="sval" id="det-v">0</div><button class="sbtn" onclick="ch('det',1)">+</button></div>
+            <div class="sctrl"><button class="sbtn" onclick="cs('det',-1)">−</button><div class="sval" id="det-v">0</div><button class="sbtn" onclick="cs('det',1)">+</button></div>
           </div>
         </div>
       </div>
@@ -754,7 +754,7 @@
   }
 
   function ch(k, d) { C[k] = Math.max(0, C[k]+d); document.getElementById(k+'-v').textContent = C[k]; }
-  function cs(k, d) { C[k] = Math.max(0, C[k]+d); document.getElementById(k+'-v').textContent = C[k]; C.ret = C.phy + C.cop; document.getElementById('ret-v').textContent = C.ret; }
+  function cs(k, d) { C[k] = Math.max(0, C[k]+d); document.getElementById(k+'-v').textContent = C[k]; C.ret = C.phy + C.cop + C.det; document.getElementById('ret-v').textContent = C.ret; }
 
   // Локальная сегодняшняя дата без UTC-сдвига
   function todayLocalISO() {
@@ -1171,8 +1171,8 @@
     writeCounter('phy', stat.phy);
     writeCounter('cop', stat.cop);
     writeCounter('det', stat.det);
-    // Розница = физ + корп
-    C.ret = C.phy + C.cop;
+    // Розница = физ + корп + детейл (детейл — это тоже розничное направление)
+    C.ret = C.phy + C.cop + C.det;
     const retEl = document.getElementById('ret-v');
     if (retEl) retEl.textContent = C.ret;
 
@@ -1190,14 +1190,14 @@
     writeField('dphy', 'dphy', stat.dphy);
     writeField('dcop', 'dcop', stat.dcop);
 
-    // Розничный вал и детейлинг
-    const dret = stat.dphy + stat.dcop;
+    // Розничный вал = физ + корп + детейл (детейл — часть розницы)
+    const dret = stat.dphy + stat.dcop + stat.ddet;
     writeField('dret', 'dret', dret);
 
-    // Поле детейлинга: может не существовать в HTML (если ещё не добавили) — мягко пропускаем
+    // Поле детейлинга — отдельное (для детальной аналитики)
     writeField('ddet', 'ddet', stat.ddet);
 
-    // Общий дневной вал = страх + розн (детейлинг идёт ОТДЕЛЬНО, не плюсуется в total_day)
+    // Общий дневной вал = страх + розница (вся, включая детейл)
     const dtotal = stat.dins + dret;
     writeField('dtotal', 'dtotal', dtotal);
 
