@@ -104,6 +104,18 @@
   .badge-emoji{font-size:28px;line-height:1;margin-bottom:6px;}
   .badge-name{font-size:10px;font-weight:700;color:var(--text);letter-spacing:.3px;line-height:1.2;}
   .badge-prog{font-size:9px;color:var(--accent);margin-top:5px;font-family:'Bebas Neue',sans-serif;letter-spacing:.4px;}
+
+  /* Челленджи в index */
+  .my-challenge{background:#0e0e0e;border:1px solid var(--border);border-radius:10px;padding:11px;margin-bottom:8px;}
+  .my-challenge:last-child{margin-bottom:0;}
+  .mc-head{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:flex-start;margin-bottom:4px;}
+  .mc-title{font-weight:700;color:var(--text);font-size:13px;}
+  .mc-hint{font-size:11px;color:var(--muted);}
+  .mc-desc{font-size:11px;color:var(--muted);margin-bottom:6px;}
+  .mc-bar{height:7px;background:var(--border);border-radius:4px;overflow:hidden;margin:6px 0;}
+  .mc-bar-fill{height:100%;background:linear-gradient(90deg, var(--accent), #ffd97a);transition:width .4s;}
+  .mc-vals{font-size:12px;}
+  .mc-current{font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--accent);letter-spacing:.5px;}
   .sync-dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;}
   .sync-dot.offline{background:var(--red);animation:none;}
   .sync-dot.syncing{background:var(--orange);}
@@ -1309,7 +1321,9 @@
     }
     if (t === 'plan') renderPlanStatus();
     if (t === 'cars') loadCars();
-    if (t === 'game') renderMyGamePage();
+    if (t === 'game') {
+      loadMyChallenges().then(() => renderMyGamePage());
+    }
   }
 
   // Рендер страницы "🎮 Я"
@@ -1386,11 +1400,87 @@
         ${renderMyBadges()}
       </div>
 
-      <div class="game-section" style="opacity:.6;">
+      <div class="game-section">
         <div class="game-sect-title">🎯 ЧЕЛЛЕНДЖИ</div>
-        <div class="ga-empty">Челленджи появятся на следующем этапе разработки</div>
+        ${renderMyChallenges()}
       </div>
     `;
+  }
+
+  // Челленджи на странице "🎮 Я" — те которые касаются моей точки
+  let myChallenges = [];
+
+  async function loadMyChallenges() {
+    if (!currentPoint) return;
+    const today = todayLocalISO();
+    try {
+      // Активные: либо для моей точки, либо общие (point_id is null)
+      const { data, error } = await sb.from('challenges')
+        .select('*')
+        .gte('ends_at', today)
+        .or(`point_id.is.null,point_id.eq.${currentPoint.id}`)
+        .order('ends_at');
+      if (error) throw error;
+      myChallenges = data || [];
+    } catch (e) {
+      console.error('loadMyChallenges error:', e);
+      myChallenges = [];
+    }
+  }
+
+  function renderMyChallenges() {
+    if (!myChallenges || myChallenges.length === 0) {
+      return '<div class="ga-empty">Активных челленджей нет. Руководитель скоро добавит — и здесь появится миссия!</div>';
+    }
+    // Считаем прогресс на основе allActions (моих за всё время — фильтруем по датам)
+    return myChallenges.map(ch => {
+      const progress = calcMyChallengeProgress(ch);
+      const pct = Math.min(100, Math.round(progress / ch.target_value * 100));
+      const today = new Date(); today.setHours(0,0,0,0);
+      const endDate = new Date(ch.ends_at);
+      const daysLeft = Math.ceil((endDate - today) / 86400000);
+      const daysHint = daysLeft < 0 ? '⏰ Завершён' : (daysLeft === 0 ? '⏰ Последний день' : `⏰ ${daysLeft} дн осталось`);
+      const isDone = progress >= ch.target_value;
+      const scope = ch.point_id ? POINT_LABELS[ch.point_id] || ch.point_id : 'по всем точкам';
+      return `<div class="my-challenge">
+        <div class="mc-head">
+          <div class="mc-title">${isDone ? '✅ ' : '🎯 '}${escapeHtml(ch.title)}</div>
+          <div class="mc-hint">${scope} · ${daysHint}</div>
+        </div>
+        ${ch.description ? `<div class="mc-desc">${escapeHtml(ch.description)}</div>` : ''}
+        <div class="mc-bar"><div class="mc-bar-fill" style="width:${pct}%;${isDone?'background:var(--green);':''}"></div></div>
+        <div class="mc-vals">
+          <span class="mc-current">${fm(progress)}</span> / ${fm(ch.target_value)}
+          ${ch.reward_rub > 0 ? `<span style="color:var(--accent);font-weight:700;margin-left:8px;">💰 ${fm(ch.reward_rub)} ₽ в котёл</span>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  const POINT_LABELS = {
+    kaluga:   'Калужская',
+    serpuhov: 'Серпуховская',
+    sovhoz:   'Совхозная',
+    poyma:    'Пойма',
+  };
+
+  // Считаем прогресс челленджа из локального myStats.allActions
+  // Если point_id задан — считаем только для этой точки (мои действия туда уходили только из текущей точки)
+  // Если null — считаем все действия любого менеджера в эти даты — нужно отдельно загружать
+  // Простая реализация: считаем сколько именно ТЕКУЩИЙ менеджер сделал в эти даты
+  // (для общих челленджей это будет «мой вклад», прогресс точки виден в дашборде руководителя)
+  function calcMyChallengeProgress(ch) {
+    if (!myStats.allActions) return 0;
+    const startDt = new Date(ch.starts_at + 'T00:00:00').getTime();
+    const endDt = new Date(ch.ends_at + 'T23:59:59').getTime();
+    let count = 0;
+    for (const a of myStats.allActions) {
+      if (a.action_type !== ch.metric) continue;
+      const ts = new Date(a.occurred_at).getTime();
+      if (ts < startDt || ts > endDt) continue;
+      count++;
+    }
+    return count;
   }
 
   function renderMyBadges() {
