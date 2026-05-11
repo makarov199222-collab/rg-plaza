@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#1a1a1a">
-<title>RG Plaza — Отчёт дня</title>
+<title>RG Plaza · RG Hub — Отчёт дня</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -30,6 +30,7 @@
   .login{position:fixed;inset:0;background:var(--bg);z-index:500;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;}
   .login.hidden{display:none;}
   .login-logo{font-family:'Bebas Neue',sans-serif;font-size:48px;color:var(--accent);letter-spacing:5px;margin-bottom:8px;line-height:1;}
+  .login-sublogo{font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--muted);letter-spacing:3px;margin-top:4px;}
   .login-sub{font-size:11px;color:var(--muted);letter-spacing:5px;font-weight:600;margin-bottom:36px;text-transform:uppercase;}
   .login-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:26px 24px;width:100%;max-width:360px;}
   .login-title{font-size:14px;font-weight:600;margin-bottom:18px;text-align:center;color:var(--text);}
@@ -407,7 +408,7 @@
 <body>
 
 <div class="login" id="login">
-  <div class="login-logo">RG PLAZA</div>
+  <div class="login-logo">RG PLAZA<div class="login-sublogo">RG HUB</div></div>
   <div class="login-sub">ОТЧЁТ ДНЯ</div>
   <div class="login-card">
     <div class="login-title">Введи код доступа точки</div>
@@ -419,7 +420,7 @@
 </div>
 
 <div class="login" id="mgr-select" style="display:none;">
-  <div class="login-logo">RG PLAZA</div>
+  <div class="login-logo">RG PLAZA<div class="login-sublogo">RG HUB</div></div>
   <div class="login-sub" id="mgr-select-point">—</div>
   <div class="login-card" style="max-width:520px;">
     <div class="login-title">Кто из вас работает?</div>
@@ -434,7 +435,7 @@
 <div id="app" style="display:none;">
 
 <header>
-  <div class="logo">RG Plaza <span>ОТЧЁТ ДНЯ</span></div>
+  <div class="logo">RG Plaza · RG Hub <span>ОТЧЁТ ДНЯ</span></div>
   <div class="point-badge">
     <div class="sync-dot" id="sync-dot"></div>
     <div class="point-name" id="point-name">—</div>
