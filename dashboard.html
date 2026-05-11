@@ -227,7 +227,7 @@
   .pulse-card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
   .pulse-title{font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--text);letter-spacing:1.3px;}
   .pulse-hint{font-size:10px;color:var(--muted);}
-  .pulse-coming-tag{font-size:9px;color:var(--orange);background:rgba(255,140,0,.12);padding:2px 7px;border-radius:5px;letter-spacing:.4px;text-transform:uppercase;font-weight:700;}
+  .pulse-coming-tag{font-size:9px;color:var(--muted);background:rgba(160,160,160,.08);border:1px solid var(--border);padding:2px 7px;border-radius:5px;letter-spacing:.4px;text-transform:uppercase;font-weight:600;}
 
   .pulse-big-numbers{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;}
   .pbn-card{background:linear-gradient(135deg, #1a1a1a, #1e1e1e);border:1px solid var(--border);border-radius:10px;padding:13px;text-align:center;}
@@ -502,7 +502,7 @@
 <div class="wrap">
   <div class="top-tabs">
     <button class="top-tab active" onclick="showPage('overview')">📊 Обзор</button>
-    <button class="top-tab" onclick="showPage('pulse')">🏥 Пульс</button>
+    <button class="top-tab" onclick="showPage('pulse')">Пульс</button>
     <button class="top-tab" onclick="showPage('plans')">🎯 Планы</button>
     <button class="top-tab" onclick="showPage('myreport')">📋 Мой отчёт</button>
     <button class="top-tab" onclick="showPage('breakdown')">📈 Детализация</button>
@@ -2993,10 +2993,10 @@ ${point.name} ${flow}`;
       <div class="pulse-wrap">
         <div class="pulse-period">
           <div>
-            <div class="pulse-period-title">🏥 ПУЛЬС КОМПАНИИ</div>
-            <div class="pulse-period-sub">${monthNameDash()} (с 1 по ${new Date().getDate()} ${monthNameDash().split(' ')[0]})</div>
+            <div class="pulse-period-title">ПУЛЬС КОМПАНИИ</div>
+            <div class="pulse-period-sub">${monthNameDash()} · с 1 по ${new Date().getDate()} число</div>
           </div>
-          <button class="staff-add-btn" onclick="loadAndRenderPulse()" title="Обновить">↻ обновить</button>
+          <button class="staff-add-btn" onclick="loadAndRenderPulse()" title="Обновить">↻</button>
         </div>
 
         <div class="pulse-grid">
@@ -3004,8 +3004,8 @@ ${point.name} ${flow}`;
           <!-- БЛОК 1: Выручка MTD -->
           <div class="pulse-card full">
             <div class="pulse-card-head">
-              <div class="pulse-title">🏙 ВЫРУЧКА MTD</div>
-              <div class="pulse-hint">сравнение с тем же периодом прошлого месяца</div>
+              <div class="pulse-title">Выручка с начала месяца</div>
+              <div class="pulse-hint">в сравнении с прошлым месяцем</div>
             </div>
             <div class="pulse-big-numbers">
               <div class="pbn-card">
@@ -3023,7 +3023,7 @@ ${point.name} ${flow}`;
               <div class="pbn-card">
                 <div class="pbn-val">${fs(totalMTD)}</div>
                 <div class="pbn-lbl">Вся компания</div>
-                <div class="pbn-sub">${fm(Math.round(totalMTD / new Date().getDate()))} ₽/день в среднем</div>
+                <div class="pbn-sub">${fm(Math.round(totalMTD / new Date().getDate()))} ₽/день</div>
                 ${trendBadge(totalMTD, totalPrev)}
               </div>
             </div>
@@ -3032,29 +3032,29 @@ ${point.name} ${flow}`;
           <!-- БЛОК 2: Каналы -->
           <div class="pulse-card">
             <div class="pulse-card-head">
-              <div class="pulse-title">🚗 КАНАЛЫ ПО КОМПАНИИ</div>
+              <div class="pulse-title">Каналы по компании</div>
               <div class="pulse-hint">${fs(channelTotal)} ₽</div>
             </div>
             <div class="pulse-channels" style="grid-template-columns:1fr;">
-              ${channelBarHtml('🛡 Страховые', channels.ins,    channelsPrev.ins,    channelTotal, 'b')}
-              ${channelBarHtml('💵 Физлица',   channels.phys,   channelsPrev.phys,   channelTotal, 'g')}
-              ${channelBarHtml('🏢 Корпоратив',channels.corp,   channelsPrev.corp,   channelTotal, 'p')}
-              ${channelBarHtml('💎 Детейл',    channels.detail, channelsPrev.detail, channelTotal, 'a')}
+              ${channelBarHtml('Страховые',  channels.ins,    channelsPrev.ins,    channelTotal, 'b')}
+              ${channelBarHtml('Физлица',    channels.phys,   channelsPrev.phys,   channelTotal, 'g')}
+              ${channelBarHtml('Корпоратив', channels.corp,   channelsPrev.corp,   channelTotal, 'p')}
+              ${channelBarHtml('Детейл',     channels.detail, channelsPrev.detail, channelTotal, 'a')}
             </div>
           </div>
 
           <!-- БЛОК 3: Поступления -->
           <div class="pulse-card">
             <div class="pulse-card-head">
-              <div class="pulse-title">💵 ПОСТУПЛЕНИЯ</div>
+              <div class="pulse-title">Поступления денег</div>
               <div class="pulse-hint">${fs(cashTotal)} ₽</div>
             </div>
             ${cashTotal > 0 ? `
               <div class="pulse-channels" style="grid-template-columns:1fr;">
-                ${channelBarHtml('💴 Наличные',   cash.nal,  0, cashTotal, 'g')}
-                ${channelBarHtml('💳 Карта',      cash.kart, 0, cashTotal, 'b')}
-                ${channelBarHtml('🏦 Безнал (СК)',cash.bn,   0, cashTotal, 'p')}
-                ${cash.bs > 0 ? channelBarHtml('🏢 Безнал (корп)', cash.bs, 0, cashTotal, 'a') : ''}
+                ${channelBarHtml('Наличные',     cash.nal,  0, cashTotal, 'g')}
+                ${channelBarHtml('Карта',        cash.kart, 0, cashTotal, 'b')}
+                ${channelBarHtml('Безнал (СК)',  cash.bn,   0, cashTotal, 'p')}
+                ${cash.bs > 0 ? channelBarHtml('Безнал (корп)', cash.bs, 0, cashTotal, 'a') : ''}
               </div>
             ` : '<div class="pulse-cs-msg">Менеджеры пока не заполнили поступления за месяц</div>'}
           </div>
@@ -3062,21 +3062,21 @@ ${point.name} ${flow}`;
           <!-- БЛОК 4: Долги -->
           <div class="pulse-card">
             <div class="pulse-card-head">
-              <div class="pulse-title">🧾 ДОЛГИ</div>
+              <div class="pulse-title">Долги</div>
               <div class="pulse-hint">по последнему отчёту</div>
             </div>
             <div class="pulse-big-numbers">
               <div class="pbn-card">
                 <div class="pbn-val g">${fs(debtClients)}</div>
-                <div class="pbn-lbl">Клиенты должны нам</div>
+                <div class="pbn-lbl">Клиенты нам</div>
               </div>
               <div class="pbn-card">
                 <div class="pbn-val">${fs(debtRavt)}</div>
-                <div class="pbn-lbl">Мы должны РАВТ</div>
+                <div class="pbn-lbl">Мы РАВТ</div>
               </div>
               <div class="pbn-card">
                 <div class="pbn-val p">${fs(oweOther)}</div>
-                <div class="pbn-lbl">Мы должны другим</div>
+                <div class="pbn-lbl">Мы другим</div>
               </div>
             </div>
           </div>
@@ -3084,7 +3084,7 @@ ${point.name} ${flow}`;
           <!-- БЛОК 5: Топ страховых -->
           <div class="pulse-card">
             <div class="pulse-card-head">
-              <div class="pulse-title">📦 ТОП-5 СТРАХОВЫХ</div>
+              <div class="pulse-title">Топ-5 страховых</div>
               <div class="pulse-hint">${totalDirs} направлений</div>
             </div>
             ${topInsurers.length === 0 ? '<div class="pulse-cs-msg">Нет данных по направлениям за месяц</div>' :
@@ -3103,22 +3103,22 @@ ${point.name} ${flow}`;
           <!-- БЛОК 6: Выполнение плана -->
           <div class="pulse-card">
             <div class="pulse-card-head">
-              <div class="pulse-title">🎯 ВЫПОЛНЕНИЕ ПЛАНА</div>
+              <div class="pulse-title">Выполнение плана</div>
               <div class="pulse-hint">факт vs план месяца</div>
             </div>
             ${(planSum.phys || planSum.corp || planSum.ins) ? `
               <div class="pulse-channels" style="grid-template-columns:1fr;">
-                ${planBarHtml('💵 Физлица', planActual.phys, planSum.phys, 'g')}
-                ${planBarHtml('🛡 Страх',   planActual.ins,  planSum.ins,  'b')}
-                ${planBarHtml('🏢 Корп',    planActual.corp, planSum.corp, 'p')}
+                ${planBarHtml('Физлица',    planActual.phys, planSum.phys, 'g')}
+                ${planBarHtml('Страховые',  planActual.ins,  planSum.ins,  'b')}
+                ${planBarHtml('Корпоратив', planActual.corp, planSum.corp, 'p')}
               </div>
-            ` : '<div class="pulse-cs-msg">Планы не заданы. Открой вкладку «🎯 Планы» чтобы установить.</div>'}
+            ` : '<div class="pulse-cs-msg">Планы не заданы. Открой вкладку «Планы» чтобы установить.</div>'}
           </div>
 
           <!-- БЛОК 7: Средний чек -->
           <div class="pulse-card">
             <div class="pulse-card-head">
-              <div class="pulse-title">📊 СРЕДНИЙ ЧЕК</div>
+              <div class="pulse-title">Средний чек</div>
               <div class="pulse-hint">${cars.ins+cars.phys+cars.corp+cars.detail} машин</div>
             </div>
             <div class="pulse-big-numbers">
@@ -3131,7 +3131,7 @@ ${point.name} ${flow}`;
           <!-- БЛОК 8: Топ продукты -->
           <div class="pulse-card">
             <div class="pulse-card-head">
-              <div class="pulse-title">💎 ТОП ПРОДУКТЫ ИЗ ОВР</div>
+              <div class="pulse-title">Топ продукты из ОВР</div>
               <div class="pulse-hint">${ovrTotal > 0 ? fs(ovrTotal) + ' ₽' : ''}</div>
             </div>
             ${topProducts.length === 0 ? `
@@ -3159,52 +3159,52 @@ ${point.name} ${flow}`;
 
           <div class="pulse-card coming-soon">
             <div class="pulse-card-head">
-              <div class="pulse-title">💰 ВАЛОВАЯ ПРИБЫЛЬ / МАРЖА %</div>
-              <span class="pulse-coming-tag">data в работе</span>
+              <div class="pulse-title">Валовая прибыль и маржа</div>
+              <span class="pulse-coming-tag">скоро</span>
             </div>
             <div class="pulse-cs-msg">
               Нужны данные о <b>себестоимости</b> каждого ЗН.<br>
-              Появится после интеграции с 1С или вручную в карточке машины.
+              Появится после интеграции с 1С или ввода вручную.
             </div>
           </div>
 
           <div class="pulse-card coming-soon">
             <div class="pulse-card-head">
-              <div class="pulse-title">💸 КАССОВЫЙ РАЗРЫВ</div>
-              <span class="pulse-coming-tag">data в работе</span>
+              <div class="pulse-title">Кассовый разрыв</div>
+              <span class="pulse-coming-tag">скоро</span>
             </div>
             <div class="pulse-cs-msg">
               Нужна <b>таблица остатков</b> банковских счетов и кассы.<br>
-              Появится когда будет настроен ежедневный ввод остатков.
+              Появится после настройки ежедневного ввода остатков.
             </div>
           </div>
 
           <div class="pulse-card coming-soon">
             <div class="pulse-card-head">
-              <div class="pulse-title">🔄 КОНВЕРСИЯ ПО ЭТАПАМ СК</div>
-              <span class="pulse-coming-tag">data в работе</span>
+              <div class="pulse-title">Конверсия по этапам СК</div>
+              <span class="pulse-coming-tag">скоро</span>
             </div>
             <div class="pulse-cs-msg">
               Нужны <b>статусы</b> направлений (выписано → клиент пришёл → закрыто).<br>
-              Появится после развития страховых направлений в insurance.html.
+              Появится после развития страховых направлений.
             </div>
           </div>
 
           <div class="pulse-card coming-soon">
             <div class="pulse-card-head">
-              <div class="pulse-title">⏰ ЗАГРУЗКА ПОСТОВ / МАСТЕРОВ</div>
-              <span class="pulse-coming-tag">data в работе</span>
+              <div class="pulse-title">Загрузка постов и мастеров</div>
+              <span class="pulse-coming-tag">скоро</span>
             </div>
             <div class="pulse-cs-msg">
-              Нужен <b>табель</b> мастеров + расписание постов.<br>
-              Появится после реализации календаря (Roadmap этап 7).
+              Нужен <b>табель</b> мастеров и расписание постов.<br>
+              Появится после реализации календаря.
             </div>
           </div>
 
           <div class="pulse-card coming-soon">
             <div class="pulse-card-head">
-              <div class="pulse-title">🔧 ПЕРЕДЕЛКИ / ГАРАНТИИ</div>
-              <span class="pulse-coming-tag">data в работе</span>
+              <div class="pulse-title">Переделки и гарантии</div>
+              <span class="pulse-coming-tag">скоро</span>
             </div>
             <div class="pulse-cs-msg">
               Нужны <b>флаги</b> в ЗН: норм / переделка / отмена.<br>
@@ -3214,23 +3214,23 @@ ${point.name} ${flow}`;
 
           <div class="pulse-card coming-soon">
             <div class="pulse-card-head">
-              <div class="pulse-title">📅 ПРОСРОЧЕННАЯ ДЕБИТОРКА</div>
-              <span class="pulse-coming-tag">data в работе</span>
+              <div class="pulse-title">Просроченная дебиторка</div>
+              <span class="pulse-coming-tag">скоро</span>
             </div>
             <div class="pulse-cs-msg">
               Нужны <b>сроки</b> по каждому долгу клиента.<br>
-              Сейчас в RG Hub только общая сумма долгов без разбивки по срокам.
+              Сейчас только общая сумма без разбивки по срокам.
             </div>
           </div>
 
           <div class="pulse-card coming-soon">
             <div class="pulse-card-head">
-              <div class="pulse-title">👥 ТОП-5 КЛИЕНТОВ</div>
-              <span class="pulse-coming-tag">data в работе</span>
+              <div class="pulse-title">Топ-5 клиентов</div>
+              <span class="pulse-coming-tag">скоро</span>
             </div>
             <div class="pulse-cs-msg">
               Нужна <b>нормализация</b> клиентов в отдельной таблице.<br>
-              Появится при разработке CRM (Roadmap этап 6).
+              Появится при разработке CRM.
             </div>
           </div>
 
