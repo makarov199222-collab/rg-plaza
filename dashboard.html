@@ -213,6 +213,55 @@
   .ch-current{font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--accent);letter-spacing:.5px;}
   .ch-target{color:var(--muted);}
 
+  /* === Пульс компании === */
+  .pulse-wrap{max-width:1280px;margin:0 auto;}
+  .pulse-period{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding:10px 14px;background:#0e0e0e;border:1px solid var(--border);border-radius:10px;}
+  .pulse-period-title{font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--text);letter-spacing:1.5px;}
+  .pulse-period-sub{font-size:11px;color:var(--muted);}
+
+  .pulse-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:14px;}
+  @media(max-width:780px){.pulse-grid{grid-template-columns:1fr;}}
+  .pulse-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;}
+  .pulse-card.full{grid-column:1/-1;}
+  .pulse-card.coming-soon{background:repeating-linear-gradient(45deg,transparent,transparent 10px,rgba(232,184,75,.03) 10px,rgba(232,184,75,.03) 20px);border-style:dashed;opacity:.7;}
+  .pulse-card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+  .pulse-title{font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--text);letter-spacing:1.3px;}
+  .pulse-hint{font-size:10px;color:var(--muted);}
+  .pulse-coming-tag{font-size:9px;color:var(--orange);background:rgba(255,140,0,.12);padding:2px 7px;border-radius:5px;letter-spacing:.4px;text-transform:uppercase;font-weight:700;}
+
+  .pulse-big-numbers{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;}
+  .pbn-card{background:linear-gradient(135deg, #1a1a1a, #1e1e1e);border:1px solid var(--border);border-radius:10px;padding:13px;text-align:center;}
+  .pbn-val{font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--accent);line-height:1;letter-spacing:1px;}
+  .pbn-val.b{color:var(--blue);}.pbn-val.g{color:var(--green);}.pbn-val.p{color:var(--purple);}.pbn-val.t{color:var(--text);}
+  .pbn-lbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:6px;font-weight:700;}
+  .pbn-sub{font-size:11px;color:var(--muted);margin-top:4px;}
+  .pbn-trend{font-size:11px;margin-top:4px;font-weight:700;}
+  .pbn-trend.up{color:var(--green);} .pbn-trend.down{color:var(--red);} .pbn-trend.flat{color:var(--muted);}
+
+  .pulse-channels{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px;}
+  .pch-bar-row{margin-bottom:8px;}
+  .pch-bar-lbl{display:flex;justify-content:space-between;font-size:11px;color:var(--text);margin-bottom:3px;}
+  .pch-bar{height:10px;background:#0a0a0a;border-radius:5px;overflow:hidden;display:flex;}
+  .pch-bar-seg{height:100%;}
+  .pch-bar-seg.b{background:var(--blue);}
+  .pch-bar-seg.g{background:var(--green);}
+  .pch-bar-seg.p{background:var(--purple);}
+  .pch-bar-seg.a{background:var(--accent);}
+
+  .pulse-top-list{font-size:12px;}
+  .ptop-row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);}
+  .ptop-row:last-child{border-bottom:none;}
+  .ptop-name{color:var(--text);}
+  .ptop-val{color:var(--accent);font-family:'Bebas Neue',sans-serif;letter-spacing:.5px;}
+  .ptop-share{font-size:10px;color:var(--muted);margin-left:6px;}
+
+  .pulse-cs-msg{padding:14px;text-align:center;color:var(--muted);font-size:12px;line-height:1.5;}
+  .pulse-cs-msg b{color:var(--orange);}
+
+  .pulse-mini-stat{display:flex;justify-content:space-between;padding:5px 0;font-size:12px;}
+  .pms-lbl{color:var(--muted);}
+  .pms-val{color:var(--text);font-weight:600;}
+
   .city-section{margin-bottom:24px;}
   .city-title{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--muted);letter-spacing:2px;margin-bottom:12px;display:flex;align-items:center;gap:10px;}
   .city-title::before{content:'';width:24px;height:2px;background:var(--accent);}
@@ -453,6 +502,7 @@
 <div class="wrap">
   <div class="top-tabs">
     <button class="top-tab active" onclick="showPage('overview')">📊 Обзор</button>
+    <button class="top-tab" onclick="showPage('pulse')">🏥 Пульс</button>
     <button class="top-tab" onclick="showPage('plans')">🎯 Планы</button>
     <button class="top-tab" onclick="showPage('myreport')">📋 Мой отчёт</button>
     <button class="top-tab" onclick="showPage('breakdown')">📈 Детализация</button>
@@ -463,6 +513,10 @@
 
   <div class="tab-page active" id="page-overview">
     <div id="overview-content"><div class="loader"><div class="spinner"></div>Загружаю данные...</div></div>
+  </div>
+
+  <div class="tab-page" id="page-pulse">
+    <div id="pulse-content"><div class="loader"><div class="spinner"></div>Подсчитываю пульс...</div></div>
   </div>
 
   <div class="tab-page" id="page-plans">
@@ -768,6 +822,7 @@
     if (p === 'staff') loadAndRenderStaff();
     if (p === 'game') loadAndRenderGame();
     if (p === 'learn') loadAndRenderLearn();
+    if (p === 'pulse') loadAndRenderPulse();
   }
 
   function toast(msg, type) {
@@ -2754,6 +2809,461 @@ ${point.name} ${flow}`;
 
   // ============ ОБУЧЕНИЕ (Onboarding O7 — dashboard) ============
   let learnDashData = { quests: [], cards: [], newbies: [], progressByMgr: {} };
+
+  // ============ ПУЛЬС КОМПАНИИ ============
+  let pulseData = null;
+
+  async function loadAndRenderPulse() {
+    const c = document.getElementById('pulse-content');
+    c.innerHTML = '<div class="loader"><div class="spinner"></div>Подсчитываю пульс...</div>';
+    try {
+      // Используем cachedData если есть (загружено loadAll), иначе грузим заново
+      if (!cachedData) {
+        await loadAll();
+        if (!cachedData) throw new Error('Не удалось загрузить базовые данные');
+      }
+      const range = cachedData.range;
+      // Догружаем что нужно: прошлый месяц для тренда + ovr_items для топ-продуктов
+      const prevDate = new Date(range.year, range.month - 2, 1);
+      const prevStart = `${prevDate.getFullYear()}-${String(prevDate.getMonth()+1).padStart(2,'0')}-01`;
+      const prevEnd = `${prevDate.getFullYear()}-${String(prevDate.getMonth()+1).padStart(2,'0')}-31`;
+
+      const [prevRes, ovrItemsRes, cashRes] = await Promise.all([
+        sb.from('daily_reports')
+          .select('point_id,date,total_day,retail_day,ins_day,phys_day,corp_day,detail_day,cars_total,cars_retail,cars_ins,cars_corp,cars_detail')
+          .gte('date', prevStart).lte('date', prevEnd),
+        sb.from('monthly_ovr_items').select('*').eq('period', cachedData.period),
+        sb.from('daily_reports')
+          .select('point_id,date,total_day,bn_day,nal_day,kart_day,bs_day')
+          .gte('date', range.start).lte('date', range.end),
+      ]);
+
+      pulseData = {
+        reports: cachedData.reports,
+        prevReports: prevRes.data || [],
+        points: cachedData.points,
+        plans: cachedData.plans,
+        directions: cachedData.directions,
+        ovrItems: ovrItemsRes.data || [],
+        cashReports: cashRes.data || [],
+        range,
+        period: cachedData.period,
+      };
+      renderPulse();
+    } catch (e) {
+      console.error('Pulse error:', e);
+      c.innerHTML = `<div style="color:var(--red);padding:20px;text-align:center;">Ошибка: ${e.message||e}</div>`;
+    }
+  }
+
+  function renderPulse() {
+    const c = document.getElementById('pulse-content');
+    const r = pulseData;
+    const moscowPoints = ['kaluga','serpuhov'];
+    const izhevskPoints = ['sovhoz','poyma'];
+
+    // Суммы по городам и общая
+    const sumByPoint = {};
+    const carsByPoint = {};
+    for (const rep of r.reports) {
+      const pid = rep.point_id;
+      sumByPoint[pid] = (sumByPoint[pid] || 0) + (+rep.total_day || 0);
+      carsByPoint[pid] = (carsByPoint[pid] || 0) + (+rep.cars_total || 0);
+    }
+    const prevSumByPoint = {};
+    for (const rep of r.prevReports) {
+      prevSumByPoint[rep.point_id] = (prevSumByPoint[rep.point_id] || 0) + (+rep.total_day || 0);
+    }
+    const sumCity = (pts) => pts.reduce((s, p) => s + (sumByPoint[p] || 0), 0);
+    const sumCityPrev = (pts) => pts.reduce((s, p) => s + (prevSumByPoint[p] || 0), 0);
+    const moscowMTD = sumCity(moscowPoints);
+    const izhevskMTD = sumCity(izhevskPoints);
+    const totalMTD = moscowMTD + izhevskMTD;
+    const moscowPrev = sumCityPrev(moscowPoints);
+    const izhevskPrev = sumCityPrev(izhevskPoints);
+    const totalPrev = moscowPrev + izhevskPrev;
+
+    // Каналы
+    const channels = { ins: 0, phys: 0, corp: 0, detail: 0 };
+    const channelsPrev = { ins: 0, phys: 0, corp: 0, detail: 0 };
+    for (const rep of r.reports) {
+      channels.ins    += (+rep.ins_day    || 0);
+      channels.phys   += (+rep.phys_day   || 0);
+      channels.corp   += (+rep.corp_day   || 0);
+      channels.detail += (+rep.detail_day || 0);
+    }
+    for (const rep of r.prevReports) {
+      channelsPrev.ins    += (+rep.ins_day    || 0);
+      channelsPrev.phys   += (+rep.phys_day   || 0);
+      channelsPrev.corp   += (+rep.corp_day   || 0);
+      channelsPrev.detail += (+rep.detail_day || 0);
+    }
+    const channelTotal = channels.ins + channels.phys + channels.corp + channels.detail;
+
+    // Машины по типам (для среднего чека)
+    const cars = { ins: 0, phys: 0, corp: 0, detail: 0 };
+    for (const rep of r.reports) {
+      cars.ins    += (+rep.cars_ins    || 0);
+      cars.phys   += (+rep.cars_retail || 0);
+      cars.corp   += (+rep.cars_corp   || 0);
+      cars.detail += (+rep.cars_detail || 0);
+    }
+    const avgCheck = {
+      ins:    cars.ins    ? Math.round(channels.ins    / cars.ins)    : 0,
+      phys:   cars.phys   ? Math.round(channels.phys   / cars.phys)   : 0,
+      corp:   cars.corp   ? Math.round(channels.corp   / cars.corp)   : 0,
+      detail: cars.detail ? Math.round(channels.detail / cars.detail) : 0,
+    };
+
+    // Поступления (нал/карта/безнал)
+    const cash = { nal: 0, kart: 0, bn: 0, bs: 0 };
+    for (const rep of r.cashReports || []) {
+      cash.nal  += (+rep.nal_day  || 0);
+      cash.kart += (+rep.kart_day || 0);
+      cash.bn   += (+rep.bn_day   || 0);
+      cash.bs   += (+rep.bs_day   || 0);
+    }
+    const cashTotal = cash.nal + cash.kart + cash.bn + cash.bs;
+
+    // Долги
+    let debtClients = 0, debtRavt = 0, oweOther = 0, owePoints = {};
+    const latestByPoint = {};
+    for (const rep of r.reports) {
+      const prev = latestByPoint[rep.point_id];
+      if (!prev || rep.date > prev.date) latestByPoint[rep.point_id] = rep;
+    }
+    for (const pid in latestByPoint) {
+      const rep = latestByPoint[pid];
+      debtClients += (+rep.debt_total || 0);
+      debtRavt    += (+rep.owe_ravt   || 0);
+      oweOther    += (+rep.owe_other  || 0);
+    }
+    const totalOwed = debtRavt + oweOther;
+
+    // Страховые направления — топ-5 СК
+    const dirByCompany = {};
+    const currentPeriod = r.period;
+    for (const d of r.directions || []) {
+      if (d.period !== currentPeriod) continue;
+      const k = d.company || 'Другие';
+      dirByCompany[k] = (dirByCompany[k] || 0) + (+d.count || 1);
+    }
+    const topInsurers = Object.entries(dirByCompany)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a,b) => b.count - a.count)
+      .slice(0, 5);
+    const totalDirs = topInsurers.reduce((s, x) => s + x.count, 0);
+
+    // План выполнения
+    const planSum = { phys: 0, corp: 0, ins: 0 };
+    for (const plan of r.plans || []) {
+      planSum.phys += (+plan.plan_phys_month || 0);
+      planSum.corp += (+plan.plan_corp_month || 0);
+      planSum.ins  += (+plan.plan_ins_month  || 0);
+    }
+    const planActual = { phys: channels.phys + channels.detail, corp: channels.corp, ins: channels.ins };
+
+    // Топ продукты из ОВР
+    const ovrByCategory = {};
+    let ovrTotal = 0;
+    for (const item of r.ovrItems || []) {
+      const cat = item.category || 'Прочее';
+      ovrByCategory[cat] = (ovrByCategory[cat] || 0) + (+item.amount || 0);
+      ovrTotal += (+item.amount || 0);
+    }
+    const topProducts = Object.entries(ovrByCategory)
+      .map(([name, amount]) => ({ name, amount }))
+      .sort((a,b) => b.amount - a.amount)
+      .slice(0, 8);
+
+    // Тренд %
+    const trendPct = (cur, prev) => {
+      if (!prev || prev === 0) return null;
+      return Math.round((cur - prev) / prev * 100);
+    };
+    const trendBadge = (cur, prev) => {
+      const t = trendPct(cur, prev);
+      if (t == null) return '';
+      const cls = t > 0 ? 'up' : (t < 0 ? 'down' : 'flat');
+      const arrow = t > 0 ? '↑' : (t < 0 ? '↓' : '→');
+      return `<div class="pbn-trend ${cls}">${arrow} ${Math.abs(t)}%</div>`;
+    };
+
+    let html = `
+      <div class="pulse-wrap">
+        <div class="pulse-period">
+          <div>
+            <div class="pulse-period-title">🏥 ПУЛЬС КОМПАНИИ</div>
+            <div class="pulse-period-sub">${monthNameDash()} (с 1 по ${new Date().getDate()} ${monthNameDash().split(' ')[0]})</div>
+          </div>
+          <button class="staff-add-btn" onclick="loadAndRenderPulse()" title="Обновить">↻ обновить</button>
+        </div>
+
+        <div class="pulse-grid">
+
+          <!-- БЛОК 1: Выручка MTD -->
+          <div class="pulse-card full">
+            <div class="pulse-card-head">
+              <div class="pulse-title">🏙 ВЫРУЧКА MTD</div>
+              <div class="pulse-hint">сравнение с тем же периодом прошлого месяца</div>
+            </div>
+            <div class="pulse-big-numbers">
+              <div class="pbn-card">
+                <div class="pbn-val b">${fs(moscowMTD)}</div>
+                <div class="pbn-lbl">Москва</div>
+                <div class="pbn-sub">Калужская + Серпуховская</div>
+                ${trendBadge(moscowMTD, moscowPrev)}
+              </div>
+              <div class="pbn-card">
+                <div class="pbn-val g">${fs(izhevskMTD)}</div>
+                <div class="pbn-lbl">Ижевск</div>
+                <div class="pbn-sub">Совхозная + Пойма</div>
+                ${trendBadge(izhevskMTD, izhevskPrev)}
+              </div>
+              <div class="pbn-card">
+                <div class="pbn-val">${fs(totalMTD)}</div>
+                <div class="pbn-lbl">Вся компания</div>
+                <div class="pbn-sub">${fm(Math.round(totalMTD / new Date().getDate()))} ₽/день в среднем</div>
+                ${trendBadge(totalMTD, totalPrev)}
+              </div>
+            </div>
+          </div>
+
+          <!-- БЛОК 2: Каналы -->
+          <div class="pulse-card">
+            <div class="pulse-card-head">
+              <div class="pulse-title">🚗 КАНАЛЫ ПО КОМПАНИИ</div>
+              <div class="pulse-hint">${fs(channelTotal)} ₽</div>
+            </div>
+            <div class="pulse-channels" style="grid-template-columns:1fr;">
+              ${channelBarHtml('🛡 Страховые', channels.ins,    channelsPrev.ins,    channelTotal, 'b')}
+              ${channelBarHtml('💵 Физлица',   channels.phys,   channelsPrev.phys,   channelTotal, 'g')}
+              ${channelBarHtml('🏢 Корпоратив',channels.corp,   channelsPrev.corp,   channelTotal, 'p')}
+              ${channelBarHtml('💎 Детейл',    channels.detail, channelsPrev.detail, channelTotal, 'a')}
+            </div>
+          </div>
+
+          <!-- БЛОК 3: Поступления -->
+          <div class="pulse-card">
+            <div class="pulse-card-head">
+              <div class="pulse-title">💵 ПОСТУПЛЕНИЯ</div>
+              <div class="pulse-hint">${fs(cashTotal)} ₽</div>
+            </div>
+            ${cashTotal > 0 ? `
+              <div class="pulse-channels" style="grid-template-columns:1fr;">
+                ${channelBarHtml('💴 Наличные',   cash.nal,  0, cashTotal, 'g')}
+                ${channelBarHtml('💳 Карта',      cash.kart, 0, cashTotal, 'b')}
+                ${channelBarHtml('🏦 Безнал (СК)',cash.bn,   0, cashTotal, 'p')}
+                ${cash.bs > 0 ? channelBarHtml('🏢 Безнал (корп)', cash.bs, 0, cashTotal, 'a') : ''}
+              </div>
+            ` : '<div class="pulse-cs-msg">Менеджеры пока не заполнили поступления за месяц</div>'}
+          </div>
+
+          <!-- БЛОК 4: Долги -->
+          <div class="pulse-card">
+            <div class="pulse-card-head">
+              <div class="pulse-title">🧾 ДОЛГИ</div>
+              <div class="pulse-hint">по последнему отчёту</div>
+            </div>
+            <div class="pulse-big-numbers">
+              <div class="pbn-card">
+                <div class="pbn-val g">${fs(debtClients)}</div>
+                <div class="pbn-lbl">Клиенты должны нам</div>
+              </div>
+              <div class="pbn-card">
+                <div class="pbn-val">${fs(debtRavt)}</div>
+                <div class="pbn-lbl">Мы должны РАВТ</div>
+              </div>
+              <div class="pbn-card">
+                <div class="pbn-val p">${fs(oweOther)}</div>
+                <div class="pbn-lbl">Мы должны другим</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- БЛОК 5: Топ страховых -->
+          <div class="pulse-card">
+            <div class="pulse-card-head">
+              <div class="pulse-title">📦 ТОП-5 СТРАХОВЫХ</div>
+              <div class="pulse-hint">${totalDirs} направлений</div>
+            </div>
+            ${topInsurers.length === 0 ? '<div class="pulse-cs-msg">Нет данных по направлениям за месяц</div>' :
+              `<div class="pulse-top-list">
+                ${topInsurers.map((ins, i) => {
+                  const share = totalDirs > 0 ? Math.round(ins.count / totalDirs * 100) : 0;
+                  return `<div class="ptop-row">
+                    <div class="ptop-name">${i+1}. ${escapeHtml(ins.name)}</div>
+                    <div><span class="ptop-val">${ins.count}</span><span class="ptop-share">${share}%</span></div>
+                  </div>`;
+                }).join('')}
+              </div>`
+            }
+          </div>
+
+          <!-- БЛОК 6: Выполнение плана -->
+          <div class="pulse-card">
+            <div class="pulse-card-head">
+              <div class="pulse-title">🎯 ВЫПОЛНЕНИЕ ПЛАНА</div>
+              <div class="pulse-hint">факт vs план месяца</div>
+            </div>
+            ${(planSum.phys || planSum.corp || planSum.ins) ? `
+              <div class="pulse-channels" style="grid-template-columns:1fr;">
+                ${planBarHtml('💵 Физлица', planActual.phys, planSum.phys, 'g')}
+                ${planBarHtml('🛡 Страх',   planActual.ins,  planSum.ins,  'b')}
+                ${planBarHtml('🏢 Корп',    planActual.corp, planSum.corp, 'p')}
+              </div>
+            ` : '<div class="pulse-cs-msg">Планы не заданы. Открой вкладку «🎯 Планы» чтобы установить.</div>'}
+          </div>
+
+          <!-- БЛОК 7: Средний чек -->
+          <div class="pulse-card">
+            <div class="pulse-card-head">
+              <div class="pulse-title">📊 СРЕДНИЙ ЧЕК</div>
+              <div class="pulse-hint">${cars.ins+cars.phys+cars.corp+cars.detail} машин</div>
+            </div>
+            <div class="pulse-big-numbers">
+              <div class="pbn-card"><div class="pbn-val b">${fs(avgCheck.ins)}</div><div class="pbn-lbl">Страх</div><div class="pbn-sub">${cars.ins} ЗН</div></div>
+              <div class="pbn-card"><div class="pbn-val g">${fs(avgCheck.phys)}</div><div class="pbn-lbl">Физ</div><div class="pbn-sub">${cars.phys} ЗН</div></div>
+              <div class="pbn-card"><div class="pbn-val p">${fs(avgCheck.corp)}</div><div class="pbn-lbl">Корп</div><div class="pbn-sub">${cars.corp} ЗН</div></div>
+            </div>
+          </div>
+
+          <!-- БЛОК 8: Топ продукты -->
+          <div class="pulse-card">
+            <div class="pulse-card-head">
+              <div class="pulse-title">💎 ТОП ПРОДУКТЫ ИЗ ОВР</div>
+              <div class="pulse-hint">${ovrTotal > 0 ? fs(ovrTotal) + ' ₽' : ''}</div>
+            </div>
+            ${topProducts.length === 0 ? `
+              <div class="pulse-cs-msg">
+                ОВР за <b>${monthNameDash()}</b> ещё не загружен.<br>
+                Перейди в <b>buh.html</b> → «Загрузить ОВР» для каждой точки.
+              </div>
+            ` : `
+              <div class="pulse-top-list">
+                ${topProducts.map((p, i) => {
+                  const share = ovrTotal > 0 ? Math.round(p.amount / ovrTotal * 100) : 0;
+                  return `<div class="ptop-row">
+                    <div class="ptop-name">${i+1}. ${escapeHtml(p.name)}</div>
+                    <div><span class="ptop-val">${fs(p.amount)}</span><span class="ptop-share">${share}%</span></div>
+                  </div>`;
+                }).join('')}
+              </div>
+            `}
+          </div>
+
+        </div>
+
+        <!-- === БЛОКИ "DATA В РАБОТЕ" === -->
+        <div class="pulse-grid">
+
+          <div class="pulse-card coming-soon">
+            <div class="pulse-card-head">
+              <div class="pulse-title">💰 ВАЛОВАЯ ПРИБЫЛЬ / МАРЖА %</div>
+              <span class="pulse-coming-tag">data в работе</span>
+            </div>
+            <div class="pulse-cs-msg">
+              Нужны данные о <b>себестоимости</b> каждого ЗН.<br>
+              Появится после интеграции с 1С или вручную в карточке машины.
+            </div>
+          </div>
+
+          <div class="pulse-card coming-soon">
+            <div class="pulse-card-head">
+              <div class="pulse-title">💸 КАССОВЫЙ РАЗРЫВ</div>
+              <span class="pulse-coming-tag">data в работе</span>
+            </div>
+            <div class="pulse-cs-msg">
+              Нужна <b>таблица остатков</b> банковских счетов и кассы.<br>
+              Появится когда будет настроен ежедневный ввод остатков.
+            </div>
+          </div>
+
+          <div class="pulse-card coming-soon">
+            <div class="pulse-card-head">
+              <div class="pulse-title">🔄 КОНВЕРСИЯ ПО ЭТАПАМ СК</div>
+              <span class="pulse-coming-tag">data в работе</span>
+            </div>
+            <div class="pulse-cs-msg">
+              Нужны <b>статусы</b> направлений (выписано → клиент пришёл → закрыто).<br>
+              Появится после развития страховых направлений в insurance.html.
+            </div>
+          </div>
+
+          <div class="pulse-card coming-soon">
+            <div class="pulse-card-head">
+              <div class="pulse-title">⏰ ЗАГРУЗКА ПОСТОВ / МАСТЕРОВ</div>
+              <span class="pulse-coming-tag">data в работе</span>
+            </div>
+            <div class="pulse-cs-msg">
+              Нужен <b>табель</b> мастеров + расписание постов.<br>
+              Появится после реализации календаря (Roadmap этап 7).
+            </div>
+          </div>
+
+          <div class="pulse-card coming-soon">
+            <div class="pulse-card-head">
+              <div class="pulse-title">🔧 ПЕРЕДЕЛКИ / ГАРАНТИИ</div>
+              <span class="pulse-coming-tag">data в работе</span>
+            </div>
+            <div class="pulse-cs-msg">
+              Нужны <b>флаги</b> в ЗН: норм / переделка / отмена.<br>
+              Появится после интеграции с 1С.
+            </div>
+          </div>
+
+          <div class="pulse-card coming-soon">
+            <div class="pulse-card-head">
+              <div class="pulse-title">📅 ПРОСРОЧЕННАЯ ДЕБИТОРКА</div>
+              <span class="pulse-coming-tag">data в работе</span>
+            </div>
+            <div class="pulse-cs-msg">
+              Нужны <b>сроки</b> по каждому долгу клиента.<br>
+              Сейчас в RG Hub только общая сумма долгов без разбивки по срокам.
+            </div>
+          </div>
+
+          <div class="pulse-card coming-soon">
+            <div class="pulse-card-head">
+              <div class="pulse-title">👥 ТОП-5 КЛИЕНТОВ</div>
+              <span class="pulse-coming-tag">data в работе</span>
+            </div>
+            <div class="pulse-cs-msg">
+              Нужна <b>нормализация</b> клиентов в отдельной таблице.<br>
+              Появится при разработке CRM (Roadmap этап 6).
+            </div>
+          </div>
+
+        </div>
+      </div>
+    `;
+    c.innerHTML = html;
+  }
+
+  function channelBarHtml(label, val, prev, total, color) {
+    const pct = total > 0 ? Math.round(val / total * 100) : 0;
+    let trend = '';
+    if (prev > 0) {
+      const t = Math.round((val - prev) / prev * 100);
+      const arrow = t > 0 ? '↑' : (t < 0 ? '↓' : '→');
+      const cls = t > 0 ? 'up' : (t < 0 ? 'down' : 'flat');
+      trend = `<span class="pbn-trend ${cls}" style="display:inline;margin-left:6px;">${arrow}${Math.abs(t)}%</span>`;
+    }
+    return `<div class="pch-bar-row">
+      <div class="pch-bar-lbl"><div>${label}</div><div>${fs(val)} <span style="color:var(--muted);">· ${pct}%</span>${trend}</div></div>
+      <div class="pch-bar"><div class="pch-bar-seg ${color}" style="width:${pct}%;"></div></div>
+    </div>`;
+  }
+
+  function planBarHtml(label, actual, plan, color) {
+    const pct = plan > 0 ? Math.round(actual / plan * 100) : 0;
+    const cappedPct = Math.min(100, pct);
+    const colorClass = pct >= 100 ? 'g' : (pct >= 60 ? color : (pct >= 30 ? 'a' : 'p'));
+    return `<div class="pch-bar-row">
+      <div class="pch-bar-lbl"><div>${label}</div><div>${fs(actual)} / ${fs(plan)} <span style="color:${pct>=100?'var(--green)':'var(--muted)'};">· ${pct}%</span></div></div>
+      <div class="pch-bar"><div class="pch-bar-seg ${colorClass}" style="width:${cappedPct}%;"></div></div>
+    </div>`;
+  }
 
   async function loadAndRenderLearn() {
     const c = document.getElementById('learn-content');
