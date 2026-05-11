@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#1a1a1a">
 <link rel="manifest" href="/manifest.json">
-<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-apple-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RG Hub">
@@ -884,6 +884,194 @@
   const SUPABASE_URL = 'https://uxdgiwbkvgbnrsuxjhvp.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_bg1BRofqJsjkV_9eXzn2Pg__YJ-xRMK';
   const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  // ============ OFFLINE-ОЧЕРЕДЬ ЗАПИСИ (P4) ============
+  // IndexedDB для хранения отложенных операций
+  const OFFLINE_DB_NAME = 'rgh-offline-v1';
+  const OFFLINE_STORE = 'queue';
+  let offlineDb = null;
+
+  function openOfflineDb() {
+    return new Promise((resolve, reject) => {
+      if (offlineDb) return resolve(offlineDb);
+      const req = indexedDB.open(OFFLINE_DB_NAME, 1);
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => { offlineDb = req.result; resolve(offlineDb); };
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(OFFLINE_STORE)) {
+          db.createObjectStore(OFFLINE_STORE, { keyPath: 'id', autoIncrement: true });
+        }
+      };
+    });
+  }
+
+  async function queueAdd(op) {
+    try {
+      const db = await openOfflineDb();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(OFFLINE_STORE, 'readwrite');
+        const store = tx.objectStore(OFFLINE_STORE);
+        const req = store.add({
+          ...op,
+          created_at: new Date().toISOString(),
+          attempts: 0,
+        });
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    } catch(e) { console.error('queueAdd:', e); }
+  }
+
+  async function queueGetAll() {
+    try {
+      const db = await openOfflineDb();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(OFFLINE_STORE, 'readonly');
+        const store = tx.objectStore(OFFLINE_STORE);
+        const req = store.getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      });
+    } catch(e) { console.error('queueGetAll:', e); return []; }
+  }
+
+  async function queueRemove(id) {
+    try {
+      const db = await openOfflineDb();
+      return new Promise((resolve) => {
+        const tx = db.transaction(OFFLINE_STORE, 'readwrite');
+        tx.objectStore(OFFLINE_STORE).delete(id);
+        tx.oncomplete = () => resolve();
+      });
+    } catch(e) { console.error('queueRemove:', e); }
+  }
+
+  async function queueUpdate(id, patch) {
+    try {
+      const db = await openOfflineDb();
+      return new Promise((resolve) => {
+        const tx = db.transaction(OFFLINE_STORE, 'readwrite');
+        const store = tx.objectStore(OFFLINE_STORE);
+        const req = store.get(id);
+        req.onsuccess = () => {
+          const item = req.result;
+          if (!item) return resolve();
+          Object.assign(item, patch);
+          store.put(item);
+        };
+        tx.oncomplete = () => resolve();
+      });
+    } catch(e) { console.error('queueUpdate:', e); }
+  }
+
+  // Распознавание «это сетевая ошибка»
+  function isNetworkError(e) {
+    if (!navigator.onLine) return true;
+    const msg = String(e?.message || e || '');
+    return /NetworkError|Failed to fetch|fetch failed|TypeError: Failed|Load failed|network/i.test(msg);
+  }
+
+  // Безопасная запись — если оффлайн или сетевая ошибка → в очередь
+  // op: { table, action: 'upsert'|'insert'|'update'|'delete', payload, filter?, conflict? }
+  async function sbWrite(op) {
+    if (!navigator.onLine) {
+      await queueAdd(op);
+      updateQueueIndicator();
+      return { queued: true };
+    }
+    try {
+      const result = await execSbOp(op);
+      return { ok: true, data: result };
+    } catch (e) {
+      if (isNetworkError(e)) {
+        await queueAdd(op);
+        updateQueueIndicator();
+        return { queued: true };
+      }
+      throw e; // не сетевая — пробрасываем дальше
+    }
+  }
+
+  async function execSbOp(op) {
+    let q = sb.from(op.table);
+    if (op.action === 'upsert') {
+      const opts = op.conflict ? { onConflict: op.conflict } : undefined;
+      const { error } = await q.upsert(op.payload, opts);
+      if (error) throw error;
+    } else if (op.action === 'insert') {
+      const { error, data } = await q.insert(op.payload).select();
+      if (error) throw error;
+      return data;
+    } else if (op.action === 'update') {
+      let upd = q.update(op.payload);
+      for (const f of (op.filter || [])) upd = upd.eq(f.col, f.val);
+      const { error } = await upd;
+      if (error) throw error;
+    } else if (op.action === 'delete') {
+      let del = q.delete();
+      for (const f of (op.filter || [])) del = del.eq(f.col, f.val);
+      const { error } = await del;
+      if (error) throw error;
+    }
+  }
+
+  // Watcher: периодически и при online — пытаемся отправить очередь
+  let queueFlushing = false;
+  async function flushQueue() {
+    if (queueFlushing || !navigator.onLine) return;
+    queueFlushing = true;
+    try {
+      const items = await queueGetAll();
+      if (items.length === 0) { updateQueueIndicator(); return; }
+      let success = 0, fail = 0;
+      for (const item of items) {
+        if (item.attempts >= 10) { await queueRemove(item.id); continue; } // дроп старых
+        try {
+          await execSbOp(item);
+          await queueRemove(item.id);
+          success++;
+        } catch (e) {
+          if (isNetworkError(e)) {
+            await queueUpdate(item.id, { attempts: (item.attempts||0) + 1 });
+            fail++;
+            break; // если сеть — нет смысла продолжать
+          } else {
+            // Не сетевая (бизнес-ошибка) — увеличиваем счётчик, но оставляем
+            await queueUpdate(item.id, { attempts: (item.attempts||0) + 1, last_error: String(e?.message||e) });
+          }
+        }
+      }
+      if (success > 0) toast(`☁ Синхронизировано ${success} ${success === 1 ? 'запись' : 'записей'}`, 'ok');
+      updateQueueIndicator();
+    } finally {
+      queueFlushing = false;
+    }
+  }
+
+  async function updateQueueIndicator() {
+    const items = await queueGetAll();
+    const count = items.length;
+    let el = document.getElementById('queue-indicator');
+    if (count === 0) {
+      if (el) el.remove();
+      return;
+    }
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'queue-indicator';
+      el.style.cssText = 'position:fixed;top:55px;left:50%;transform:translateX(-50%);background:#222;color:#e8b84b;border:1px solid #e8b84b;padding:5px 13px;border-radius:5px;z-index:9998;font-family:Inter,sans-serif;font-size:11px;font-weight:600;letter-spacing:.3px;box-shadow:0 4px 16px rgba(0,0,0,.4);cursor:pointer;';
+      el.onclick = () => flushQueue();
+      document.body.appendChild(el);
+    }
+    el.textContent = `📋 В очереди: ${count} · нажми чтобы попробовать отправить`;
+  }
+
+  // Запуск watcher: при online + каждые 30 сек
+  window.addEventListener('online', () => setTimeout(flushQueue, 1000));
+  setInterval(flushQueue, 30000);
+  // Первая проверка при загрузке
+  setTimeout(() => { updateQueueIndicator(); flushQueue(); }, 1500);
 
   const C = {bk:0,ins:0,ret:0,phy:0,cop:0,det:0,mx:0,rv:0,fl:0};
   let currentPoint = null;
@@ -2167,7 +2355,16 @@
       flow_directions: C.fl
     };
     const { error } = await sb.from('daily_reports').upsert(payload, { onConflict: 'point_id,date' });
-    if (error) throw error;
+    if (error) {
+      // если сетевая — кладём в очередь
+      if (isNetworkError(error)) {
+        await queueAdd({ table: 'daily_reports', action: 'upsert', payload, conflict: 'point_id,date' });
+        updateQueueIndicator();
+        toast('📋 Нет связи — сохранено в очередь, отправлю при появлении сети', 'ok');
+        return;
+      }
+      throw error;
+    }
   }
 
   async function delDay(date) {
@@ -2937,11 +3134,31 @@ ${planLine}
       let savedId = editingCarId;
       if (editingCarId) {
         const { error } = await sb.from('cars_in_work').update(payload).eq('id', editingCarId);
-        if (error) throw error;
+        if (error) {
+          if (isNetworkError(error)) {
+            await queueAdd({ table: 'cars_in_work', action: 'update', payload, filter: [{col:'id', val:editingCarId}] });
+            updateQueueIndicator();
+            toast('📋 Нет связи — сохранение в очереди', 'ok');
+            closeCarEdit();
+            return;
+          }
+          throw error;
+        }
         toast('Сохранено', 'ok');
       } else {
         const { data, error } = await sb.from('cars_in_work').insert(payload).select('id').single();
-        if (error) throw error;
+        if (error) {
+          if (isNetworkError(error)) {
+            // INSERT нельзя сохранить в очередь с возвратом id — потеряем связь с очками
+            // Поэтому здесь честно говорим: машина уйдёт когда сеть появится, но баллы за неё начислятся при синке
+            await queueAdd({ table: 'cars_in_work', action: 'insert', payload });
+            updateQueueIndicator();
+            toast('📋 Нет связи — машина в очереди, баллы начислю при синке', 'ok');
+            closeCarEdit();
+            return;
+          }
+          throw error;
+        }
         savedId = data ? data.id : null;
         toast('Машина добавлена', 'ok');
       }
