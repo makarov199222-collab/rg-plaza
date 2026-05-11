@@ -2321,13 +2321,25 @@ ${planLine}
 
   async function deleteCar() {
     if (!editingCarId) return;
-    if (!confirm('Удалить машину навсегда? (это не закрытие выдачей)')) return;
+    if (!confirm('Удалить машину навсегда? (это не закрытие выдачей)\n⚠ Все игровые баллы за эту машину тоже будут аннулированы.')) return;
+    const idToDelete = editingCarId;
     try {
-      const { error } = await sb.from('cars_in_work').delete().eq('id', editingCarId);
+      // 1. Сначала аннулируем все игровые баллы за эту машину
+      const { error: gaErr } = await sb.from('game_actions')
+        .delete()
+        .eq('ref_table', 'cars_in_work')
+        .eq('ref_id', idToDelete);
+      if (gaErr) console.error('Cannot delete game_actions:', gaErr);
+      // 2. Удаляем саму машину
+      const { error } = await sb.from('cars_in_work').delete().eq('id', idToDelete);
       if (error) throw error;
-      toast('Удалено', 'ok');
+      toast('Удалено · баллы аннулированы', 'ok');
       closeCarEdit();
       loadCars();
+      // 3. Перезагружаем статистику менеджера — баллы могли уменьшиться
+      if (currentManager) {
+        await loadMyStats();
+      }
     } catch (e) {
       toast('Ошибка: '+(e.message||e), 'err');
     }
