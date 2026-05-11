@@ -158,6 +158,46 @@
   .se-btn.danger{background:transparent;color:var(--red);border-color:var(--red);}
   .se-btn.warn{background:transparent;color:var(--orange);border-color:var(--orange);}
 
+  /* === Игра (dashboard) === */
+  .game-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;}
+  @media(max-width:780px){.game-grid{grid-template-columns:1fr;}}
+  .game-block{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;}
+  .game-block-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+  .game-block-title{font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--text);letter-spacing:1.5px;}
+  .game-block-hint{font-size:10px;color:var(--muted);}
+
+  .rank-row{display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--border);font-size:13px;}
+  .rank-row:last-child{border-bottom:none;}
+  .rank-pos{font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--muted);min-width:26px;letter-spacing:1px;text-align:center;}
+  .rank-pos.top1{color:#ffd700;}
+  .rank-pos.top2{color:#c0c0c0;}
+  .rank-pos.top3{color:#cd7f32;}
+  .rank-name{flex:1;min-width:0;font-weight:600;color:var(--text);}
+  .rank-pts{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--accent);letter-spacing:.5px;text-align:right;min-width:60px;}
+  .rank-emoji{font-size:18px;line-height:1;}
+  .rank-sub{font-size:10px;color:var(--muted);margin-top:2px;}
+
+  .feed-row{display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid var(--border);font-size:12px;}
+  .feed-row:last-child{border-bottom:none;}
+  .feed-time{font-size:10px;color:var(--muted);min-width:65px;}
+  .feed-content{flex:1;min-width:0;line-height:1.4;}
+  .feed-mgr{color:var(--accent);font-weight:600;}
+  .feed-pts{font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:.5px;min-width:48px;text-align:right;}
+  .feed-pts.pos{color:var(--green);}
+  .feed-pts.neg{color:var(--red);}
+  .feed-pts.zero{color:var(--muted);}
+  .feed-empty{padding:18px;text-align:center;color:var(--muted);font-size:12px;}
+
+  .audit-row{background:rgba(244,67,54,.06);border:1px solid rgba(244,67,54,.25);border-radius:8px;padding:8px 11px;margin-bottom:6px;font-size:12px;}
+  .audit-time{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
+  .audit-content{margin-top:3px;}
+
+  .game-stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;}
+  @media(max-width:600px){.game-stats-grid{grid-template-columns:repeat(2,1fr);}}
+  .gst-card{background:linear-gradient(135deg, var(--surface), #1c1c1c);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center;}
+  .gst-val{font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--accent);line-height:1;letter-spacing:1px;}
+  .gst-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:5px;}
+
   .city-section{margin-bottom:24px;}
   .city-title{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--muted);letter-spacing:2px;margin-bottom:12px;display:flex;align-items:center;gap:10px;}
   .city-title::before{content:'';width:24px;height:2px;background:var(--accent);}
@@ -401,6 +441,7 @@
     <button class="top-tab" onclick="showPage('plans')">🎯 Планы</button>
     <button class="top-tab" onclick="showPage('myreport')">📋 Мой отчёт</button>
     <button class="top-tab" onclick="showPage('breakdown')">📈 Детализация</button>
+    <button class="top-tab" onclick="showPage('game')">🎮 Игра</button>
     <button class="top-tab" onclick="showPage('staff')">👥 Сотрудники</button>
   </div>
 
@@ -422,6 +463,10 @@
 
   <div class="tab-page" id="page-staff">
     <div id="staff-content"><div class="loader"><div class="spinner"></div>Загружаю сотрудников...</div></div>
+  </div>
+
+  <div class="tab-page" id="page-game">
+    <div id="game-content"><div class="loader"><div class="spinner"></div>Загружаю игру...</div></div>
   </div>
 </div>
 
@@ -562,6 +607,7 @@
     if (p === 'myreport' && cachedData) renderMyReport(cachedData);
     if (p === 'breakdown') renderBreakdown();
     if (p === 'staff') loadAndRenderStaff();
+    if (p === 'game') loadAndRenderGame();
   }
 
   function toast(msg, type) {
@@ -2080,6 +2126,245 @@ ${point.name} ${flow}`;
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
   }
 
+  // ============ ИГРА (Game в dashboard, A4) ============
+  const GAME_LEVELS_DASH = [
+    { code: 'rookie',   name: 'Новичок',  emoji: '🥉', min: 0,    max: 500   },
+    { code: 'fighter',  name: 'Боец',     emoji: '🥈', min: 500,  max: 1500  },
+    { code: 'champion', name: 'Чемпион',  emoji: '🥇', min: 1500, max: 3500  },
+    { code: 'legend',   name: 'Легенда',  emoji: '👑', min: 3500, max: 99999 },
+  ];
+  const GAME_LABELS_DASH = {
+    car_added:                'внёс машину',
+    car_todo_added:           'заполнил TODO',
+    car_closed_retail:        'закрыл машину (розница)',
+    car_closed_insurance:     'закрыл машину (страх)',
+    car_closed_corp:          'закрыл машину (корпоратив)',
+    car_closed_detail:        'закрыл машину (детейл)',
+    day_report_saved:         'сохранил отчёт дня',
+    sold_antirain:            '💧 продал антидождь',
+    sold_brush:               '🌬 продал щётки',
+    sold_armor:               '🛡 продал бронь',
+    sold_tinting:             '✨ продал тонировку фар',
+    sold_chip_repair:         '🔧 починил скол',
+    sold_glass_polish:        '💎 полировка стёкол',
+    sold_headlight_polish:    '🌟 полировка фар',
+    sold_silicone_seal:       '🧴 силикон уплотнителей',
+    audit_car_deleted:        '🚨 удалена машина',
+  };
+  function calcLevelDash(pts) {
+    for (const lvl of GAME_LEVELS_DASH) {
+      if (pts >= lvl.min && pts < lvl.max) return lvl;
+    }
+    return GAME_LEVELS_DASH[GAME_LEVELS_DASH.length - 1];
+  }
+  function formatFeedTime(iso) {
+    try {
+      const d = new Date(iso);
+      const now = new Date();
+      const sameDay = d.toDateString() === now.toDateString();
+      const hh = String(d.getHours()).padStart(2,'0');
+      const mm = String(d.getMinutes()).padStart(2,'0');
+      if (sameDay) return `${hh}:${mm}`;
+      const yd = new Date(now); yd.setDate(yd.getDate()-1);
+      if (d.toDateString() === yd.toDateString()) return `вчера ${hh}:${mm}`;
+      return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')} ${hh}:${mm}`;
+    } catch(e) { return ''; }
+  }
+
+  let gameData = { managers: [], actions: [], audits: [] };
+
+  async function loadAndRenderGame() {
+    const container = document.getElementById('game-content');
+    container.innerHTML = '<div class="loader"><div class="spinner"></div>Загружаю игру...</div>';
+    try {
+      // Период: текущий месяц
+      const now = new Date();
+      const monthStart = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01T00:00:00`;
+
+      // Параллельно: менеджеры, действия за месяц, аудиты за месяц
+      const [mgrsRes, actsRes] = await Promise.all([
+        sb.from('managers').select('*').eq('active', true).order('point_id'),
+        sb.from('game_actions').select('*').gte('occurred_at', monthStart).order('occurred_at', { ascending: false }).limit(500),
+      ]);
+      if (mgrsRes.error) throw mgrsRes.error;
+      if (actsRes.error) throw actsRes.error;
+
+      gameData.managers = mgrsRes.data || [];
+      gameData.actions = (actsRes.data || []).filter(a => a.action_type !== 'audit_car_deleted');
+      gameData.audits = (actsRes.data || []).filter(a => a.action_type === 'audit_car_deleted');
+      renderGameDash();
+    } catch (e) {
+      console.error('Game load error:', e);
+      container.innerHTML = `<div style="color:var(--red);padding:20px;text-align:center;">Ошибка загрузки: ${e.message||e}</div>`;
+    }
+  }
+
+  function renderGameDash() {
+    const container = document.getElementById('game-content');
+    // Считаем суммы по менеджерам и по точкам
+    const ptsByMgr = {};   // mgrId -> sum
+    const ptsByPoint = {}; // pointId -> sum
+    const todayPtsByMgr = {};
+    const todayStr = todayLocalISO();
+    for (const a of gameData.actions) {
+      const pts = a.points || 0;
+      ptsByMgr[a.manager_id] = (ptsByMgr[a.manager_id] || 0) + pts;
+      ptsByPoint[a.point_id] = (ptsByPoint[a.point_id] || 0) + pts;
+      if ((a.occurred_at || '').startsWith(todayStr)) {
+        todayPtsByMgr[a.manager_id] = (todayPtsByMgr[a.manager_id] || 0) + pts;
+      }
+    }
+    // Общие цифры
+    const totalActions = gameData.actions.length;
+    const totalPoints = Object.values(ptsByMgr).reduce((s,p)=>s+p,0);
+    const activeManagers = gameData.managers.filter(m => (ptsByMgr[m.id]||0) > 0).length;
+    const today = gameData.actions.filter(a => (a.occurred_at||'').startsWith(todayStr)).length;
+
+    // Топ точек
+    const pointArr = Object.entries(ptsByPoint).map(([pid, pts]) => ({
+      pid, pts, name: POINT_LABELS[pid] || pid,
+    })).sort((a,b) => b.pts - a.pts);
+    // Добавим точки без действий
+    const allPointIds = ['kaluga','serpuhov','sovhoz','poyma'];
+    for (const pid of allPointIds) {
+      if (!pointArr.find(p => p.pid === pid)) {
+        pointArr.push({ pid, pts: 0, name: POINT_LABELS[pid] || pid });
+      }
+    }
+
+    // Топ менеджеров
+    const mgrArr = gameData.managers.map(m => ({
+      ...m,
+      pts: ptsByMgr[m.id] || 0,
+      todayPts: todayPtsByMgr[m.id] || 0,
+    })).sort((a,b) => b.pts - a.pts);
+
+    let html = `
+      <div class="game-stats-grid">
+        <div class="gst-card">
+          <div class="gst-val">${fm(totalPoints)}</div>
+          <div class="gst-lbl">Баллов за месяц</div>
+        </div>
+        <div class="gst-card">
+          <div class="gst-val">${fm(totalActions)}</div>
+          <div class="gst-lbl">Действий</div>
+        </div>
+        <div class="gst-card">
+          <div class="gst-val">${activeManagers}/${gameData.managers.length}</div>
+          <div class="gst-lbl">Активных</div>
+        </div>
+        <div class="gst-card">
+          <div class="gst-val">${today}</div>
+          <div class="gst-lbl">Сегодня</div>
+        </div>
+      </div>
+
+      <div class="game-grid">
+        <div class="game-block">
+          <div class="game-block-head">
+            <div class="game-block-title">🏆 РЕЙТИНГ ТОЧЕК</div>
+            <div class="game-block-hint">за ${monthNameDash()}</div>
+          </div>
+          ${pointArr.map((p, i) => {
+            const cls = i===0?'top1':(i===1?'top2':(i===2?'top3':''));
+            const medal = i===0?'🥇':(i===1?'🥈':(i===2?'🥉':' '));
+            return `<div class="rank-row">
+              <div class="rank-pos ${cls}">${medal}</div>
+              <div class="rank-name">${escapeHtml(p.name)}</div>
+              <div class="rank-pts">${fm(p.pts)}</div>
+            </div>`;
+          }).join('')}
+        </div>
+
+        <div class="game-block">
+          <div class="game-block-head">
+            <div class="game-block-title">🥇 ТОП МЕНЕДЖЕРОВ</div>
+            <div class="game-block-hint">за ${monthNameDash()}</div>
+          </div>
+          ${mgrArr.length === 0 ? '<div class="feed-empty">Менеджеров нет</div>' : mgrArr.map((m, i) => {
+            const lvl = calcLevelDash(m.pts);
+            const cls = i===0?'top1':(i===1?'top2':(i===2?'top3':''));
+            const pos = i+1;
+            return `<div class="rank-row">
+              <div class="rank-pos ${cls}">${pos}</div>
+              <div class="rank-emoji">${m.avatar_emoji || '😊'}</div>
+              <div class="rank-name">
+                <div>${escapeHtml(m.short_name || m.name)}</div>
+                <div class="rank-sub">${POINT_LABELS[m.point_id] || m.point_id} · ${lvl.emoji} ${lvl.name}${m.todayPts ? ' · +' + m.todayPts + ' сегодня' : ''}</div>
+              </div>
+              <div class="rank-pts">${fm(m.pts)}</div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+
+      <div class="game-block" style="margin-bottom:14px;">
+        <div class="game-block-head">
+          <div class="game-block-title">📰 ЛЕНТА СОБЫТИЙ</div>
+          <div class="game-block-hint">последние 30</div>
+        </div>
+        ${renderFeedRows(gameData.actions.slice(0, 30))}
+      </div>
+
+      ${gameData.audits.length > 0 ? `
+      <div class="game-block">
+        <div class="game-block-head">
+          <div class="game-block-title">🚨 АУДИТ — УДАЛЕНИЯ МАШИН</div>
+          <div class="game-block-hint">подозрительная активность</div>
+        </div>
+        ${gameData.audits.slice(0, 20).map(a => {
+          const mgr = gameData.managers.find(m => m.id === a.manager_id);
+          const mgrName = mgr ? `${mgr.avatar_emoji||'😊'} ${mgr.short_name || mgr.name}` : 'неизв.';
+          return `<div class="audit-row">
+            <div class="audit-time">${formatFeedTime(a.occurred_at)} · ${POINT_LABELS[a.point_id] || a.point_id}</div>
+            <div class="audit-content"><b style="color:var(--orange);">${escapeHtml(mgrName)}</b> · ${escapeHtml(a.comment || 'удалил машину')}</div>
+          </div>`;
+        }).join('')}
+      </div>
+      ` : ''}
+    `;
+    container.innerHTML = html;
+  }
+
+  function renderFeedRows(actions) {
+    if (!actions || actions.length === 0) {
+      return '<div class="feed-empty">Пока действий нет. Менеджеры начнут — здесь появится лента.</div>';
+    }
+    return actions.map(a => {
+      const mgr = gameData.managers.find(m => m.id === a.manager_id);
+      const mgrName = mgr ? `${mgr.avatar_emoji||'😊'} ${mgr.short_name || mgr.name}` : 'неизв.';
+      const lbl = GAME_LABELS_DASH[a.action_type] || a.action_type;
+      const sign = a.points > 0 ? 'pos' : (a.points < 0 ? 'neg' : 'zero');
+      const ptsTxt = a.points > 0 ? '+' + a.points : (a.points || '0');
+      const point = POINT_LABELS[a.point_id] || a.point_id;
+      return `<div class="feed-row">
+        <div class="feed-time">${formatFeedTime(a.occurred_at)}</div>
+        <div class="feed-content">
+          <span class="feed-mgr">${escapeHtml(mgrName)}</span>
+          <span style="color:var(--muted);font-size:10px;"> · ${point}</span>
+          <span> · ${lbl}</span>
+          ${a.comment ? `<span style="color:var(--muted);font-size:11px;"> · ${escapeHtml(a.comment)}</span>` : ''}
+        </div>
+        <div class="feed-pts ${sign}">${ptsTxt}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function monthNameDash() {
+    const m = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+    const now = new Date();
+    return `${m[now.getMonth()]} ${now.getFullYear()}`;
+  }
+
+  function todayLocalISO() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const mo = String(d.getMonth()+1).padStart(2,'0');
+    const da = String(d.getDate()).padStart(2,'0');
+    return `${y}-${mo}-${da}`;
+  }
+
+  // ============ АВТО-ОБНОВЛЕНИЕ ============
   // Авто-обновление обзора каждые 60 сек (не трогаем планы чтобы не сбить ввод)
   setInterval(() => {
     if (sessionStorage.getItem('rgp_admin') === '1' && document.getElementById('app').style.display !== 'none') {
