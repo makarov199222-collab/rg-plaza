@@ -457,6 +457,7 @@
     <button class="top-tab" onclick="showPage('myreport')">📋 Мой отчёт</button>
     <button class="top-tab" onclick="showPage('breakdown')">📈 Детализация</button>
     <button class="top-tab" onclick="showPage('game')">🎮 Игра</button>
+    <button class="top-tab" onclick="showPage('learn')">🎓 Обучение</button>
     <button class="top-tab" onclick="showPage('staff')">👥 Сотрудники</button>
   </div>
 
@@ -483,8 +484,64 @@
   <div class="tab-page" id="page-game">
     <div id="game-content"><div class="loader"><div class="spinner"></div>Загружаю игру...</div></div>
   </div>
+
+  <div class="tab-page" id="page-learn">
+    <div id="learn-content"><div class="loader"><div class="spinner"></div>Загружаю обучение...</div></div>
+  </div>
 </div>
 
+</div>
+
+<div class="se-modal" id="kc-edit-modal" onclick="if(event.target===this)closeCardEdit()">
+  <div class="se-sheet" style="max-width:640px;">
+    <div class="se-head">
+      <div class="se-title" id="kce-title-h">Карточка</div>
+      <button class="se-x" onclick="closeCardEdit()">✕</button>
+    </div>
+    <div style="display:grid;grid-template-columns:80px 100px 1fr;gap:10px;">
+      <div class="se-row">
+        <div class="se-lbl">Эмодзи</div>
+        <input id="kce-emoji" type="text" class="se-inp" placeholder="📚" maxlength="4" style="text-align:center;font-size:18px;">
+      </div>
+      <div class="se-row">
+        <div class="se-lbl">Категория</div>
+        <select id="kce-cat" class="se-inp">
+          <option value="reception">🚗 Приём</option>
+          <option value="sales">💰 Продажи</option>
+          <option value="finance">💵 Финансы</option>
+          <option value="process">🔄 Процессы</option>
+          <option value="other">📦 Другое</option>
+        </select>
+      </div>
+      <div class="se-row">
+        <div class="se-lbl">Код <span style="color:var(--muted);font-weight:400;text-transform:none;">(внутр. идентификатор)</span></div>
+        <input id="kce-code" type="text" class="se-inp" placeholder="accept_insurance" pattern="[a-z_]+">
+      </div>
+    </div>
+    <div class="se-row">
+      <div class="se-lbl">Название</div>
+      <input id="kce-name" type="text" class="se-inp" placeholder="Как принять страхового клиента">
+    </div>
+    <div class="se-row">
+      <div class="se-lbl">Содержание <span style="color:var(--muted);font-weight:400;text-transform:none;">(Markdown: **жирный**, • списки, > цитаты)</span></div>
+      <textarea id="kce-content" class="se-inp" rows="14" style="font-family:'JetBrains Mono', monospace;font-size:12px;line-height:1.5;" placeholder="**КОГДА**: ...
+
+**ШАГИ**:
+1. ...
+2. ..."></textarea>
+    </div>
+    <div class="se-row">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input id="kce-active" type="checkbox" style="width:16px;height:16px;cursor:pointer;" checked>
+        <span style="font-size:13px;color:var(--text);">Активна (видна менеджерам)</span>
+      </label>
+    </div>
+    <div class="se-actions">
+      <button class="se-btn primary" onclick="saveCard()">💾 Сохранить</button>
+      <button class="se-btn danger" id="kce-delete-btn" style="display:none;" onclick="deleteCard()">🗑 Удалить</button>
+      <button class="se-btn" onclick="closeCardEdit()">Отмена</button>
+    </div>
+  </div>
 </div>
 
 <div class="se-modal" id="ch-modal" onclick="if(event.target===this)closeChallengeEdit()">
@@ -588,6 +645,23 @@
       <div class="se-lbl">Ссылка на Битрикс <span style="color:var(--muted);font-weight:400;text-transform:none;">(опц.)</span></div>
       <input id="se-bitrix" type="text" class="se-inp" placeholder="https://plaza18.bitrix24.ru/...">
     </div>
+
+    <div class="se-row" style="background:rgba(232,184,75,.06);border:1px dashed rgba(232,184,75,.35);border-radius:8px;padding:10px;">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input id="se-newbie" type="checkbox" style="width:16px;height:16px;cursor:pointer;">
+        <span style="font-size:13px;color:var(--text);font-weight:600;">🎓 Новичок (включён onboarding)</span>
+      </label>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.4;">Если включено — у менеджера будет жёлтая «пульсирующая» кнопка «Обучение». Сотрудник работает с подсказками и проходит 15 квестов.</div>
+    </div>
+
+    <div class="se-row" id="se-mentor-row" style="display:none;">
+      <div class="se-lbl">Наставник</div>
+      <select id="se-mentor" class="se-inp">
+        <option value="">— Не назначен —</option>
+      </select>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Наставник подтверждает ручные квесты («Сложная ситуация», «Сольная смена»). Получает бейджи 🎓 Учитель / 🏫 Школа.</div>
+    </div>
+
     <div class="se-actions">
       <button class="se-btn primary" onclick="saveStaff()">💾 Сохранить</button>
       <button class="se-btn warn" id="se-toggle-btn" style="display:none;" onclick="toggleStaffActive()">⏸ Деактивировать</button>
@@ -693,6 +767,7 @@
     if (p === 'breakdown') renderBreakdown();
     if (p === 'staff') loadAndRenderStaff();
     if (p === 'game') loadAndRenderGame();
+    if (p === 'learn') loadAndRenderLearn();
   }
 
   function toast(msg, type) {
@@ -2067,10 +2142,11 @@ ${point.name} ${flow}`;
   }
 
   function staffCardHtml(s) {
+    const newbieMark = s.is_newbie ? '<span style="font-size:10px;color:var(--accent);background:rgba(232,184,75,.15);padding:1px 6px;border-radius:3px;margin-left:4px;letter-spacing:.3px;">🎓 новичок</span>' : '';
     return `<div class="staff-card ${s.active ? '' : 'inactive'}" onclick="openStaffEdit('${s.id}')">
       <div class="staff-emoji">${s.avatar_emoji || '😊'}</div>
       <div class="staff-info">
-        <div class="staff-name">${escapeHtml(s.name)} ${!s.active ? '<span style="font-size:9px;color:var(--orange);background:rgba(255,140,0,.15);padding:1px 5px;border-radius:3px;margin-left:4px;">архив</span>' : ''}</div>
+        <div class="staff-name">${escapeHtml(s.name)} ${!s.active ? '<span style="font-size:9px;color:var(--orange);background:rgba(255,140,0,.15);padding:1px 5px;border-radius:3px;margin-left:4px;">архив</span>' : newbieMark}</div>
         <div class="staff-short">${escapeHtml(s.short_name || '')}</div>
       </div>
     </div>`;
@@ -2098,6 +2174,9 @@ ${point.name} ${flow}`;
       document.getElementById('se-name').value = s.name || '';
       document.getElementById('se-short').value = s.short_name || '';
       document.getElementById('se-bitrix').value = s.bitrix_url || '';
+      document.getElementById('se-newbie').checked = !!s.is_newbie;
+      updateMentorSelect(s.point_id, s.id, s.mentor_id);
+      toggleMentorRow(!!s.is_newbie);
       // Выделить текущий эмодзи
       const currentEmoji = s.avatar_emoji || '😊';
       palette.querySelectorAll('.se-emoji-btn').forEach(btn => {
@@ -2113,6 +2192,9 @@ ${point.name} ${flow}`;
       document.getElementById('se-name').value = '';
       document.getElementById('se-short').value = '';
       document.getElementById('se-bitrix').value = '';
+      document.getElementById('se-newbie').checked = false;
+      updateMentorSelect(defaultPoint || 'sovhoz', null, null);
+      toggleMentorRow(false);
       // Случайный эмодзи
       const randomEmoji = STAFF_EMOJI_PALETTE[Math.floor(Math.random() * STAFF_EMOJI_PALETTE.length)];
       palette.querySelectorAll('.se-emoji-btn').forEach(btn => {
@@ -2121,7 +2203,28 @@ ${point.name} ${flow}`;
       toggleBtn.style.display = 'none';
       deleteBtn.style.display = 'none';
     }
+    // Подписки на изменение
+    document.getElementById('se-newbie').onchange = (e) => toggleMentorRow(e.target.checked);
+    document.getElementById('se-point').onchange = (e) => {
+      const sid = editingStaffId;
+      const curMentor = document.getElementById('se-mentor').value;
+      updateMentorSelect(e.target.value, sid, curMentor);
+    };
     modal.classList.add('show');
+  }
+
+  function toggleMentorRow(isNewbie) {
+    document.getElementById('se-mentor-row').style.display = isNewbie ? '' : 'none';
+  }
+
+  function updateMentorSelect(pointId, excludeId, currentMentorId) {
+    const sel = document.getElementById('se-mentor');
+    // Наставник — НЕ новичок, активный, той же точки
+    const candidates = staffData.filter(s =>
+      s.point_id === pointId && s.active && !s.is_newbie && s.id !== excludeId
+    );
+    sel.innerHTML = '<option value="">— Не назначен —</option>' +
+      candidates.map(s => `<option value="${s.id}" ${s.id === currentMentorId ? 'selected' : ''}>${s.avatar_emoji||'😊'} ${escapeHtml(s.name)}</option>`).join('');
   }
 
   function selectStaffEmoji(emoji, btn) {
@@ -2145,6 +2248,8 @@ ${point.name} ${flow}`;
     const point_id = document.getElementById('se-point').value;
     const bitrix = document.getElementById('se-bitrix').value.trim();
     const emoji = getSelectedEmoji();
+    const isNewbie = document.getElementById('se-newbie').checked;
+    const mentorId = document.getElementById('se-mentor').value || null;
     if (!name) { toast('Укажи полное имя', 'err'); return; }
     if (!short) { toast('Укажи короткое имя', 'err'); return; }
     const payload = {
@@ -2153,7 +2258,22 @@ ${point.name} ${flow}`;
       short_name: short,
       avatar_emoji: emoji,
       bitrix_url: bitrix || null,
+      is_newbie: isNewbie,
+      mentor_id: isNewbie ? mentorId : null,
     };
+    // Если делаем новичком в первый раз — фиксируем started_at
+    if (editingStaffId) {
+      const prev = staffData.find(s => s.id === editingStaffId);
+      if (isNewbie && !prev?.started_at) {
+        payload.started_at = new Date().toISOString();
+      }
+      if (!isNewbie && prev?.is_newbie) {
+        // Сняли флаг — значит "выпустился" вручную (если квесты не все пройдены)
+        payload.graduated_at = new Date().toISOString();
+      }
+    } else if (isNewbie) {
+      payload.started_at = new Date().toISOString();
+    }
     try {
       if (editingStaffId) {
         const { error } = await sb.from('managers').update(payload).eq('id', editingStaffId);
@@ -2627,6 +2747,289 @@ ${point.name} ${flow}`;
       toast('Удалён', 'ok');
       closeChallengeEdit();
       loadAndRenderGame();
+    } catch (e) {
+      toast('Ошибка: ' + (e.message || e), 'err');
+    }
+  }
+
+  // ============ ОБУЧЕНИЕ (Onboarding O7 — dashboard) ============
+  let learnDashData = { quests: [], cards: [], newbies: [], progressByMgr: {} };
+
+  async function loadAndRenderLearn() {
+    const c = document.getElementById('learn-content');
+    c.innerHTML = '<div class="loader"><div class="spinner"></div>Загружаю обучение...</div>';
+    try {
+      const [questsRes, cardsRes, mgrsRes, progressRes] = await Promise.all([
+        sb.from('quests').select('*').eq('active', true).order('step'),
+        sb.from('knowledge_cards').select('*').order('order_idx'),
+        sb.from('managers').select('*').eq('active', true).order('name'),
+        sb.from('quest_progress').select('*'),
+      ]);
+      if (questsRes.error) throw questsRes.error;
+      if (cardsRes.error) throw cardsRes.error;
+      if (mgrsRes.error) throw mgrsRes.error;
+      if (progressRes.error) throw progressRes.error;
+      learnDashData.quests = questsRes.data || [];
+      learnDashData.cards = cardsRes.data || [];
+      const allMgrs = mgrsRes.data || [];
+      learnDashData.newbies = allMgrs.filter(m => m.is_newbie);
+      learnDashData.allMgrs = allMgrs;
+      // Группируем прогресс по менеджерам
+      learnDashData.progressByMgr = {};
+      for (const p of (progressRes.data || [])) {
+        if (!learnDashData.progressByMgr[p.manager_id]) learnDashData.progressByMgr[p.manager_id] = {};
+        learnDashData.progressByMgr[p.manager_id][p.quest_code] = p;
+      }
+      renderLearnDash();
+    } catch (e) {
+      console.error('Learn load error:', e);
+      c.innerHTML = `<div style="color:var(--red);padding:20px;text-align:center;">Ошибка: ${e.message||e}</div>`;
+    }
+  }
+
+  function renderLearnDash() {
+    const c = document.getElementById('learn-content');
+    const totalQuests = learnDashData.quests.length;
+
+    let html = `
+      <div style="margin-bottom:16px;padding:12px 14px;background:#0e0e0e;border:1px solid var(--border);border-radius:10px;font-size:12px;color:var(--muted);line-height:1.5;">
+        💡 Здесь можно следить за прогрессом новичков, подтверждать ручные квесты («Сложная ситуация», «Сольная смена») и редактировать карточки знаний.
+      </div>
+    `;
+
+    // === БЛОК 1: Новички ===
+    html += '<div class="game-block" style="margin-bottom:14px;">';
+    html += `<div class="game-block-head">
+        <div class="game-block-title">🎓 НОВИЧКИ (${learnDashData.newbies.length})</div>
+        <div class="game-block-hint">всего ${totalQuests} квестов</div>
+      </div>`;
+    if (learnDashData.newbies.length === 0) {
+      html += '<div class="feed-empty">Нет активных новичков. Чтобы назначить — открой «👥 Сотрудники», выбери менеджера и поставь галочку «🎓 Новичок».</div>';
+    } else {
+      html += learnDashData.newbies.map(m => newbieRowHtml(m, totalQuests)).join('');
+    }
+    html += '</div>';
+
+    // === БЛОК 2: Карточки знаний ===
+    html += '<div class="game-block" style="margin-bottom:14px;">';
+    html += `<div class="game-block-head">
+        <div class="game-block-title">📚 КАРТОЧКИ ЗНАНИЙ (${learnDashData.cards.length})</div>
+        <button class="staff-add-btn" onclick="openCardEdit(null)">+ Новая карточка</button>
+      </div>`;
+    if (learnDashData.cards.length === 0) {
+      html += '<div class="feed-empty">Карточек пока нет.</div>';
+    } else {
+      const byCat = {};
+      for (const card of learnDashData.cards) {
+        const cat = card.category || 'other';
+        if (!byCat[cat]) byCat[cat] = [];
+        byCat[cat].push(card);
+      }
+      const CAT_LABELS = { reception: '🚗 Приём', sales: '💰 Продажи', finance: '💵 Финансы', process: '🔄 Процессы', other: '📦 Другое' };
+      const catOrder = ['reception','sales','finance','process','other'];
+      for (const cat of catOrder) {
+        if (!byCat[cat]) continue;
+        html += `<div style="margin-top:11px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:700;">${CAT_LABELS[cat] || cat}</div>`;
+        html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px;">';
+        html += byCat[cat].map(card => `
+          <button class="qd-card-btn" style="text-align:left;padding:10px 12px;" onclick="openCardEdit('${card.id}')">
+            <div style="font-size:13px;font-weight:600;color:var(--text);">${card.emoji || '📚'} ${escapeHtml(card.title)}</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:3px;">${card.active ? 'активна' : '⏸ скрыта'}</div>
+          </button>
+        `).join('');
+        html += '</div>';
+      }
+    }
+    html += '</div>';
+
+    // === БЛОК 3: Все квесты (справочно) ===
+    html += '<div class="game-block">';
+    html += `<div class="game-block-head">
+        <div class="game-block-title">🗺 КАРТА КВЕСТОВ (справочно)</div>
+        <div class="game-block-hint">${totalQuests} шагов</div>
+      </div>`;
+    const byStageQ = { start: [], middle: [], mastery: [] };
+    for (const q of learnDashData.quests) {
+      if (byStageQ[q.stage]) byStageQ[q.stage].push(q);
+    }
+    const STAGE_DASH = {
+      start:   { name: 'Быстрый старт',   emoji: '🟢' },
+      middle:  { name: 'Углубление',      emoji: '🟡' },
+      mastery: { name: 'Мастерство',      emoji: '🔴' },
+    };
+    for (const stage of ['start','middle','mastery']) {
+      const list = byStageQ[stage];
+      if (!list || list.length === 0) continue;
+      const meta = STAGE_DASH[stage];
+      html += `<div style="margin-top:11px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:700;">${meta.emoji} ${meta.name}</div>`;
+      html += list.map(q => `
+        <div class="rank-row" style="cursor:default;">
+          <div class="rank-pos">${q.step}</div>
+          <div class="rank-name">
+            <div>${q.emoji} ${escapeHtml(q.title)}</div>
+            <div class="rank-sub">${escapeHtml(q.description || '')}</div>
+          </div>
+          <div class="rank-pts" style="font-size:14px;">+${q.reward_xp}</div>
+        </div>
+      `).join('');
+    }
+    html += '</div>';
+
+    c.innerHTML = html;
+  }
+
+  function newbieRowHtml(mgr, totalQuests) {
+    const progress = learnDashData.progressByMgr[mgr.id] || {};
+    const done = Object.values(progress).filter(p => p.status === 'done').length;
+    const pct = totalQuests > 0 ? Math.round(done / totalQuests * 100) : 0;
+    const mentor = mgr.mentor_id ? learnDashData.allMgrs.find(x => x.id === mgr.mentor_id) : null;
+    const startedAt = mgr.started_at ? new Date(mgr.started_at) : null;
+    const daysOnboarding = startedAt ? Math.floor((Date.now() - startedAt.getTime()) / 86400000) : 0;
+
+    // Не пройденные ручные квесты (без auto_metric)
+    const manualQuests = learnDashData.quests.filter(q => !q.auto_metric || q.auto_target < 1);
+    const pendingManual = manualQuests.filter(q => progress[q.code]?.status !== 'done');
+
+    return `<div class="challenge-row" style="cursor:default;">
+      <div class="ch-head">
+        <div class="ch-title">${mgr.avatar_emoji || '😊'} ${escapeHtml(mgr.name)} <span style="font-size:11px;color:var(--muted);font-weight:400;">· ${POINT_LABELS[mgr.point_id] || mgr.point_id}</span></div>
+        <div class="ch-hint">${daysOnboarding} дн обучения${mentor ? ' · 🎓 наставник: ' + escapeHtml(mentor.short_name || mentor.name) : ' · нет наставника'}</div>
+      </div>
+      <div class="ch-progress">
+        <div class="ch-bar"><div class="ch-bar-fill" style="width:${pct}%;${done===totalQuests?'background:var(--green);':''}"></div></div>
+        <div class="ch-vals">
+          <span class="ch-current">${done}</span> / <span class="ch-target">${totalQuests}</span>
+          <span style="color:var(--muted);font-size:11px;"> · ${pct}%</span>
+          ${done === totalQuests ? '<span style="color:var(--green);margin-left:8px;font-weight:700;">🎓 ВЫПУСКНИК</span>' : ''}
+        </div>
+      </div>
+      ${pendingManual.length > 0 ? `
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:700;">⏳ Ручные квесты — нужно подтверждение</div>
+          ${pendingManual.map(q => `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px;">
+              <div>${q.emoji} ${escapeHtml(q.title)}</div>
+              <button class="se-btn" style="padding:4px 10px;font-size:11px;" onclick="confirmManualQuest('${mgr.id}','${q.code}')">✓ Подтвердить</button>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+    </div>`;
+  }
+
+  async function confirmManualQuest(managerId, questCode) {
+    const q = learnDashData.quests.find(x => x.code === questCode);
+    const mgr = learnDashData.allMgrs.find(x => x.id === managerId);
+    if (!q || !mgr) return;
+    const note = prompt(`Подтвердить выполнение квеста «${q.emoji} ${q.title}» для ${mgr.name}?\n\nКомментарий наставника (опционально):`, '');
+    if (note === null) return; // отмена
+    try {
+      // Upsert quest_progress
+      const { error } = await sb.from('quest_progress').upsert({
+        manager_id: managerId,
+        quest_code: questCode,
+        status: 'done',
+        completed_at: new Date().toISOString(),
+        mentor_note: note || null,
+      }, { onConflict: 'manager_id,quest_code' });
+      if (error) throw error;
+      // Начисление XP — пишем в game_actions от имени менеджера
+      if (q.reward_xp > 0) {
+        await sb.from('game_actions').insert({
+          manager_id: managerId,
+          point_id: mgr.point_id,
+          action_type: 'quest_completed',
+          points: q.reward_xp,
+          ref_id: questCode,
+          ref_table: 'quests',
+          comment: `${q.emoji} ${q.title} (подтверждено наставником)`,
+        });
+      }
+      // Если последний квест "solo_shift" — пометим менеджера как выпускника
+      if (questCode === 'solo_shift') {
+        await sb.from('managers').update({
+          graduated_at: new Date().toISOString(),
+          // не снимаем is_newbie автоматически — пусть руководитель сам решит
+        }).eq('id', managerId);
+        toast('🎓 ВЫПУСКНИК! Не забудь снять флаг «Новичок» когда будет готов к самостоятельной работе.', 'ok');
+      } else {
+        toast('Квест подтверждён', 'ok');
+      }
+      loadAndRenderLearn();
+    } catch (e) {
+      toast('Ошибка: ' + (e.message || e), 'err');
+    }
+  }
+
+  // === Редактор карточек знаний ===
+  let editingCardId = null;
+
+  function openCardEdit(id) {
+    editingCardId = id;
+    const modal = document.getElementById('kc-edit-modal');
+    if (id) {
+      const card = learnDashData.cards.find(c => c.id === id);
+      if (!card) return;
+      document.getElementById('kce-title-h').textContent = `✏ ${card.title}`;
+      document.getElementById('kce-code').value = card.code || '';
+      document.getElementById('kce-name').value = card.title || '';
+      document.getElementById('kce-emoji').value = card.emoji || '📚';
+      document.getElementById('kce-cat').value = card.category || 'other';
+      document.getElementById('kce-content').value = card.content || '';
+      document.getElementById('kce-active').checked = !!card.active;
+      document.getElementById('kce-delete-btn').style.display = '';
+    } else {
+      document.getElementById('kce-title-h').textContent = '+ Новая карточка';
+      document.getElementById('kce-code').value = '';
+      document.getElementById('kce-name').value = '';
+      document.getElementById('kce-emoji').value = '📚';
+      document.getElementById('kce-cat').value = 'reception';
+      document.getElementById('kce-content').value = '';
+      document.getElementById('kce-active').checked = true;
+      document.getElementById('kce-delete-btn').style.display = 'none';
+    }
+    modal.classList.add('show');
+  }
+  function closeCardEdit() {
+    document.getElementById('kc-edit-modal').classList.remove('show');
+    editingCardId = null;
+  }
+  async function saveCard() {
+    const code = document.getElementById('kce-code').value.trim();
+    const title = document.getElementById('kce-name').value.trim();
+    const emoji = document.getElementById('kce-emoji').value.trim() || '📚';
+    const category = document.getElementById('kce-cat').value;
+    const content = document.getElementById('kce-content').value;
+    const active = document.getElementById('kce-active').checked;
+    if (!code) { toast('Укажи код', 'err'); return; }
+    if (!title) { toast('Укажи название', 'err'); return; }
+    if (!content) { toast('Содержание пустое', 'err'); return; }
+    const payload = { code, title, emoji, category, content, active };
+    try {
+      if (editingCardId) {
+        const { error } = await sb.from('knowledge_cards').update(payload).eq('id', editingCardId);
+        if (error) throw error;
+        toast('Карточка обновлена', 'ok');
+      } else {
+        const { error } = await sb.from('knowledge_cards').insert(payload);
+        if (error) throw error;
+        toast('Карточка создана', 'ok');
+      }
+      closeCardEdit();
+      loadAndRenderLearn();
+    } catch (e) {
+      toast('Ошибка: ' + (e.message || e), 'err');
+    }
+  }
+  async function deleteCard() {
+    if (!editingCardId) return;
+    if (!confirm('Удалить карточку навсегда?')) return;
+    try {
+      const { error } = await sb.from('knowledge_cards').delete().eq('id', editingCardId);
+      if (error) throw error;
+      toast('Удалена', 'ok');
+      closeCardEdit();
+      loadAndRenderLearn();
     } catch (e) {
       toast('Ошибка: ' + (e.message || e), 'err');
     }
