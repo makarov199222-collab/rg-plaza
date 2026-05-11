@@ -215,17 +215,18 @@
 
   /* === Пульс компании === */
   .pulse-wrap{max-width:1280px;margin:0 auto;}
-  .pulse-period{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding:10px 14px;background:#0e0e0e;border:1px solid var(--border);border-radius:10px;}
+  .pulse-period{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding:10px 14px;background:#0e0e0e;border:1px solid var(--border);border-radius:10px;border-left:3px solid var(--accent);}
   .pulse-period-title{font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--text);letter-spacing:1.5px;}
   .pulse-period-sub{font-size:11px;color:var(--muted);}
 
   .pulse-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:14px;}
   @media(max-width:780px){.pulse-grid{grid-template-columns:1fr;}}
-  .pulse-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;}
+  .pulse-card{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:12px;padding:14px;}
   .pulse-card.full{grid-column:1/-1;}
-  .pulse-card.coming-soon{background:repeating-linear-gradient(45deg,transparent,transparent 10px,rgba(232,184,75,.03) 10px,rgba(232,184,75,.03) 20px);border-style:dashed;opacity:.7;}
-  .pulse-card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
-  .pulse-title{font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--text);letter-spacing:1.3px;}
+  .pulse-card.coming-soon{background:#0e0e0e;border-style:dashed;border-left-color:var(--border);opacity:.55;}
+  .pulse-card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:9px;border-bottom:1px solid var(--border);}
+  .pulse-title{font-family:'Bebas Neue',sans-serif;font-size:15px;color:var(--accent);letter-spacing:1.3px;}
+  .pulse-card.coming-soon .pulse-title{color:var(--muted);}
   .pulse-hint{font-size:10px;color:var(--muted);}
   .pulse-coming-tag{font-size:9px;color:var(--muted);background:rgba(160,160,160,.08);border:1px solid var(--border);padding:2px 7px;border-radius:5px;letter-spacing:.4px;text-transform:uppercase;font-weight:600;}
 
