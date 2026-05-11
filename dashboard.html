@@ -198,6 +198,21 @@
   .gst-val{font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--accent);line-height:1;letter-spacing:1px;}
   .gst-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:5px;}
 
+  /* === Челленджи === */
+  .challenge-row{background:#0e0e0e;border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer;transition:border-color .15s;}
+  .challenge-row:hover{border-color:var(--accent);}
+  .challenge-row:last-child{margin-bottom:0;}
+  .ch-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:4px;flex-wrap:wrap;}
+  .ch-title{font-weight:700;color:var(--text);font-size:14px;}
+  .ch-hint{font-size:11px;color:var(--muted);}
+  .ch-desc{font-size:12px;color:var(--muted);margin-bottom:8px;}
+  .ch-progress{margin-top:6px;}
+  .ch-bar{height:8px;background:var(--border);border-radius:4px;overflow:hidden;margin-bottom:6px;}
+  .ch-bar-fill{height:100%;background:linear-gradient(90deg, var(--accent), #ffd97a);transition:width .4s;}
+  .ch-vals{font-size:12px;}
+  .ch-current{font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--accent);letter-spacing:.5px;}
+  .ch-target{color:var(--muted);}
+
   .city-section{margin-bottom:24px;}
   .city-title{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--muted);letter-spacing:2px;margin-bottom:12px;display:flex;align-items:center;gap:10px;}
   .city-title::before{content:'';width:24px;height:2px;background:var(--accent);}
@@ -470,6 +485,76 @@
   </div>
 </div>
 
+</div>
+
+<div class="se-modal" id="ch-modal" onclick="if(event.target===this)closeChallengeEdit()">
+  <div class="se-sheet">
+    <div class="se-head">
+      <div class="se-title" id="ch-title-h">Челлендж</div>
+      <button class="se-x" onclick="closeChallengeEdit()">✕</button>
+    </div>
+
+    <div class="se-row">
+      <div class="se-lbl">Шаблоны (быстрая вставка)</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:5px;">
+        <button class="se-btn" style="font-size:10px;padding:5px;" onclick="applyChallengeTemplate(0)">💧 Сухой клиент</button>
+        <button class="se-btn" style="font-size:10px;padding:5px;" onclick="applyChallengeTemplate(1)">🛡 Бронебойщик</button>
+        <button class="se-btn" style="font-size:10px;padding:5px;" onclick="applyChallengeTemplate(2)">🔧 Острый глаз</button>
+        <button class="se-btn" style="font-size:10px;padding:5px;" onclick="applyChallengeTemplate(3)">🌟 Чистый свет</button>
+        <button class="se-btn" style="font-size:10px;padding:5px;" onclick="applyChallengeTemplate(4)">💎 Стеклогурман</button>
+        <button class="se-btn" style="font-size:10px;padding:5px;" onclick="applyChallengeTemplate(5)">✅ Поток розницы</button>
+      </div>
+    </div>
+
+    <div class="se-row">
+      <div class="se-lbl">Название</div>
+      <input id="ch-name" type="text" class="se-inp" placeholder="Сухой клиент">
+    </div>
+    <div class="se-row">
+      <div class="se-lbl">Описание <span style="color:var(--muted);font-weight:400;text-transform:none;">(опц.)</span></div>
+      <input id="ch-desc" type="text" class="se-inp" placeholder="Продайте 15 антидождей">
+    </div>
+    <div class="se-row">
+      <div class="se-lbl">Точка</div>
+      <select id="ch-point" class="se-inp">
+        <option value="">По всем точкам (общий)</option>
+        <option value="kaluga">Калужская</option>
+        <option value="serpuhov">Серпуховская</option>
+        <option value="sovhoz">Совхозная</option>
+        <option value="poyma">Пойма</option>
+      </select>
+    </div>
+    <div class="se-row">
+      <div class="se-lbl">Что считаем</div>
+      <select id="ch-metric" class="se-inp"></select>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px;">
+      <div class="se-row">
+        <div class="se-lbl">Цель (шт.)</div>
+        <input id="ch-target" type="number" min="1" class="se-inp" placeholder="15">
+      </div>
+      <div class="se-row">
+        <div class="se-lbl">Приз ₽ в котёл</div>
+        <input id="ch-reward" type="number" min="0" class="se-inp" placeholder="5000">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px;">
+      <div class="se-row">
+        <div class="se-lbl">Начало</div>
+        <input id="ch-start" type="date" class="se-inp">
+      </div>
+      <div class="se-row">
+        <div class="se-lbl">Конец</div>
+        <input id="ch-end" type="date" class="se-inp">
+      </div>
+    </div>
+
+    <div class="se-actions">
+      <button class="se-btn primary" onclick="saveChallenge()">💾 Сохранить</button>
+      <button class="se-btn danger" id="ch-delete-btn" style="display:none;" onclick="deleteChallenge()">🗑 Удалить</button>
+      <button class="se-btn" onclick="closeChallengeEdit()">Отмена</button>
+    </div>
+  </div>
 </div>
 
 <div class="se-modal" id="se-modal" onclick="if(event.target===this)closeStaffEdit()">
@@ -2180,18 +2265,22 @@ ${point.name} ${flow}`;
       // Период: текущий месяц
       const now = new Date();
       const monthStart = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01T00:00:00`;
+      const today = todayLocalISO();
 
-      // Параллельно: менеджеры, действия за месяц, аудиты за месяц
-      const [mgrsRes, actsRes] = await Promise.all([
+      // Параллельно: менеджеры, действия за месяц, активные челленджи
+      const [mgrsRes, actsRes, chRes] = await Promise.all([
         sb.from('managers').select('*').eq('active', true).order('point_id'),
         sb.from('game_actions').select('*').gte('occurred_at', monthStart).order('occurred_at', { ascending: false }).limit(500),
+        sb.from('challenges').select('*').gte('ends_at', today).order('starts_at'),
       ]);
       if (mgrsRes.error) throw mgrsRes.error;
       if (actsRes.error) throw actsRes.error;
+      if (chRes.error) throw chRes.error;
 
       gameData.managers = mgrsRes.data || [];
       gameData.actions = (actsRes.data || []).filter(a => a.action_type !== 'audit_car_deleted');
       gameData.audits = (actsRes.data || []).filter(a => a.action_type === 'audit_car_deleted');
+      gameData.challenges = chRes.data || [];
       renderGameDash();
     } catch (e) {
       console.error('Game load error:', e);
@@ -2300,6 +2389,14 @@ ${point.name} ${flow}`;
 
       <div class="game-block" style="margin-bottom:14px;">
         <div class="game-block-head">
+          <div class="game-block-title">🎯 ЧЕЛЛЕНДЖИ</div>
+          <button class="staff-add-btn" onclick="openChallengeEdit(null)">+ Новый челлендж</button>
+        </div>
+        ${renderChallengesList()}
+      </div>
+
+      <div class="game-block" style="margin-bottom:14px;">
+        <div class="game-block-head">
           <div class="game-block-title">📰 ЛЕНТА СОБЫТИЙ</div>
           <div class="game-block-hint">последние 30</div>
         </div>
@@ -2354,6 +2451,184 @@ ${point.name} ${flow}`;
     const m = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
     const now = new Date();
     return `${m[now.getMonth()]} ${now.getFullYear()}`;
+  }
+
+  // ============ ЧЕЛЛЕНДЖИ ============
+  const CHALLENGE_METRICS = {
+    sold_antirain:        '💧 Антидождей',
+    sold_brush:           '🌬 Щёток',
+    sold_armor:           '🛡 Броней',
+    sold_tinting:         '✨ Тонировок фар',
+    sold_chip_repair:     '🔧 Сколов починено',
+    sold_glass_polish:    '💎 Полировок стёкол',
+    sold_headlight_polish:'🌟 Полировок фар',
+    sold_silicone_seal:   '🧴 Силиконов уплотнителей',
+    car_added:            '🚗 Машин внесено',
+    car_closed_retail:    '✅ Закрыто (розница)',
+    car_closed_insurance: '✅ Закрыто (страх)',
+    car_closed_corp:      '✅ Закрыто (корпоратив)',
+  };
+
+  let editingChallengeId = null;
+
+  function renderChallengesList() {
+    const chs = gameData.challenges || [];
+    if (chs.length === 0) {
+      return '<div class="feed-empty">Нет активных челленджей. Создай первый — это мотивирует менеджеров!</div>';
+    }
+    return chs.map(ch => {
+      // Считаем прогресс на основе game_actions
+      const progress = calcChallengeProgress(ch);
+      const pct = Math.min(100, Math.round(progress / ch.target_value * 100));
+      const isPointSpecific = !!ch.point_id;
+      const pointName = isPointSpecific ? (POINT_LABELS[ch.point_id] || ch.point_id) : 'по всем точкам';
+      const endDate = new Date(ch.ends_at);
+      const today = new Date(); today.setHours(0,0,0,0);
+      const daysLeft = Math.ceil((endDate - today) / 86400000);
+      const daysHint = daysLeft < 0 ? '⏰ Завершён' : (daysLeft === 0 ? '⏰ Последний день' : `⏰ ${daysLeft} дн осталось`);
+      const isDone = progress >= ch.target_value;
+      return `<div class="challenge-row" onclick="openChallengeEdit('${ch.id}')">
+        <div class="ch-head">
+          <div class="ch-title">${isDone ? '✅ ' : '🎯 '}${escapeHtml(ch.title)}</div>
+          <div class="ch-hint">${pointName} · ${daysHint}</div>
+        </div>
+        ${ch.description ? `<div class="ch-desc">${escapeHtml(ch.description)}</div>` : ''}
+        <div class="ch-progress">
+          <div class="ch-bar"><div class="ch-bar-fill" style="width:${pct}%;${isDone ? 'background:var(--green);' : ''}"></div></div>
+          <div class="ch-vals">
+            <span class="ch-current">${fm(progress)}</span> / <span class="ch-target">${fm(ch.target_value)}</span>
+            <span style="color:var(--muted);font-size:11px;"> · ${CHALLENGE_METRICS[ch.metric] || ch.metric}</span>
+            ${ch.reward_rub > 0 ? `<span style="color:var(--accent);font-weight:700;margin-left:8px;">💰 ${fm(ch.reward_rub)} ₽</span>` : ''}
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function calcChallengeProgress(ch) {
+    const startDt = new Date(ch.starts_at + 'T00:00:00').getTime();
+    const endDt = new Date(ch.ends_at + 'T23:59:59').getTime();
+    let count = 0;
+    for (const a of gameData.actions) {
+      if (a.action_type !== ch.metric) continue;
+      if (ch.point_id && a.point_id !== ch.point_id) continue;
+      const ts = new Date(a.occurred_at).getTime();
+      if (ts < startDt || ts > endDt) continue;
+      count++;
+    }
+    return count;
+  }
+
+  function openChallengeEdit(id) {
+    editingChallengeId = id;
+    const modal = document.getElementById('ch-modal');
+    const titleEl = document.getElementById('ch-title-h');
+    const delBtn = document.getElementById('ch-delete-btn');
+
+    // Заполняем список метрик
+    const metricSel = document.getElementById('ch-metric');
+    metricSel.innerHTML = Object.entries(CHALLENGE_METRICS)
+      .map(([code, label]) => `<option value="${code}">${label}</option>`).join('');
+
+    if (id) {
+      const ch = gameData.challenges.find(c => c.id === id);
+      if (!ch) return;
+      titleEl.textContent = `✏ ${ch.title}`;
+      document.getElementById('ch-name').value = ch.title || '';
+      document.getElementById('ch-desc').value = ch.description || '';
+      document.getElementById('ch-point').value = ch.point_id || '';
+      document.getElementById('ch-metric').value = ch.metric;
+      document.getElementById('ch-target').value = ch.target_value;
+      document.getElementById('ch-reward').value = ch.reward_rub || 0;
+      document.getElementById('ch-start').value = ch.starts_at;
+      document.getElementById('ch-end').value = ch.ends_at;
+      delBtn.style.display = '';
+    } else {
+      titleEl.textContent = '+ Новый челлендж';
+      document.getElementById('ch-name').value = '';
+      document.getElementById('ch-desc').value = '';
+      document.getElementById('ch-point').value = '';
+      document.getElementById('ch-metric').value = 'sold_antirain';
+      document.getElementById('ch-target').value = 15;
+      document.getElementById('ch-reward').value = 5000;
+      document.getElementById('ch-start').value = todayLocalISO();
+      // По умолчанию 7 дней
+      const end = new Date(); end.setDate(end.getDate() + 6);
+      document.getElementById('ch-end').value = end.toISOString().substring(0,10);
+      delBtn.style.display = 'none';
+    }
+    modal.classList.add('show');
+  }
+
+  function closeChallengeEdit() {
+    document.getElementById('ch-modal').classList.remove('show');
+    editingChallengeId = null;
+  }
+
+  // Шаблоны челленджей — быстрая вставка
+  const CHALLENGE_TEMPLATES = [
+    { title: 'Сухой клиент',     metric: 'sold_antirain',      target: 15, reward: 5000, desc: 'Продайте 15 антидождей' },
+    { title: 'Бронебойщик',      metric: 'sold_armor',         target: 3,  reward: 5000, desc: 'Продайте 3 брони лобового' },
+    { title: 'Острый глаз',      metric: 'sold_chip_repair',   target: 25, reward: 3000, desc: 'Почините 25 сколов' },
+    { title: 'Чистый свет',      metric: 'sold_headlight_polish', target: 10, reward: 3000, desc: 'Отполируйте фары на 10 машинах' },
+    { title: 'Стеклогурман',     metric: 'sold_glass_polish',  target: 12, reward: 3000, desc: 'Полировка стёкол 12 раз' },
+    { title: 'Поток розницы',    metric: 'car_closed_retail',  target: 20, reward: 5000, desc: 'Закройте 20 розничных машин' },
+  ];
+
+  function applyChallengeTemplate(idx) {
+    const t = CHALLENGE_TEMPLATES[idx];
+    if (!t) return;
+    document.getElementById('ch-name').value = t.title;
+    document.getElementById('ch-desc').value = t.desc;
+    document.getElementById('ch-metric').value = t.metric;
+    document.getElementById('ch-target').value = t.target;
+    document.getElementById('ch-reward').value = t.reward;
+  }
+
+  async function saveChallenge() {
+    const title = document.getElementById('ch-name').value.trim();
+    const desc = document.getElementById('ch-desc').value.trim();
+    const point_id = document.getElementById('ch-point').value || null;
+    const metric = document.getElementById('ch-metric').value;
+    const target_value = +document.getElementById('ch-target').value || 0;
+    const reward_rub = +document.getElementById('ch-reward').value || 0;
+    const starts_at = document.getElementById('ch-start').value;
+    const ends_at = document.getElementById('ch-end').value;
+    if (!title) { toast('Укажи название', 'err'); return; }
+    if (target_value < 1) { toast('Цель должна быть ≥ 1', 'err'); return; }
+    if (!starts_at || !ends_at) { toast('Укажи даты начала и окончания', 'err'); return; }
+    if (ends_at < starts_at) { toast('Дата окончания должна быть после начала', 'err'); return; }
+
+    const payload = { title, description: desc, point_id, metric, target_value, reward_rub, starts_at, ends_at };
+    try {
+      if (editingChallengeId) {
+        const { error } = await sb.from('challenges').update(payload).eq('id', editingChallengeId);
+        if (error) throw error;
+        toast('Челлендж обновлён', 'ok');
+      } else {
+        const { error } = await sb.from('challenges').insert(payload);
+        if (error) throw error;
+        toast('Челлендж создан', 'ok');
+      }
+      closeChallengeEdit();
+      loadAndRenderGame();
+    } catch (e) {
+      toast('Ошибка: ' + (e.message || e), 'err');
+    }
+  }
+
+  async function deleteChallenge() {
+    if (!editingChallengeId) return;
+    if (!confirm('Удалить челлендж?')) return;
+    try {
+      const { error } = await sb.from('challenges').delete().eq('id', editingChallengeId);
+      if (error) throw error;
+      toast('Удалён', 'ok');
+      closeChallengeEdit();
+      loadAndRenderGame();
+    } catch (e) {
+      toast('Ошибка: ' + (e.message || e), 'err');
+    }
   }
 
   function todayLocalISO() {
