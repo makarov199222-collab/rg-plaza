@@ -832,6 +832,7 @@
     sold_silicone_seal:     '🧴 Силикон уплотнителей',
     penalty_stale_car:      '⚠ Зависшая машина',
     penalty_open_at_shift_end:'⚠ Не закрыл к концу смены',
+    audit_car_deleted:        '🚨 Машина удалена (аудит)',
   };
   const GAME_LEVELS = [
     { code: 'rookie',   name: 'Новичок',  emoji: '🥉', min: 0,    max: 500   },
@@ -2062,7 +2063,15 @@ ${planLine}
       document.getElementById('ce-time').value = c.expected_time || '';
       addons = c.addons || {};
       closeBtn.style.display = '';
-      delBtn.style.display = '';
+      // Удаление доступно только в первый час после создания (защита от накруток баллов)
+      const createdAt = c.created_at ? new Date(c.created_at).getTime() : null;
+      const hoursSinceCreated = createdAt ? (Date.now() - createdAt) / 36e5 : 999;
+      if (hoursSinceCreated < 1) {
+        delBtn.style.display = '';
+        delBtn.textContent = `🗑 Удалить (осталось ${Math.ceil(60 - hoursSinceCreated * 60)} мин)`;
+      } else {
+        delBtn.style.display = 'none';
+      }
     } else {
       // Новая
       titleEl.textContent = '+ Новая машина';
@@ -2321,25 +2330,56 @@ ${planLine}
 
   async function deleteCar() {
     if (!editingCarId) return;
-    if (!confirm('Удалить машину навсегда? (это не закрытие выдачей)\n⚠ Все игровые баллы за эту машину тоже будут аннулированы.')) return;
     const idToDelete = editingCarId;
+    const car = carsInWork.find(c => c.id === idToDelete);
+    const carInfo = car ? (car.info || car.plate || '') : '';
+
+    // Проверка времени жизни — нельзя удалить машину старше 1 часа
+    if (car && car.created_at) {
+      const ageHours = (Date.now() - new Date(car.created_at).getTime()) / 36e5;
+      if (ageHours >= 1) {
+        toast('Машина создана > 1 часа назад. Удаление недоступно — используй закрытие выдачей', 'err');
+        return;
+      }
+    }
+    if (!confirm('Удалить машину навсегда? (это не закрытие выдачей)\n⚠ Все игровые баллы за эту машину тоже будут аннулированы.\nДействие будет залогировано.')) return;
+
     try {
-      // 1. Сначала аннулируем все игровые баллы за эту машину
+      // 1. Считаем сколько баллов было начислено за эту машину
+      const { data: existingActions } = await sb.from('game_actions')
+        .select('points')
+        .eq('ref_table', 'cars_in_work')
+        .eq('ref_id', idToDelete);
+      const lostPoints = (existingActions || []).reduce((s, a) => s + (a.points || 0), 0);
+
+      // 2. Аннулируем все баллы
       const { error: gaErr } = await sb.from('game_actions')
         .delete()
         .eq('ref_table', 'cars_in_work')
         .eq('ref_id', idToDelete);
       if (gaErr) console.error('Cannot delete game_actions:', gaErr);
-      // 2. Удаляем саму машину
+
+      // 3. Удаляем саму машину
       const { error } = await sb.from('cars_in_work').delete().eq('id', idToDelete);
       if (error) throw error;
+
+      // 4. Лог удаления (видно руководителю в ленте) — только если были баллы
+      if (currentManager && lostPoints > 0) {
+        await sb.from('game_actions').insert({
+          manager_id: currentManager.id,
+          point_id: currentPoint.id,
+          action_type: 'audit_car_deleted',
+          points: 0, // не влияет на счёт
+          ref_id: null,
+          ref_table: 'audit',
+          comment: `Удалена машина "${carInfo}" — аннулировано ${lostPoints} б.`,
+        });
+      }
+
       toast('Удалено · баллы аннулированы', 'ok');
       closeCarEdit();
       loadCars();
-      // 3. Перезагружаем статистику менеджера — баллы могли уменьшиться
-      if (currentManager) {
-        await loadMyStats();
-      }
+      if (currentManager) await loadMyStats();
     } catch (e) {
       toast('Ошибка: '+(e.message||e), 'err');
     }
