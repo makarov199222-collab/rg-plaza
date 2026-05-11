@@ -116,6 +116,57 @@
   .mc-bar-fill{height:100%;background:linear-gradient(90deg, var(--accent), #ffd97a);transition:width .4s;}
   .mc-vals{font-size:12px;}
   .mc-current{font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--accent);letter-spacing:.5px;}
+
+  /* === Обучение (Onboarding) === */
+  .newbie-pulse{position:relative;animation:newbiePulse 2s infinite;}
+  @keyframes newbiePulse{
+    0%,100%{box-shadow:0 0 0 0 rgba(232,184,75,.6);}
+    50%{box-shadow:0 0 0 6px rgba(232,184,75,0);}
+  }
+
+  .learn-hero{background:linear-gradient(135deg, #1a1a1a, #252525);border:1px solid var(--accent);border-radius:14px;padding:18px;margin-bottom:14px;}
+  .lh-title{font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--text);letter-spacing:1.5px;margin-bottom:10px;}
+  .lh-bar{height:10px;background:#0a0a0a;border-radius:5px;overflow:hidden;margin-bottom:8px;}
+  .lh-bar-fill{height:100%;background:linear-gradient(90deg, var(--accent), #ffd97a);transition:width .5s;}
+  .lh-stats{font-size:13px;color:var(--muted);}
+  .lh-graduate{margin-top:10px;padding:8px 12px;background:rgba(76,175,80,.12);border:1px solid var(--green);border-radius:8px;color:var(--green);font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1.5px;text-align:center;}
+
+  .learn-stage{margin-bottom:18px;}
+  .ls-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding:0 4px;}
+  .ls-title{font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--accent);letter-spacing:1.5px;}
+  .ls-sub{font-size:11px;color:var(--muted);}
+
+  .quest-row{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:6px;cursor:pointer;transition:all .15s;}
+  .quest-row:hover{border-color:var(--accent);}
+  .quest-row.done{background:rgba(76,175,80,.05);border-color:rgba(76,175,80,.35);}
+  .quest-main{display:flex;align-items:center;gap:11px;}
+  .quest-status{font-size:18px;line-height:1;flex-shrink:0;width:24px;text-align:center;}
+  .quest-content{flex:1;min-width:0;}
+  .quest-title{font-size:13px;font-weight:600;color:var(--text);}
+  .quest-prog{margin-top:6px;display:flex;align-items:center;gap:8px;}
+  .qp-bar{flex:1;height:5px;background:#0e0e0e;border-radius:3px;overflow:hidden;}
+  .qp-bar-fill{height:100%;background:linear-gradient(90deg, var(--accent), #ffd97a);transition:width .4s;}
+  .qp-vals{font-size:11px;color:var(--muted);min-width:42px;text-align:right;font-family:'Bebas Neue',sans-serif;letter-spacing:.4px;}
+  .quest-prog-manual{font-size:10px;color:var(--muted);margin-top:4px;font-style:italic;}
+  .quest-xp{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--accent);letter-spacing:.5px;flex-shrink:0;}
+
+  .quest-detail{margin-top:11px;padding-top:11px;border-top:1px solid var(--border);font-size:12px;color:var(--text);line-height:1.5;}
+  .qd-section{margin-bottom:11px;}
+  .qd-section:last-child{margin-bottom:0;}
+  .qd-lbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;font-weight:700;}
+  .qd-cards{display:grid;grid-template-columns:repeat(auto-fill, minmax(120px, 1fr));gap:6px;}
+  .qd-card-btn{background:#0e0e0e;border:1px solid var(--border);border-radius:8px;padding:10px;cursor:pointer;text-align:center;color:var(--text);transition:all .12s;}
+  .qd-card-btn:hover{border-color:var(--accent);background:#1a1a1a;}
+  .qd-done-mark{font-size:11px;color:var(--green);padding:6px 8px;background:rgba(76,175,80,.08);border-radius:6px;text-align:center;}
+
+  /* Карточки знаний в модалке */
+  #kc-body h1,#kc-body h2,#kc-body h3{font-family:'Bebas Neue',sans-serif;color:var(--accent);letter-spacing:1px;margin:14px 0 6px;}
+  #kc-body p{margin:0 0 10px;}
+  #kc-body ul{margin:0 0 10px;padding-left:18px;}
+  #kc-body li{margin-bottom:4px;}
+  #kc-body b{color:var(--accent);}
+  #kc-body blockquote{border-left:3px solid var(--accent);padding:6px 12px;margin:8px 0;background:rgba(232,184,75,.06);font-style:italic;color:var(--text);}
+  #kc-body pre{background:#0a0a0a;border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-family:'JetBrains Mono', monospace;font-size:11px;overflow-x:auto;margin:8px 0;color:var(--text);}
   .sync-dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;}
   .sync-dot.offline{background:var(--red);animation:none;}
   .sync-dot.syncing{background:var(--orange);}
@@ -403,6 +454,7 @@
     <button class="tab" onclick="showTab('plan')">🎯 План</button>
     <button class="tab cars-only" style="display:none;" onclick="showTab('cars')">🚗 Машины</button>
     <button class="tab" id="tab-game-btn" onclick="showTab('game')" style="display:none;">🎮 Я</button>
+    <button class="tab" id="tab-learn-btn" onclick="showTab('learn')" style="display:none;">🎓 Обучение</button>
   </div>
 
   <div class="page active" id="tab-day">
@@ -680,6 +732,25 @@
       <div class="loader"><div class="spinner"></div>Загружаю мою игру...</div>
     </div>
   </div>
+
+  <div class="page" id="tab-learn">
+    <div id="learn-content">
+      <div class="loader"><div class="spinner"></div>Загружаю обучение...</div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="kc-overlay" onclick="if(event.target.id==='kc-overlay') closeCard()">
+  <div class="sheet" style="max-width:560px;">
+    <div class="sheet-head">
+      <div class="sheet-title" id="kc-title">Карточка</div>
+      <button class="xbtn" onclick="closeCard()">✕</button>
+    </div>
+    <div class="sheet-body" id="kc-body" style="line-height:1.6;font-size:13px;color:var(--text);"></div>
+    <div class="cf-actions">
+      <button class="ce-btn primary" onclick="closeCard()">Понятно</button>
+    </div>
+  </div>
 </div>
 
 <div class="overlay" id="car-edit-overlay" onclick="if(event.target.id==='car-edit-overlay') closeCarEdit()">
@@ -854,6 +925,7 @@
     penalty_stale_car:      '⚠ Зависшая машина',
     penalty_open_at_shift_end:'⚠ Не закрыл к концу смены',
     audit_car_deleted:        '🚨 Машина удалена (аудит)',
+    quest_completed:          '🎓 Квест выполнен',
   };
   const GAME_LEVELS = [
     { code: 'rookie',   name: 'Новичок',  emoji: '🥉', min: 0,    max: 500   },
@@ -1276,11 +1348,21 @@
       badge.title = pointManagers.length > 1 ? 'Сменить менеджера' : currentManager.name;
       // Показываем вкладку "🎮 Я"
       document.getElementById('tab-game-btn').style.display = '';
+      // Показываем вкладку "🎓 Обучение"
+      const learnBtn = document.getElementById('tab-learn-btn');
+      learnBtn.style.display = '';
+      // Если новичок — выделяем кнопку
+      if (currentManager.is_newbie) {
+        learnBtn.classList.add('newbie-pulse');
+      } else {
+        learnBtn.classList.remove('newbie-pulse');
+      }
       // Загружаем статистику менеджера
       loadMyStats();
     } else {
       badge.style.display = 'none';
       document.getElementById('tab-game-btn').style.display = 'none';
+      document.getElementById('tab-learn-btn').style.display = 'none';
       document.getElementById('my-game-widget').style.display = 'none';
     }
     // Детейлинг: только Совхозная. Передача смен (Машины): все точки.
@@ -1319,10 +1401,22 @@
       const btn = document.querySelector(`.tab[onclick*="'${t}'"]`);
       if (btn) btn.classList.add('active');
     }
+    // Сохраняем посещение вкладки (для квеста "Карта приложения")
+    if (currentManager) {
+      const key = `rgp_visited_tabs_${currentManager.id}`;
+      const visited = JSON.parse(localStorage.getItem(key) || '[]');
+      if (!visited.includes(t)) {
+        visited.push(t);
+        localStorage.setItem(key, JSON.stringify(visited));
+      }
+    }
     if (t === 'plan') renderPlanStatus();
     if (t === 'cars') loadCars();
     if (t === 'game') {
       loadMyChallenges().then(() => renderMyGamePage());
+    }
+    if (t === 'learn') {
+      loadAndRenderLearn();
     }
   }
 
@@ -1560,6 +1654,266 @@
       if (d.toDateString() === yd.toDateString()) return `вчера ${hh}:${mm}`;
       return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')} ${hh}:${mm}`;
     } catch(e) { return ''; }
+  }
+
+  // ============ ОБУЧЕНИЕ (Onboarding O3) ============
+  let learnData = { quests: [], progress: {}, cards: [] };
+  let expandedQuest = null;     // код раскрытого квеста (только один)
+
+  const STAGE_LABELS = {
+    start:   { name: 'Быстрый старт',   emoji: '🟢', sub: '1-3 день' },
+    middle:  { name: 'Углубление',      emoji: '🟡', sub: '4-7 день' },
+    mastery: { name: 'Мастерство',      emoji: '🔴', sub: '2-3 неделя' },
+  };
+
+  async function loadAndRenderLearn() {
+    const c = document.getElementById('learn-content');
+    c.innerHTML = '<div class="loader"><div class="spinner"></div>Загружаю обучение...</div>';
+    try {
+      const [questsRes, progressRes, cardsRes] = await Promise.all([
+        sb.from('quests').select('*').eq('active', true).order('step'),
+        currentManager ? sb.from('quest_progress').select('*').eq('manager_id', currentManager.id) : Promise.resolve({ data: [] }),
+        sb.from('knowledge_cards').select('*').eq('active', true).order('order_idx'),
+      ]);
+      if (questsRes.error) throw questsRes.error;
+      if (progressRes.error) throw progressRes.error;
+      if (cardsRes.error) throw cardsRes.error;
+
+      learnData.quests = questsRes.data || [];
+      learnData.cards = cardsRes.data || [];
+      learnData.progress = {};
+      for (const p of (progressRes.data || [])) {
+        learnData.progress[p.quest_code] = p;
+      }
+
+      // Авто-проверка квестов: считаем completed по myStats.allActions
+      await autoCheckQuests();
+      renderLearn();
+    } catch (e) {
+      console.error('Learn load error:', e);
+      c.innerHTML = `<div style="color:var(--red);padding:20px;text-align:center;">Ошибка: ${e.message||e}</div>`;
+    }
+  }
+
+  // Проверка авто-квестов на основе действий менеджера
+  async function autoCheckQuests() {
+    if (!currentManager || !learnData.quests || !myStats.allActions) return;
+    const all = myStats.allActions;
+    const counts = {};
+    const closingsPerDay = {};
+    const closingTypes = ['car_closed_retail','car_closed_insurance','car_closed_corp','car_closed_detail'];
+    const addonTypes = ['sold_antirain','sold_brush','sold_armor','sold_tinting','sold_chip_repair','sold_glass_polish','sold_headlight_polish','sold_silicone_seal'];
+    let maxClosingsPerDay = 0;
+
+    for (const a of all) {
+      counts[a.action_type] = (counts[a.action_type] || 0) + 1;
+      if (closingTypes.includes(a.action_type)) {
+        const day = (a.occurred_at || '').substring(0, 10);
+        closingsPerDay[day] = (closingsPerDay[day] || 0) + 1;
+        if (closingsPerDay[day] > maxClosingsPerDay) maxClosingsPerDay = closingsPerDay[day];
+      }
+    }
+    // Композитные метрики
+    const car_closed_any = closingTypes.reduce((s, t) => s + (counts[t] || 0), 0);
+    const sold_any_addon = addonTypes.reduce((s, t) => s + (counts[t] || 0), 0);
+
+    // Спец-метрики
+    const visitedTabsKey = `rgp_visited_tabs_${currentManager.id}`;
+    const visitedTabs = JSON.parse(localStorage.getItem(visitedTabsKey) || '[]');
+    const loginCount = currentManager ? 1 : 0; // факт того что он вошёл
+
+    // Проверяем каждый квест
+    const toMark = [];
+    for (const q of learnData.quests) {
+      const p = learnData.progress[q.code];
+      if (p && p.status === 'done') continue;     // уже выполнен
+      if (!q.auto_metric || q.auto_target < 1) continue;
+      let current = 0;
+      switch (q.auto_metric) {
+        case 'login':            current = loginCount; break;
+        case 'tab_visited':      current = visitedTabs.length; break;
+        case 'car_closed_any':   current = car_closed_any; break;
+        case 'sold_any_addon':   current = sold_any_addon; break;
+        case 'closings_per_day': current = maxClosingsPerDay; break;
+        default:                 current = counts[q.auto_metric] || 0;
+      }
+      const done = current >= q.auto_target;
+      // Обновляем локально
+      learnData.progress[q.code] = learnData.progress[q.code] || { quest_code: q.code, status: 'in_progress', current_value: 0 };
+      learnData.progress[q.code].current_value = current;
+      if (done && learnData.progress[q.code].status !== 'done') {
+        learnData.progress[q.code].status = 'done';
+        learnData.progress[q.code].completed_at = new Date().toISOString();
+        toMark.push({ q, current });
+      }
+    }
+    // Сохраняем в БД (только завершённые и новые в работе)
+    for (const item of toMark) {
+      try {
+        await sb.from('quest_progress').upsert({
+          manager_id: currentManager.id,
+          quest_code: item.q.code,
+          status: 'done',
+          current_value: item.current,
+          completed_at: new Date().toISOString(),
+        }, { onConflict: 'manager_id,quest_code' });
+        // Награда XP — записать в game_actions как день/квест
+        if (item.q.reward_xp > 0) {
+          await sb.from('game_actions').insert({
+            manager_id: currentManager.id,
+            point_id: currentPoint.id,
+            action_type: 'quest_completed',
+            points: item.q.reward_xp,
+            ref_id: item.q.code,
+            ref_table: 'quests',
+            comment: `${item.q.emoji} ${item.q.title}`,
+          });
+        }
+        // Тост о квесте
+        toast(`🎓 КВЕСТ ВЫПОЛНЕН: ${item.q.emoji} ${item.q.title} (+${item.q.reward_xp} XP)`, 'ok');
+        // Перезагрузить статистику менеджера чтобы XP попали в виджет
+        setTimeout(() => loadMyStats(), 500);
+      } catch (e) { console.error('Quest auto-complete error:', q.code, e); }
+    }
+  }
+
+  function renderLearn() {
+    const c = document.getElementById('learn-content');
+    if (!currentManager) {
+      c.innerHTML = '<div class="ga-empty">Войди как менеджер чтобы открыть обучение</div>';
+      return;
+    }
+    // Считаем прогресс
+    const total = learnData.quests.length;
+    const done = learnData.quests.filter(q => learnData.progress[q.code]?.status === 'done').length;
+    const totalXp = learnData.quests.reduce((s, q) => s + (q.reward_xp || 0), 0);
+    const earnedXp = learnData.quests
+      .filter(q => learnData.progress[q.code]?.status === 'done')
+      .reduce((s, q) => s + (q.reward_xp || 0), 0);
+    const pct = total > 0 ? Math.round(done / total * 100) : 0;
+
+    // Группируем по ступеням
+    const byStage = { start: [], middle: [], mastery: [] };
+    for (const q of learnData.quests) {
+      if (byStage[q.stage]) byStage[q.stage].push(q);
+    }
+
+    let html = `
+      <div class="learn-hero">
+        <div class="lh-title">🎓 Моё обучение</div>
+        <div class="lh-bar"><div class="lh-bar-fill" style="width:${pct}%;"></div></div>
+        <div class="lh-stats">
+          <span><b style="color:var(--text);">${done}</b> из ${total} квестов</span>
+          <span style="margin-left:14px;"><b style="color:var(--accent);">${earnedXp}</b> / ${totalXp} XP</span>
+        </div>
+        ${done === total && total > 0 ? '<div class="lh-graduate">🎓 ВЫПУСКНИК · готов к самостоятельной работе!</div>' : ''}
+      </div>
+    `;
+
+    for (const stage of ['start','middle','mastery']) {
+      const list = byStage[stage] || [];
+      if (list.length === 0) continue;
+      const meta = STAGE_LABELS[stage];
+      const stageDone = list.filter(q => learnData.progress[q.code]?.status === 'done').length;
+      html += `
+        <div class="learn-stage">
+          <div class="ls-head">
+            <div class="ls-title">${meta.emoji} ${meta.name.toUpperCase()}</div>
+            <div class="ls-sub">${meta.sub} · ${stageDone}/${list.length}</div>
+          </div>
+          ${list.map(q => questRowHtml(q)).join('')}
+        </div>
+      `;
+    }
+    c.innerHTML = html;
+  }
+
+  function questRowHtml(q) {
+    const p = learnData.progress[q.code];
+    const isDone = p?.status === 'done';
+    const current = p?.current_value || 0;
+    const target = q.auto_target || 1;
+    const pct = target > 0 ? Math.min(100, Math.round(current / target * 100)) : 0;
+    const isExpanded = expandedQuest === q.code;
+    const cards = (q.card_codes || []).map(code => learnData.cards.find(c => c.code === code)).filter(Boolean);
+
+    return `<div class="quest-row ${isDone ? 'done' : ''}" onclick="toggleQuest('${q.code}')">
+      <div class="quest-main">
+        <div class="quest-status">${isDone ? '✅' : (current > 0 ? '🔄' : '⏸')}</div>
+        <div class="quest-content">
+          <div class="quest-title">${q.emoji} ${escapeHtml(q.title)}</div>
+          ${q.auto_metric ? `
+            <div class="quest-prog">
+              <div class="qp-bar"><div class="qp-bar-fill" style="width:${pct}%;${isDone?'background:var(--green);':''}"></div></div>
+              <div class="qp-vals">${current} / ${target}</div>
+            </div>
+          ` : '<div class="quest-prog-manual">Подтверждает наставник</div>'}
+        </div>
+        <div class="quest-xp">+${q.reward_xp}<span style="font-size:9px;color:var(--muted);font-weight:400;"> XP</span></div>
+      </div>
+      ${isExpanded ? `
+        <div class="quest-detail" onclick="event.stopPropagation();">
+          ${q.description ? `<div class="qd-section"><div class="qd-lbl">Что нужно сделать</div><div>${escapeHtml(q.description)}</div></div>` : ''}
+          ${q.hint ? `<div class="qd-section"><div class="qd-lbl">💡 Как выполнить</div><div>${escapeHtml(q.hint)}</div></div>` : ''}
+          ${cards.length > 0 ? `
+            <div class="qd-section">
+              <div class="qd-lbl">📚 Карточки знаний</div>
+              <div class="qd-cards">
+                ${cards.map(card => `
+                  <button class="qd-card-btn" onclick="event.stopPropagation();openCard('${card.code}')">
+                    <div style="font-size:18px;">${card.emoji || '📚'}</div>
+                    <div style="font-size:11px;font-weight:600;margin-top:4px;">${escapeHtml(card.title)}</div>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+          ${isDone && p?.completed_at ? `<div class="qd-done-mark">✅ Выполнено ${formatActionTime(p.completed_at)}</div>` : ''}
+        </div>
+      ` : ''}
+    </div>`;
+  }
+
+  function toggleQuest(code) {
+    expandedQuest = (expandedQuest === code) ? null : code;
+    renderLearn();
+  }
+
+  function openCard(code) {
+    const card = learnData.cards.find(c => c.code === code);
+    if (!card) return;
+    const html = simpleMd(card.content);
+    document.getElementById('kc-title').textContent = (card.emoji || '📚') + ' ' + card.title;
+    document.getElementById('kc-body').innerHTML = html;
+    document.getElementById('kc-overlay').classList.add('show');
+  }
+
+  function closeCard() {
+    document.getElementById('kc-overlay').classList.remove('show');
+  }
+
+  // Простой markdown-парсер: жирный, заголовки, списки, цитаты, код
+  function simpleMd(text) {
+    if (!text) return '';
+    // Экранируем HTML
+    let s = text.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]);
+    // Блоки кода
+    s = s.replace(/```([\s\S]*?)```/g, (_, code) => `<pre>${code}</pre>`);
+    // Жирный
+    s = s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+    // Цитаты
+    s = s.replace(/^&gt;\s?(.+)$/gm, '<blockquote>$1</blockquote>');
+    // Списки
+    s = s.replace(/^[•\-\*]\s+(.+)$/gm, '<li>$1</li>');
+    s = s.replace(/^(\d+)\.\s+(.+)$/gm, '<li>$2</li>');
+    // Группируем <li> в <ul>
+    s = s.replace(/(<li>.*<\/li>(?:\n|$))+/g, m => '<ul>' + m + '</ul>');
+    // Параграфы (между пустыми строками)
+    s = s.split(/\n\s*\n/).map(p => {
+      if (/^<(ul|pre|blockquote)/.test(p.trim())) return p;
+      return '<p>' + p.replace(/\n/g, '<br>') + '</p>';
+    }).join('\n');
+    return s;
   }
 
   function ch(k, d) { C[k] = Math.max(0, C[k]+d); document.getElementById(k+'-v').textContent = C[k]; }
