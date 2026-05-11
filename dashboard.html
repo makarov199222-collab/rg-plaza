@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#1a1a1a">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="RG Hub">
+
 <meta name="color-scheme" content="dark">
 <title>RG Plaza · RG Hub — Дашборд</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -3565,6 +3571,55 @@ ${point.name} ${flow}`;
       if (overviewActive) loadAll();
     }
   }, 60000);
+</script>
+<script>
+// === PWA: регистрация Service Worker ===
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js")
+      .then(reg => {
+        console.log("[PWA] SW registered");
+        reg.addEventListener("updatefound", () => {
+          const newSW = reg.installing;
+          newSW.addEventListener("statechange", () => {
+            if (newSW.state === "installed" && navigator.serviceWorker.controller) {
+              showPwaUpdateBanner();
+            }
+          });
+        });
+      })
+      .catch(err => console.warn("[PWA] SW failed:", err));
+  });
+}
+function showPwaUpdateBanner() {
+  if (document.getElementById("pwa-update")) return;
+  const b = document.createElement("div");
+  b.id = "pwa-update";
+  b.style.cssText = "position:fixed;bottom:14px;left:14px;right:14px;background:#222;border:1px solid #e8b84b;border-radius:10px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;z-index:9999;font-family:Inter,sans-serif;color:#fff;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.5);";
+  b.innerHTML = '<span>🔄 Доступно обновление приложения</span><button style="background:#e8b84b;color:#000;border:none;padding:7px 14px;border-radius:6px;font-weight:700;cursor:pointer;font-family:Inter,sans-serif;font-size:12px;" onclick="pwaApplyUpdate()">Обновить</button>';
+  document.body.appendChild(b);
+}
+function pwaApplyUpdate() {
+  navigator.serviceWorker.getRegistration().then(reg => {
+    if (reg && reg.waiting) reg.waiting.postMessage({type:"SKIP_WAITING"});
+    setTimeout(() => location.reload(), 300);
+  });
+}
+function showOfflineIndicator() {
+  if (document.getElementById("pwa-offline")) return;
+  const el = document.createElement("div");
+  el.id = "pwa-offline";
+  el.style.cssText = "position:fixed;top:14px;left:50%;transform:translateX(-50%);background:rgba(244,67,54,.95);color:#fff;padding:6px 14px;border-radius:6px;z-index:9999;font-family:Inter,sans-serif;font-size:12px;font-weight:600;letter-spacing:.3px;box-shadow:0 4px 16px rgba(0,0,0,.4);";
+  el.textContent = "📡 Нет связи · работаю с кэшем";
+  document.body.appendChild(el);
+}
+function hideOfflineIndicator() {
+  const el = document.getElementById("pwa-offline");
+  if (el) el.remove();
+}
+window.addEventListener("online", hideOfflineIndicator);
+window.addEventListener("offline", showOfflineIndicator);
+if (!navigator.onLine) showOfflineIndicator();
 </script>
 </body>
 </html>
