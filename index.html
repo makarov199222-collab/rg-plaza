@@ -46,6 +46,15 @@
   .point-badge{margin-left:auto;background:#141414;border:1px solid var(--accent);border-radius:8px;padding:7px 12px;display:flex;align-items:center;gap:8px;}
   .point-name{font-size:12px;font-weight:600;color:var(--accent);max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .logout-btn{background:none;border:none;color:var(--muted);font-size:14px;cursor:pointer;padding:0 2px;}
+  .mgr-badge{display:inline-flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Inter',sans-serif;font-size:12px;font-weight:600;padding:5px 10px;border-radius:8px;cursor:pointer;margin-left:4px;}
+  .mgr-badge:hover{border-color:var(--accent);}
+  .mgr-badge span:first-child{font-size:15px;line-height:1;}
+  .mgr-card{display:flex;align-items:center;gap:14px;padding:14px 18px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;cursor:pointer;transition:all .15s;color:var(--text);font-family:'Inter',sans-serif;text-align:left;width:100%;}
+  .mgr-card:hover{border-color:var(--accent);background:#222;}
+  .mgr-card:active{transform:scale(.98);}
+  .mgr-card-emoji{font-size:32px;line-height:1;}
+  .mgr-card-name{font-size:16px;font-weight:600;color:var(--text);}
+  .mgr-card-short{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:2px;}
   .sync-dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;}
   .sync-dot.offline{background:var(--red);animation:none;}
   .sync-dot.syncing{background:var(--orange);}
@@ -279,6 +288,19 @@
   </div>
 </div>
 
+<div class="login" id="mgr-select" style="display:none;">
+  <div class="login-logo">RG PLAZA</div>
+  <div class="login-sub" id="mgr-select-point">—</div>
+  <div class="login-card" style="max-width:520px;">
+    <div class="login-title">Кто из вас работает?</div>
+    <div id="mgr-select-list" style="display:grid;gap:10px;margin:18px 0 12px;"></div>
+    <div class="login-hint" style="text-align:center;">Если нужно сменить менеджера — снова сможешь выбрать вверху приложения.</div>
+    <div style="text-align:center;margin-top:14px;">
+      <button class="login-btn" style="background:transparent;border:1px solid var(--border);color:var(--muted);max-width:200px;" onclick="backToPinLogin()">← Сменить точку</button>
+    </div>
+  </div>
+</div>
+
 <div id="app" style="display:none;">
 
 <header>
@@ -286,6 +308,10 @@
   <div class="point-badge">
     <div class="sync-dot" id="sync-dot"></div>
     <div class="point-name" id="point-name">—</div>
+    <button class="mgr-badge" id="mgr-badge" onclick="openMgrSwitch()" title="Сменить менеджера" style="display:none;">
+      <span id="mgr-avatar">😊</span>
+      <span id="mgr-name">—</span>
+    </button>
     <button class="logout-btn" onclick="doLogout()" title="Выйти">⎋</button>
   </div>
 </header>
@@ -686,6 +712,8 @@
 
   const C = {bk:0,ins:0,ret:0,phy:0,cop:0,det:0,mx:0,rv:0,fl:0};
   let currentPoint = null;
+  let currentManager = null;       // выбранный менеджер
+  let pointManagers = [];          // список менеджеров точки
   let monthData = { days: [] };
   let planData = { plan_phys_day: 0, plan_phys_month: 0, plan_corp_day: 0, plan_corp_month: 0 };
   let myChart = null, showCarSums = true, saving = false;
@@ -701,13 +729,98 @@
       if (!data) { errEl.textContent = 'Код не подходит'; return; }
       localStorage.setItem('rgp_point', JSON.stringify(data));
       currentPoint = data;
-      enterApp();
+      // Загружаем менеджеров точки и решаем что показать
+      await loadAndShowMgrSelect();
     } catch (e) { errEl.textContent = 'Ошибка соединения'; console.error(e); }
+  }
+
+  // === Выбор менеджера после PIN ===
+  async function loadAndShowMgrSelect() {
+    try {
+      const { data, error } = await sb.from('managers')
+        .select('*')
+        .eq('point_id', currentPoint.id)
+        .eq('active', true)
+        .order('short_name');
+      if (error) throw error;
+      pointManagers = data || [];
+
+      // 1. Если есть сохранённый выбор и он принадлежит этой точке — заходим сразу
+      const savedMgrId = localStorage.getItem('rgp_manager_id');
+      if (savedMgrId) {
+        const found = pointManagers.find(m => m.id === savedMgrId);
+        if (found) {
+          currentManager = found;
+          await enterApp();
+          return;
+        }
+      }
+      // 2. Если менеджеров нет в БД — заходим без них (старая схема)
+      if (pointManagers.length === 0) {
+        currentManager = null;
+        await enterApp();
+        return;
+      }
+      // 3. Если менеджер 1 — автоматически выбираем
+      if (pointManagers.length === 1) {
+        currentManager = pointManagers[0];
+        localStorage.setItem('rgp_manager_id', currentManager.id);
+        await enterApp();
+        return;
+      }
+      // 4. Иначе показываем экран выбора
+      showMgrSelectScreen();
+    } catch (e) {
+      console.error('Manager load error:', e);
+      // При ошибке загрузки менеджеров — заходим без них (не блокируем работу)
+      currentManager = null;
+      await enterApp();
+    }
+  }
+
+  function showMgrSelectScreen() {
+    document.getElementById('login').classList.add('hidden');
+    document.getElementById('mgr-select').style.display = '';
+    document.getElementById('mgr-select-point').textContent = currentPoint.name;
+    const listEl = document.getElementById('mgr-select-list');
+    listEl.innerHTML = pointManagers.map(m => `
+      <button class="mgr-card" onclick="pickManager('${m.id}')">
+        <div class="mgr-card-emoji">${m.avatar_emoji || '😊'}</div>
+        <div>
+          <div class="mgr-card-name">${escapeHtml(m.name)}</div>
+          <div class="mgr-card-short">${escapeHtml(m.short_name || '')}</div>
+        </div>
+      </button>
+    `).join('');
+  }
+
+  async function pickManager(id) {
+    const m = pointManagers.find(x => x.id === id);
+    if (!m) return;
+    currentManager = m;
+    localStorage.setItem('rgp_manager_id', m.id);
+    document.getElementById('mgr-select').style.display = 'none';
+    await enterApp();
+  }
+
+  function backToPinLogin() {
+    // Кнопка "← Сменить точку" — возвращаемся к вводу PIN
+    localStorage.removeItem('rgp_point');
+    localStorage.removeItem('rgp_manager_id');
+    location.reload();
+  }
+
+  function openMgrSwitch() {
+    // Кнопка-бейдж в шапке: "Сменить менеджера"
+    if (pointManagers.length < 2) return; // нечего переключать
+    document.getElementById('app').style.display = 'none';
+    showMgrSelectScreen();
   }
 
   function doLogout() {
     if (!confirm('Выйти из аккаунта точки?')) return;
     localStorage.removeItem('rgp_point');
+    localStorage.removeItem('rgp_manager_id');
     location.reload();
   }
 
@@ -717,10 +830,39 @@
       const { data } = await sb.from('points').select('*').eq('id', currentPoint.id).maybeSingle();
       if (data) { currentPoint = data; localStorage.setItem('rgp_point', JSON.stringify(data)); }
     } catch (e) { console.error(e); }
+    // Если менеджеры ещё не загружены (например при reload с сохранённой точкой) — загрузим
+    if (pointManagers.length === 0) {
+      try {
+        const { data } = await sb.from('managers')
+          .select('*')
+          .eq('point_id', currentPoint.id)
+          .eq('active', true)
+          .order('short_name');
+        pointManagers = data || [];
+      } catch (e) { console.error(e); }
+    }
+    // Восстановить currentManager из localStorage если ещё не выбран
+    if (!currentManager) {
+      const savedMgrId = localStorage.getItem('rgp_manager_id');
+      if (savedMgrId) {
+        currentManager = pointManagers.find(m => m.id === savedMgrId) || null;
+      }
+    }
     document.getElementById('login').classList.add('hidden');
+    document.getElementById('mgr-select').style.display = 'none';
     document.getElementById('app').style.display = 'block';
     document.getElementById('point-name').textContent = currentPoint.name;
     document.getElementById('blbl').textContent = currentPoint.name;
+    // Бейдж менеджера в шапке
+    const badge = document.getElementById('mgr-badge');
+    if (currentManager) {
+      badge.style.display = '';
+      document.getElementById('mgr-avatar').textContent = currentManager.avatar_emoji || '😊';
+      document.getElementById('mgr-name').textContent = currentManager.short_name || currentManager.name;
+      badge.title = pointManagers.length > 1 ? 'Сменить менеджера' : currentManager.name;
+    } else {
+      badge.style.display = 'none';
+    }
     // Детейлинг: только Совхозная. Передача смен (Машины): все точки.
     const showDetailing = currentPoint.id === 'sovhoz';
     document.querySelectorAll('.detailing-only').forEach(el => {
