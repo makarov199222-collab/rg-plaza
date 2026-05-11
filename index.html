@@ -281,6 +281,24 @@
   .cf-grid{display:flex;flex-direction:column;gap:11px;}
   .cf-row, .cf-row-2{display:flex;flex-direction:column;}
   .cf-row-2{display:grid;grid-template-columns:1fr 1fr;gap:11px;}
+
+  /* === Чек-лист допов === */
+  .addons-block{background:linear-gradient(135deg, rgba(232,184,75,.06), rgba(232,184,75,.02));border:1px dashed rgba(232,184,75,.35);border-radius:10px;padding:11px;}
+  .addons-list{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px;}
+  @media(max-width:480px){.addons-list{grid-template-columns:1fr;}}
+  .addon-item{display:flex;align-items:center;gap:8px;background:#0e0e0e;border:1px solid var(--border);border-radius:7px;padding:8px 9px;cursor:pointer;transition:all .12s;font-size:12px;color:var(--text);}
+  .addon-item:hover{border-color:var(--accent);}
+  .addon-item.checked{border-color:var(--green);background:rgba(76,175,80,.08);}
+  .addon-cb{width:16px;height:16px;border:1.5px solid var(--muted);border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:transparent;font-size:11px;color:transparent;}
+  .addon-item.checked .addon-cb{background:var(--green);border-color:var(--green);color:#000;}
+  .addon-mid{flex:1;min-width:0;}
+  .addon-name{font-weight:600;line-height:1.2;}
+  .addon-pts{font-size:10px;color:var(--accent);font-family:'Bebas Neue',sans-serif;letter-spacing:.5px;margin-top:1px;}
+  .addon-counter{display:flex;align-items:center;gap:5px;}
+  .addon-counter button{width:22px;height:22px;border:1px solid var(--border);background:#0e0e0e;color:var(--text);border-radius:5px;cursor:pointer;font-weight:700;line-height:1;}
+  .addon-counter button:hover{border-color:var(--accent);}
+  .addon-counter span{font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:.5px;color:var(--accent);min-width:14px;text-align:center;}
+  .addons-hint{font-size:10px;color:var(--muted);margin-top:8px;text-align:center;}
   .cf-lbl{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
   .cf-inp{background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:9px 11px;color:var(--text);font-family:'Inter',sans-serif;font-size:14px;outline:none;width:100%;-webkit-appearance:none;}
   .cf-inp:focus{border-color:var(--accent);}
@@ -684,6 +702,15 @@
           <label class="cf-lbl">TODO для следующей смены</label>
           <textarea id="ce-todo" class="cf-inp" rows="2" placeholder="Принять оплату, подписать акты"></textarea>
         </div>
+
+        <div class="cf-row addons-block">
+          <label class="cf-lbl">💡 Допы предложены / согласованы клиентом</label>
+          <div id="ce-addons-list" class="addons-list">
+            <!-- генерируется в openCarEdit -->
+          </div>
+          <div class="addons-hint" id="ce-addons-hint">Отметь когда клиент согласился — баллы начисляются сразу.</div>
+        </div>
+
         <div class="cf-row-2">
           <div>
             <label class="cf-lbl">Сумма ЗН (₽)</label>
@@ -2014,6 +2041,7 @@ ${planLine}
     const closeBtn = document.getElementById('ce-close-btn');
     const delBtn = document.getElementById('ce-delete-btn');
 
+    let addons = {};
     if (id) {
       // Редактирование существующей
       const c = carsInWork.find(x => x.id === id);
@@ -2032,6 +2060,7 @@ ${planLine}
       document.getElementById('ce-arrived').value = c.arrived_at || '';
       document.getElementById('ce-expected').value = c.expected_at || '';
       document.getElementById('ce-time').value = c.expected_time || '';
+      addons = c.addons || {};
       closeBtn.style.display = '';
       delBtn.style.display = '';
     } else {
@@ -2049,12 +2078,147 @@ ${planLine}
       closeBtn.style.display = 'none';
       delBtn.style.display = 'none';
     }
+    renderAddonsList(addons);
     overlay.classList.add('show');
+  }
+
+  // === Чек-лист допов ===
+  // Описание всех допов с их атрибутами
+  const ADDONS_CATALOG = [
+    { key: 'antirain',        emoji: '💧', name: 'Антидождь',           pts: 50,  action: 'sold_antirain',         type: 'check'   },
+    { key: 'brush',           emoji: '🌬', name: 'Щётки',               pts: 20,  action: 'sold_brush',            type: 'check'   },
+    { key: 'armor',           emoji: '🛡', name: 'Бронь лобового',      pts: 500, action: 'sold_armor',            type: 'check'   },
+    { key: 'tinting',         emoji: '✨', name: 'Тонировка фар',       pts: 80,  action: 'sold_tinting',          type: 'check'   },
+    { key: 'glass_polish',    emoji: '💎', name: 'Полировка стёкол',    pts: 60,  action: 'sold_glass_polish',     type: 'check'   },
+    { key: 'headlight_polish',emoji: '🌟', name: 'Полировка фар',       pts: 40,  action: 'sold_headlight_polish', type: 'check'   },
+    { key: 'silicone_seal',   emoji: '🧴', name: 'Силикон уплотнителей',pts: 25,  action: 'sold_silicone_seal',    type: 'check'   },
+    { key: 'chip_repair',     emoji: '🔧', name: 'Ремонт сколов',       pts: 15,  action: 'sold_chip_repair',      type: 'counter'},
+  ];
+
+  // Текущий локальный state допов в открытой модалке (что менеджер уже включил)
+  let currentAddons = {};
+
+  function renderAddonsList(addons) {
+    currentAddons = JSON.parse(JSON.stringify(addons || {}));
+    const list = document.getElementById('ce-addons-list');
+    list.innerHTML = ADDONS_CATALOG.map(a => {
+      const state = currentAddons[a.key] || {};
+      if (a.type === 'check') {
+        const checked = !!state.sold;
+        return `<div class="addon-item ${checked ? 'checked' : ''}" onclick="toggleAddon('${a.key}', this)">
+          <div class="addon-cb">✓</div>
+          <div class="addon-mid">
+            <div class="addon-name">${a.emoji} ${a.name}</div>
+            <div class="addon-pts">+${a.pts} б</div>
+          </div>
+        </div>`;
+      } else { // counter
+        const count = state.count || 0;
+        return `<div class="addon-item ${count > 0 ? 'checked' : ''}">
+          <div class="addon-mid">
+            <div class="addon-name">${a.emoji} ${a.name}</div>
+            <div class="addon-pts">+${a.pts} б за каждый</div>
+          </div>
+          <div class="addon-counter">
+            <button type="button" onclick="changeAddonCount('${a.key}', -1, this)">−</button>
+            <span id="addon-count-${a.key}">${count}</span>
+            <button type="button" onclick="changeAddonCount('${a.key}', +1, this)">+</button>
+          </div>
+        </div>`;
+      }
+    }).join('');
+    updateAddonsSummary();
+  }
+
+  function updateAddonsSummary() {
+    const hint = document.getElementById('ce-addons-hint');
+    let total = 0;
+    for (const a of ADDONS_CATALOG) {
+      const s = currentAddons[a.key];
+      if (!s) continue;
+      if (a.type === 'check' && s.sold) total += a.pts;
+      if (a.type === 'counter' && s.count) total += a.pts * s.count;
+    }
+    if (total > 0) {
+      hint.innerHTML = `🎯 Уже согласовано на <b style="color:var(--accent);">+${total} баллов</b>`;
+    } else {
+      hint.textContent = 'Отметь когда клиент согласился — баллы начисляются сразу.';
+    }
+  }
+
+  async function toggleAddon(key, el) {
+    const def = ADDONS_CATALOG.find(a => a.key === key);
+    if (!def) return;
+    const wasChecked = !!(currentAddons[key]?.sold);
+    const newChecked = !wasChecked;
+    currentAddons[key] = { ...(currentAddons[key] || {}), sold: newChecked };
+    el.classList.toggle('checked', newChecked);
+    // Если только что включили (и раньше не было начислений) — даём баллы
+    if (newChecked && !currentAddons[key].awarded && editingCarId) {
+      currentAddons[key].awarded = true;
+      // Сохраняем сразу в БД и начисляем
+      await persistAddonsAndAward(key, def, 1);
+    }
+    updateAddonsSummary();
+  }
+
+  async function changeAddonCount(key, delta, btn) {
+    const def = ADDONS_CATALOG.find(a => a.key === key);
+    if (!def) return;
+    const s = currentAddons[key] || { count: 0, awarded: 0 };
+    const newCount = Math.max(0, (s.count || 0) + delta);
+    s.count = newCount;
+    currentAddons[key] = s;
+    // Обновить отображение счётчика
+    const span = document.getElementById(`addon-count-${key}`);
+    if (span) span.textContent = newCount;
+    // Обновить визуальное состояние карточки
+    const itemEl = btn.closest('.addon-item');
+    if (itemEl) itemEl.classList.toggle('checked', newCount > 0);
+    // Начислить баллы только за НОВЫЕ единицы (которые ещё не получили)
+    const awarded = s.awarded || 0;
+    if (newCount > awarded && editingCarId) {
+      const diff = newCount - awarded;
+      s.awarded = newCount;
+      await persistAddonsAndAward(key, def, diff);
+    } else if (newCount < awarded) {
+      // Менеджер уменьшил — не возвращаем баллы (это правильное поведение)
+      // awarded не уменьшаем, чтобы при следующем увеличении не начислились повторно
+    }
+    updateAddonsSummary();
+  }
+
+  async function persistAddonsAndAward(key, def, units) {
+    if (!editingCarId || !currentManager) return;
+    try {
+      // Сохраняем addons в БД для этой машины
+      const { error } = await sb.from('cars_in_work')
+        .update({ addons: currentAddons })
+        .eq('id', editingCarId);
+      if (error) throw error;
+      // Начисляем баллы (по units штук)
+      const car = carsInWork.find(c => c.id === editingCarId);
+      const carInfo = car ? (car.info || car.plate || '') : '';
+      const totalPts = def.pts * units;
+      const comment = units === 1
+        ? `${def.name} · ${carInfo}`
+        : `${def.name} ×${units} · ${carInfo}`;
+      await awardPoints(def.action, {
+        ref_id: editingCarId,
+        ref_table: 'cars_in_work',
+        comment: comment,
+        points: totalPts,
+      });
+    } catch (e) {
+      console.error('persistAddons error:', e);
+      toast('Не сохранилось: ' + (e.message||e), 'err');
+    }
   }
 
   function closeCarEdit() {
     document.getElementById('car-edit-overlay').classList.remove('show');
     editingCarId = null;
+    currentAddons = {};
   }
 
   async function saveCar() {
@@ -2080,9 +2244,13 @@ ${planLine}
     const isNew = !editingCarId;
     // Запоминаем предыдущее TODO до апдейта (для проверки "появилось ли новое TODO")
     let prevTodo = '';
-    if (!isNew && Array.isArray(allCars)) {
-      const prev = allCars.find(c => c.id === editingCarId);
+    if (!isNew && Array.isArray(carsInWork)) {
+      const prev = carsInWork.find(c => c.id === editingCarId);
       if (prev) prevTodo = (prev.todo || '').trim();
+    }
+    // При создании — берём addons из локального state
+    if (isNew && Object.keys(currentAddons || {}).length > 0) {
+      payload.addons = currentAddons;
     }
     try {
       let savedId = editingCarId;
@@ -2101,6 +2269,10 @@ ${planLine}
       // Начисление баллов
       if (isNew) {
         awardPoints('car_added', { ref_id: savedId, ref_table: 'cars_in_work', comment: firstWord });
+        // Если при создании уже были отмечены допы — начисляем баллы за них и помечаем awarded
+        if (payload.addons && savedId) {
+          await awardInitialAddons(savedId, payload.addons, firstWord);
+        }
       }
       // Если TODO появилось (раньше не было, теперь есть) — +5
       if (todo && todo !== prevTodo) {
@@ -2109,6 +2281,42 @@ ${planLine}
     } catch (e) {
       toast('Ошибка: '+(e.message||e), 'err');
     }
+  }
+
+  // Начисление баллов за допы при создании новой машины + установка awarded флагов
+  async function awardInitialAddons(carId, addons, carInfo) {
+    if (!currentManager) return;
+    const updatedAddons = { ...addons };
+    for (const def of ADDONS_CATALOG) {
+      const s = addons[def.key];
+      if (!s) continue;
+      if (def.type === 'check' && s.sold && !s.awarded) {
+        await awardPoints(def.action, {
+          ref_id: carId,
+          ref_table: 'cars_in_work',
+          comment: `${def.name} · ${carInfo}`,
+          points: def.pts,
+        });
+        updatedAddons[def.key] = { ...s, awarded: true };
+      }
+      if (def.type === 'counter' && s.count > 0) {
+        const awarded = s.awarded || 0;
+        const diff = s.count - awarded;
+        if (diff > 0) {
+          await awardPoints(def.action, {
+            ref_id: carId,
+            ref_table: 'cars_in_work',
+            comment: `${def.name} ×${diff} · ${carInfo}`,
+            points: def.pts * diff,
+          });
+          updatedAddons[def.key] = { ...s, awarded: s.count };
+        }
+      }
+    }
+    // Сохраняем обновлённые awarded флаги в БД
+    try {
+      await sb.from('cars_in_work').update({ addons: updatedAddons }).eq('id', carId);
+    } catch (e) { console.error('Update awarded flags error:', e); }
   }
 
   async function deleteCar() {
@@ -2141,7 +2349,7 @@ ${planLine}
     // closed_at = выбранная дата (середина дня чтобы избежать TZ-сюрпризов)
     const closedAt = `${dateStr}T12:00:00`;
     // Запомним тип машины и инфо для начисления баллов
-    const closingCar = (allCars || []).find(c => c.id === editingCarId);
+    const closingCar = (carsInWork || []).find(c => c.id === editingCarId);
     const closingType = closingCar ? closingCar.service_type : null;
     const closingInfo = closingCar ? (closingCar.info || closingCar.plate || '') : '';
     try {
