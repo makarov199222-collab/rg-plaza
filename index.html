@@ -55,6 +55,46 @@
   .mgr-card-emoji{font-size:32px;line-height:1;}
   .mgr-card-name{font-size:16px;font-weight:600;color:var(--text);}
   .mgr-card-short{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:2px;}
+
+  /* === Виджет "Моя игра" в шапке === */
+  .my-game-widget{background:linear-gradient(135deg, #1a1a1a, #222);border-bottom:1px solid var(--border);padding:10px 14px;}
+  .mg-row{display:flex;align-items:center;gap:12px;cursor:pointer;max-width:800px;margin:0 auto;}
+  .mg-row:hover{opacity:.9;}
+  .mg-level{font-size:24px;line-height:1;}
+  .mg-mid{flex:1;min-width:0;}
+  .mg-name{font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1.5px;color:var(--text);margin-bottom:4px;}
+  .mg-bar{height:6px;background:#0a0a0a;border-radius:3px;overflow:hidden;}
+  .mg-bar-fill{height:100%;background:linear-gradient(90deg, var(--accent), #ffd97a);transition:width .4s;}
+  .mg-pts{text-align:right;}
+  .mg-month{font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--accent);line-height:1;letter-spacing:1px;}
+  .mg-today{font-size:10px;color:var(--muted);margin-top:3px;}
+
+  /* === Страница "🎮 Я" === */
+  .game-page{padding:14px 0;}
+  .game-hero{background:linear-gradient(135deg, #1a1a1a, #252525);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:14px;text-align:center;}
+  .gh-emoji{font-size:48px;line-height:1;margin-bottom:8px;}
+  .gh-name{font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--text);letter-spacing:2px;}
+  .gh-level{font-size:13px;color:var(--accent);margin-top:4px;letter-spacing:.5px;}
+  .gh-bar{height:10px;background:#0a0a0a;border-radius:5px;overflow:hidden;margin:14px auto 8px;max-width:380px;}
+  .gh-bar-fill{height:100%;background:linear-gradient(90deg, var(--accent), #ffd97a);transition:width .5s;}
+  .gh-prog{font-size:11px;color:var(--muted);}
+
+  .game-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;}
+  .gs-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center;}
+  .gs-val{font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--accent);line-height:1;letter-spacing:1px;}
+  .gs-lbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:5px;}
+
+  .game-section{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px;}
+  .game-sect-title{font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--text);letter-spacing:1.2px;margin-bottom:10px;}
+
+  .game-action{display:flex;justify-content:space-between;align-items:center;padding:8px 4px;border-bottom:1px solid var(--border);font-size:12px;}
+  .game-action:last-child{border-bottom:none;}
+  .ga-info{flex:1;min-width:0;}
+  .ga-time{font-size:10px;color:var(--muted);margin-top:2px;}
+  .ga-pts{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:.5px;}
+  .ga-pts.pos{color:var(--green);}
+  .ga-pts.neg{color:var(--red);}
+  .ga-empty{padding:14px;text-align:center;color:var(--muted);font-size:12px;}
   .sync-dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;}
   .sync-dot.offline{background:var(--red);animation:none;}
   .sync-dot.syncing{background:var(--orange);}
@@ -316,11 +356,14 @@
   </div>
 </header>
 
+<div id="my-game-widget" class="my-game-widget" style="display:none;"></div>
+
 <div class="wrap">
   <div class="tabs">
     <button class="tab active" onclick="showTab('day')">📋 Отчёт дня</button>
     <button class="tab" onclick="showTab('plan')">🎯 План</button>
     <button class="tab cars-only" style="display:none;" onclick="showTab('cars')">🚗 Машины</button>
+    <button class="tab" id="tab-game-btn" onclick="showTab('game')" style="display:none;">🎮 Я</button>
   </div>
 
   <div class="page active" id="tab-day">
@@ -592,6 +635,12 @@
       </div>
     </div>
   </div>
+
+  <div class="page" id="tab-game">
+    <div class="game-page" id="game-content">
+      <div class="loader"><div class="spinner"></div>Загружаю мою игру...</div>
+    </div>
+  </div>
 </div>
 
 <div class="overlay" id="car-edit-overlay" onclick="if(event.target.id==='car-edit-overlay') closeCarEdit()">
@@ -714,6 +763,162 @@
   let currentPoint = null;
   let currentManager = null;       // выбранный менеджер
   let pointManagers = [];          // список менеджеров точки
+
+  // === ИГРОВАЯ СИСТЕМА (этап A2) ===
+  const GAME_POINTS = {
+    // Процессные
+    car_added:                  5,
+    car_todo_added:             5,
+    car_closed_retail:          50,
+    car_closed_insurance:       30,
+    car_closed_corp:            40,
+    car_closed_detail:          60,
+    day_report_saved:           20,
+    // Допы
+    sold_antirain:              50,
+    sold_brush:                 20,
+    sold_armor:                 500,
+    sold_tinting:               80,
+    sold_chip_repair:           15,   // за один скол
+    sold_glass_polish:          60,
+    sold_headlight_polish:      40,
+    sold_silicone_seal:         25,
+    // Штрафы
+    penalty_stale_car:         -20,
+    penalty_open_at_shift_end: -10,
+  };
+  const GAME_LABELS = {
+    car_added:              '🚗 Внёс машину',
+    car_todo_added:         '📝 TODO для следующей смены',
+    car_closed_retail:      '✅ Закрыл машину (розница)',
+    car_closed_insurance:   '✅ Закрыл машину (страх)',
+    car_closed_corp:        '✅ Закрыл машину (корпоратив)',
+    car_closed_detail:      '✅ Закрыл машину (детейл)',
+    day_report_saved:       '📊 Отчёт дня сохранён',
+    sold_antirain:          '💧 Продал антидождь',
+    sold_brush:             '🌬 Продал щётки',
+    sold_armor:             '🛡 Продал бронь',
+    sold_tinting:           '✨ Продал тонировку фар',
+    sold_chip_repair:       '🔧 Починил скол',
+    sold_glass_polish:      '💎 Полировка стёкол',
+    sold_headlight_polish:  '🌟 Полировка фар',
+    sold_silicone_seal:     '🧴 Силикон уплотнителей',
+    penalty_stale_car:      '⚠ Зависшая машина',
+    penalty_open_at_shift_end:'⚠ Не закрыл к концу смены',
+  };
+  const GAME_LEVELS = [
+    { code: 'rookie',   name: 'Новичок',  emoji: '🥉', min: 0,    max: 500   },
+    { code: 'fighter',  name: 'Боец',     emoji: '🥈', min: 500,  max: 1500  },
+    { code: 'champion', name: 'Чемпион',  emoji: '🥇', min: 1500, max: 3500  },
+    { code: 'legend',   name: 'Легенда',  emoji: '👑', min: 3500, max: 99999 },
+  ];
+
+  // Кэш баллов текущего менеджера (на месяц + сегодня)
+  let myStats = { monthPoints: 0, todayPoints: 0, recentActions: [] };
+
+  // Начислить баллы за действие
+  async function awardPoints(actionType, opts = {}) {
+    if (!currentManager) return; // нет менеджера = нет начисления (старая схема)
+    const pts = opts.points != null ? opts.points : GAME_POINTS[actionType];
+    if (pts == null) { console.warn('Unknown action_type:', actionType); return; }
+    try {
+      const row = {
+        manager_id: currentManager.id,
+        point_id: currentPoint.id,
+        action_type: actionType,
+        points: pts,
+        ref_id: opts.ref_id || null,
+        ref_table: opts.ref_table || null,
+        comment: opts.comment || null,
+      };
+      const { error } = await sb.from('game_actions').insert(row);
+      if (error) throw error;
+      // Обновляем локальный счётчик и виджет (не дожидаемся reload)
+      myStats.monthPoints += pts;
+      myStats.todayPoints += pts;
+      myStats.recentActions.unshift({
+        ...row,
+        occurred_at: new Date().toISOString(),
+        id: 'tmp-' + Math.random(),
+      });
+      if (myStats.recentActions.length > 30) myStats.recentActions.pop();
+      renderMyGameWidget();
+      // Тост с баллами
+      if (pts > 0) {
+        toast(`+${pts} баллов · ${GAME_LABELS[actionType] || actionType}`, 'ok');
+      } else if (pts < 0) {
+        toast(`${pts} баллов · ${GAME_LABELS[actionType] || actionType}`, 'err');
+      }
+    } catch (e) {
+      console.error('Award error:', e);
+    }
+  }
+
+  // Расчёт уровня
+  function calcLevel(monthPoints) {
+    for (const lvl of GAME_LEVELS) {
+      if (monthPoints >= lvl.min && monthPoints < lvl.max) return lvl;
+    }
+    return GAME_LEVELS[GAME_LEVELS.length - 1];
+  }
+
+  // Загрузить статистику текущего менеджера
+  async function loadMyStats() {
+    if (!currentManager) {
+      myStats = { monthPoints: 0, todayPoints: 0, recentActions: [] };
+      renderMyGameWidget();
+      return;
+    }
+    try {
+      const now = new Date();
+      const monthStart = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01T00:00:00`;
+      const todayStart = todayLocalISO() + 'T00:00:00';
+      // Загружаем все действия за месяц
+      const { data, error } = await sb.from('game_actions')
+        .select('*')
+        .eq('manager_id', currentManager.id)
+        .gte('occurred_at', monthStart)
+        .order('occurred_at', { ascending: false });
+      if (error) throw error;
+      const actions = data || [];
+      let monthPts = 0, todayPts = 0;
+      for (const a of actions) {
+        monthPts += a.points || 0;
+        if (a.occurred_at >= todayStart) todayPts += a.points || 0;
+      }
+      myStats.monthPoints = monthPts;
+      myStats.todayPoints = todayPts;
+      myStats.recentActions = actions.slice(0, 30);
+    } catch (e) {
+      console.error('loadMyStats error:', e);
+    }
+    renderMyGameWidget();
+  }
+
+  // Рендер виджета "Моя игра" в шапке
+  function renderMyGameWidget() {
+    const w = document.getElementById('my-game-widget');
+    if (!w) return;
+    if (!currentManager) { w.style.display = 'none'; return; }
+    const lvl = calcLevel(myStats.monthPoints);
+    const inLevel = myStats.monthPoints - lvl.min;
+    const levelRange = lvl.max - lvl.min;
+    const pct = Math.min(100, Math.round(inLevel / levelRange * 100));
+    w.style.display = '';
+    w.innerHTML = `
+      <div class="mg-row" onclick="showPage('game')" title="Открыть мою игру">
+        <div class="mg-level">${lvl.emoji}</div>
+        <div class="mg-mid">
+          <div class="mg-name">${lvl.name}</div>
+          <div class="mg-bar"><div class="mg-bar-fill" style="width:${pct}%;"></div></div>
+        </div>
+        <div class="mg-pts">
+          <div class="mg-month">${fm(myStats.monthPoints)}</div>
+          <div class="mg-today">${myStats.todayPoints >= 0 ? '+' : ''}${myStats.todayPoints} сегодня</div>
+        </div>
+      </div>
+    `;
+  }
   let monthData = { days: [] };
   let planData = { plan_phys_day: 0, plan_phys_month: 0, plan_corp_day: 0, plan_corp_month: 0 };
   let myChart = null, showCarSums = true, saving = false;
@@ -860,8 +1065,14 @@
       document.getElementById('mgr-avatar').textContent = currentManager.avatar_emoji || '😊';
       document.getElementById('mgr-name').textContent = currentManager.short_name || currentManager.name;
       badge.title = pointManagers.length > 1 ? 'Сменить менеджера' : currentManager.name;
+      // Показываем вкладку "🎮 Я"
+      document.getElementById('tab-game-btn').style.display = '';
+      // Загружаем статистику менеджера
+      loadMyStats();
     } else {
       badge.style.display = 'none';
+      document.getElementById('tab-game-btn').style.display = 'none';
+      document.getElementById('my-game-widget').style.display = 'none';
     }
     // Детейлинг: только Совхозная. Передача смен (Машины): все точки.
     const showDetailing = currentPoint.id === 'sovhoz';
@@ -891,9 +1102,125 @@
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
     document.getElementById('tab-'+t).classList.add('active');
-    event.target.classList.add('active');
+    // event может быть undefined (если showTab вызван программно)
+    if (typeof event !== 'undefined' && event && event.target && event.target.classList) {
+      event.target.classList.add('active');
+    } else {
+      // Найти кнопку и активировать вручную
+      const btn = document.querySelector(`.tab[onclick*="'${t}'"]`);
+      if (btn) btn.classList.add('active');
+    }
     if (t === 'plan') renderPlanStatus();
     if (t === 'cars') loadCars();
+    if (t === 'game') renderMyGamePage();
+  }
+
+  // Рендер страницы "🎮 Я"
+  function renderMyGamePage() {
+    const c = document.getElementById('game-content');
+    if (!currentManager) {
+      c.innerHTML = '<div class="ga-empty">Войди как менеджер чтобы увидеть свою игру</div>';
+      return;
+    }
+    const lvl = calcLevel(myStats.monthPoints);
+    const inLevel = myStats.monthPoints - lvl.min;
+    const levelRange = lvl.max - lvl.min;
+    const pct = Math.min(100, Math.round(inLevel / levelRange * 100));
+    const remaining = lvl.max - myStats.monthPoints;
+    const nextLvl = GAME_LEVELS.find(l => l.min === lvl.max);
+    const bestDay = computeBestDay(myStats.recentActions);
+    const todayCnt = myStats.recentActions.filter(a => {
+      return (a.occurred_at || '').substring(0,10) === todayLocalISO();
+    }).length;
+
+    let recentHtml = '';
+    if (myStats.recentActions.length === 0) {
+      recentHtml = '<div class="ga-empty">Пока действий нет. Начни сегодня — внеси машину или закрой ЗН!</div>';
+    } else {
+      recentHtml = myStats.recentActions.slice(0, 20).map(a => {
+        const lbl = GAME_LABELS[a.action_type] || a.action_type;
+        const time = a.occurred_at ? formatActionTime(a.occurred_at) : '';
+        const sign = a.points > 0 ? 'pos' : (a.points < 0 ? 'neg' : '');
+        const ptsTxt = (a.points > 0 ? '+' : '') + a.points;
+        return `<div class="game-action">
+          <div class="ga-info">
+            <div>${lbl}${a.comment ? ' · <span style="color:var(--muted);">' + escapeHtml(a.comment) + '</span>' : ''}</div>
+            <div class="ga-time">${time}</div>
+          </div>
+          <div class="ga-pts ${sign}">${ptsTxt}</div>
+        </div>`;
+      }).join('');
+    }
+
+    c.innerHTML = `
+      <div class="game-hero">
+        <div class="gh-emoji">${currentManager.avatar_emoji || '😊'}</div>
+        <div class="gh-name">${escapeHtml(currentManager.name)}</div>
+        <div class="gh-level">${lvl.emoji} ${lvl.name}</div>
+        <div class="gh-bar"><div class="gh-bar-fill" style="width:${pct}%;"></div></div>
+        <div class="gh-prog">
+          ${fm(myStats.monthPoints)} / ${fm(lvl.max)} баллов
+          ${nextLvl ? '· до ' + nextLvl.emoji + ' ' + nextLvl.name + ' осталось ' + fm(remaining) : '· максимум'}
+        </div>
+      </div>
+
+      <div class="game-stats">
+        <div class="gs-card">
+          <div class="gs-val">${myStats.todayPoints >= 0 ? '+' : ''}${fm(myStats.todayPoints)}</div>
+          <div class="gs-lbl">Сегодня</div>
+        </div>
+        <div class="gs-card">
+          <div class="gs-val">${fm(myStats.monthPoints)}</div>
+          <div class="gs-lbl">За месяц</div>
+        </div>
+        <div class="gs-card">
+          <div class="gs-val">${fm(bestDay)}</div>
+          <div class="gs-lbl">Лучший день</div>
+        </div>
+      </div>
+
+      <div class="game-section">
+        <div class="game-sect-title">📜 ИСТОРИЯ (последние 20)</div>
+        ${recentHtml}
+      </div>
+
+      <div class="game-section" style="opacity:.6;">
+        <div class="game-sect-title">🏅 МОИ БЕЙДЖИ</div>
+        <div class="ga-empty">Бейджи появятся на следующем этапе разработки</div>
+      </div>
+
+      <div class="game-section" style="opacity:.6;">
+        <div class="game-sect-title">🎯 ЧЕЛЛЕНДЖИ</div>
+        <div class="ga-empty">Челленджи появятся на следующем этапе разработки</div>
+      </div>
+    `;
+  }
+
+  function computeBestDay(actions) {
+    // Группируем по дням и считаем сумму баллов
+    const byDay = {};
+    for (const a of actions) {
+      const day = (a.occurred_at || '').substring(0, 10);
+      if (!day) continue;
+      byDay[day] = (byDay[day] || 0) + (a.points || 0);
+    }
+    let max = 0;
+    for (const day in byDay) if (byDay[day] > max) max = byDay[day];
+    return max;
+  }
+
+  function formatActionTime(iso) {
+    try {
+      const d = new Date(iso);
+      const now = new Date();
+      const sameDay = d.toDateString() === now.toDateString();
+      const hh = String(d.getHours()).padStart(2,'0');
+      const mm = String(d.getMinutes()).padStart(2,'0');
+      if (sameDay) return `сегодня ${hh}:${mm}`;
+      const yd = new Date(now); yd.setDate(yd.getDate()-1);
+      if (d.toDateString() === yd.toDateString()) return `вчера ${hh}:${mm}`;
+      return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')} ${hh}:${mm}`;
+    } catch(e) { return ''; }
   }
 
   function ch(k, d) { C[k] = Math.max(0, C[k]+d); document.getElementById(k+'-v').textContent = C[k]; }
@@ -1409,6 +1736,14 @@
     try {
       await saveDayToCloud(); await loadMonth(); updatePlanProgress();
       setSync('ok'); toast('Сохранено в облако ☁️', 'ok'); generate();
+      // Награда только если отчёт за сегодня (за вчерашний день не должны премировать каждый раз когда нажимают повторно)
+      // Простая защита: даём награду только один раз в день (через localStorage-флаг)
+      const today = todayLocalISO();
+      const flagKey = `rgp_award_day_${currentPoint.id}_${today}_${currentManager?.id || ''}`;
+      if (currentManager && !localStorage.getItem(flagKey)) {
+        localStorage.setItem(flagKey, '1');
+        awardPoints('day_report_saved', { ref_id: today, ref_table: 'daily_reports', comment: today });
+      }
     } catch (e) {
       console.error(e);
       setSync('offline');
@@ -1727,6 +2062,7 @@ ${planLine}
     if (!info) { toast('Заполни «Номер · Марка · Клиент»', 'err'); return; }
     // Извлекаем plate (первое слово) для legacy-поля и сортировки
     const firstWord = info.split(/\s+/)[0] || '';
+    const todo = document.getElementById('ce-todo').value.trim();
     const payload = {
       point_id: currentPoint.id,
       info: info,
@@ -1735,24 +2071,41 @@ ${planLine}
       service_type: document.getElementById('ce-type').value,
       status: document.getElementById('ce-status').value,
       description: document.getElementById('ce-desc').value.trim(),
-      todo: document.getElementById('ce-todo').value.trim(),
+      todo: todo,
       amount: +document.getElementById('ce-amount').value || 0,
       arrived_at: document.getElementById('ce-arrived').value || todayLocalISO(),
       expected_at: document.getElementById('ce-expected').value || null,
       expected_time: document.getElementById('ce-time').value.trim(),
     };
+    const isNew = !editingCarId;
+    // Запоминаем предыдущее TODO до апдейта (для проверки "появилось ли новое TODO")
+    let prevTodo = '';
+    if (!isNew && Array.isArray(allCars)) {
+      const prev = allCars.find(c => c.id === editingCarId);
+      if (prev) prevTodo = (prev.todo || '').trim();
+    }
     try {
+      let savedId = editingCarId;
       if (editingCarId) {
         const { error } = await sb.from('cars_in_work').update(payload).eq('id', editingCarId);
         if (error) throw error;
         toast('Сохранено', 'ok');
       } else {
-        const { error } = await sb.from('cars_in_work').insert(payload);
+        const { data, error } = await sb.from('cars_in_work').insert(payload).select('id').single();
         if (error) throw error;
+        savedId = data ? data.id : null;
         toast('Машина добавлена', 'ok');
       }
       closeCarEdit();
       loadCars();
+      // Начисление баллов
+      if (isNew) {
+        awardPoints('car_added', { ref_id: savedId, ref_table: 'cars_in_work', comment: firstWord });
+      }
+      // Если TODO появилось (раньше не было, теперь есть) — +5
+      if (todo && todo !== prevTodo) {
+        awardPoints('car_todo_added', { ref_id: savedId, ref_table: 'cars_in_work', comment: firstWord });
+      }
     } catch (e) {
       toast('Ошибка: '+(e.message||e), 'err');
     }
@@ -1787,6 +2140,10 @@ ${planLine}
     if (!dateStr) { toast('Укажи дату выдачи', 'err'); return; }
     // closed_at = выбранная дата (середина дня чтобы избежать TZ-сюрпризов)
     const closedAt = `${dateStr}T12:00:00`;
+    // Запомним тип машины и инфо для начисления баллов
+    const closingCar = (allCars || []).find(c => c.id === editingCarId);
+    const closingType = closingCar ? closingCar.service_type : null;
+    const closingInfo = closingCar ? (closingCar.info || closingCar.plate || '') : '';
     try {
       const { error } = await sb.from('cars_in_work')
         .update({ closed_at: closedAt, status: 'closed' })
@@ -1802,6 +2159,19 @@ ${planLine}
         loadDayIssuedCars(currentDate);
       }
       if (document.getElementById('cw-archive')?.style.display !== 'none') loadArchive();
+      // Начисление баллов по типу машины
+      const typeMap = {
+        retail:    'car_closed_retail',
+        insurance: 'car_closed_insurance',
+        corp:      'car_closed_corp',
+        detail:    'car_closed_detail',
+      };
+      const actionType = typeMap[closingType] || 'car_closed_retail';
+      awardPoints(actionType, {
+        ref_id: editingCarId,
+        ref_table: 'cars_in_work',
+        comment: closingInfo,
+      });
     } catch (e) {
       toast('Ошибка: '+(e.message||e), 'err');
     }
