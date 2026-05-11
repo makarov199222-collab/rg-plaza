@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<title>RG Plaza · RG Hub — Офлайн</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { color-scheme: dark; }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    background:#1a1a1a;
+    color:#fff;
+    font-family:'Inter',-apple-system,system-ui,sans-serif;
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:20px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .card{
+    background:#222;
+    border:1px solid #333;
+    border-left:3px solid #e8b84b;
+    border-radius:14px;
+    padding:32px 28px;
+    max-width:420px;
+    width:100%;
+    text-align:center;
+  }
+  .logo{
+    font-family:'Bebas Neue',sans-serif;
+    font-size:40px;
+    color:#e8b84b;
+    letter-spacing:5px;
+    line-height:1;
+    margin-bottom:6px;
+  }
+  .sublogo{
+    font-family:'Bebas Neue',sans-serif;
+    font-size:12px;
+    color:#a0a0a0;
+    letter-spacing:3px;
+    margin-bottom:24px;
+  }
+  .icon{
+    font-size:64px;
+    line-height:1;
+    margin-bottom:16px;
+  }
+  h1{
+    font-family:'Bebas Neue',sans-serif;
+    font-size:22px;
+    color:#fff;
+    letter-spacing:1.5px;
+    margin-bottom:10px;
+  }
+  p{
+    color:#a0a0a0;
+    line-height:1.5;
+    font-size:14px;
+    margin-bottom:18px;
+  }
+  .btn{
+    background:#e8b84b;
+    color:#000;
+    border:none;
+    padding:12px 24px;
+    border-radius:8px;
+    font-family:'Inter',sans-serif;
+    font-weight:700;
+    font-size:14px;
+    letter-spacing:.5px;
+    cursor:pointer;
+    margin:4px;
+  }
+  .btn:hover{filter:brightness(1.05);}
+  .btn.secondary{background:transparent;color:#fff;border:1px solid #333;}
+  .hint{
+    margin-top:18px;
+    padding-top:18px;
+    border-top:1px solid #333;
+    font-size:11px;
+    color:#a0a0a0;
+    line-height:1.6;
+    text-align:left;
+  }
+  .hint b{color:#e8b84b;}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">RG PLAZA</div>
+    <div class="sublogo">RG HUB</div>
+    <div class="icon">📡</div>
+    <h1>Нет связи</h1>
+    <p>Похоже Wi-Fi или мобильный интернет отвалились. RG Hub продолжит работать с данными которые уже загружены.</p>
+    <button class="btn" onclick="location.reload()">↻ Попробовать снова</button>
+    <button class="btn secondary" onclick="history.back()">← Назад</button>
+    <div class="hint">
+      <b>Что работает офлайн:</b><br>
+      • Просмотр данных загруженных за сеанс<br>
+      • Карточки знаний из обучения<br>
+      <br>
+      <b>Что НЕ работает:</b><br>
+      • Сохранение новых отчётов (синхронизируется когда сеть появится — см. следующее обновление RG Hub)
+    </div>
+  </div>
+  <script>
+    // Авто-перезагрузка когда сеть появится
+    window.addEventListener('online', () => location.reload());
+  </script>
+</body>
+</html>
