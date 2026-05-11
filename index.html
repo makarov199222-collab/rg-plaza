@@ -95,6 +95,15 @@
   .ga-pts.pos{color:var(--green);}
   .ga-pts.neg{color:var(--red);}
   .ga-empty{padding:14px;text-align:center;color:var(--muted);font-size:12px;}
+
+  /* Бейджи */
+  .badges-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(95px, 1fr));gap:8px;}
+  .badge-item{background:#0e0e0e;border:1px solid var(--border);border-radius:10px;padding:11px 8px;text-align:center;}
+  .badge-item.earned{border-color:var(--accent);background:linear-gradient(135deg, rgba(232,184,75,.12), rgba(232,184,75,.04));}
+  .badge-item.available{opacity:.75;}
+  .badge-emoji{font-size:28px;line-height:1;margin-bottom:6px;}
+  .badge-name{font-size:10px;font-weight:700;color:var(--text);letter-spacing:.3px;line-height:1.2;}
+  .badge-prog{font-size:9px;color:var(--accent);margin-top:5px;font-family:'Bebas Neue',sans-serif;letter-spacing:.4px;}
   .sync-dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;}
   .sync-dot.offline{background:var(--red);animation:none;}
   .sync-dot.syncing{background:var(--orange);}
@@ -843,6 +852,45 @@
 
   // Кэш баллов текущего менеджера (на месяц + сегодня)
   let myStats = { monthPoints: 0, todayPoints: 0, recentActions: [] };
+  let myBadges = new Set();   // коды полученных бейджей
+
+  // === КАТАЛОГ БЕЙДЖЕЙ ===
+  // type: 'count' — счётчик действий определённого типа за всё время
+  //       'count_total' — общее число действий определённых типов
+  //       'count_today' — за сегодня
+  //       'count_week' — за последние 7 дней
+  //       'time_window' — в определённое время суток
+  //       'rank_day' / 'rank_month' — лидерство (выдаётся снаружи, не в браузере)
+  const BADGE_CATALOG = [
+    { code: 'starter',     emoji: '🥉', name: 'Стартёр',     desc: 'Первая машина в RG Hub',
+      check: a => a.byType['car_added'] >= 1 },
+    { code: 'jubilee_100', emoji: '🎂', name: 'Юбилей-100',  desc: '100 машин обслужено',
+      check: a => a.byType['car_added'] >= 100 },
+    { code: 'jubilee_500', emoji: '🎂', name: 'Юбилей-500',  desc: '500 машин обслужено',
+      check: a => a.byType['car_added'] >= 500 },
+    { code: 'bombardir',   emoji: '🎖', name: 'Бомбардир',   desc: '50 антидождей',
+      check: a => a.byType['sold_antirain'] >= 50 },
+    { code: 'zashitnik',   emoji: '🛡', name: 'Защитник',    desc: '10 броней',
+      check: a => a.byType['sold_armor'] >= 10 },
+    { code: 'eagle_eye',   emoji: '👁', name: 'Острый глаз', desc: '30 сколов починено',
+      check: a => a.byType['sold_chip_repair'] >= 30 },
+    { code: 'sova',        emoji: '🌙', name: 'Сова',        desc: '10 машин закрыто после 19:00',
+      check: a => a.lateClosings >= 10 },
+    { code: 'larks',       emoji: '🌅', name: 'Жаворонок',   desc: '10 машин принято до 9:00',
+      check: a => a.earlyAdds >= 10 },
+    { code: 'speedy',      emoji: '⚡', name: 'Скоростной',   desc: '10 машин за 1 день',
+      check: a => a.maxClosingsPerDay >= 10 },
+    { code: 'fire',        emoji: '🔥', name: 'Огонь',       desc: '30 машин за неделю',
+      check: a => a.closingsLastWeek >= 30 },
+    { code: 'premium',     emoji: '💎', name: 'Премиум',     desc: '3 машины с 3+ допами за день',
+      check: a => a.premiumDay },
+    // Rank-бейджи выдаются скриптом раз в день/месяц (этап позже):
+    { code: 'leader_day',     emoji: '🌟', name: 'Лидер дня',       desc: '№1 на точке за день',           check: () => false },
+    { code: 'champ_month',    emoji: '👑', name: 'Чемпион месяца',  desc: '№1 на точке за месяц',         check: () => false },
+    { code: 'king',           emoji: '🏆', name: 'Король RG Hub',   desc: '№1 во всём холдинге за месяц', check: () => false },
+    { code: 'teacher',        emoji: '🎓', name: 'Учитель',         desc: 'Выпустил 1 новичка',           check: () => false },
+    { code: 'school',         emoji: '🏫', name: 'Школа',           desc: 'Выпустил 5 новичков',          check: () => false },
+  ];
 
   // Начислить баллы за действие
   async function awardPoints(actionType, opts = {}) {
@@ -870,6 +918,14 @@
         id: 'tmp-' + Math.random(),
       });
       if (myStats.recentActions.length > 30) myStats.recentActions.pop();
+      // Также добавляем в allActions для проверки бейджей (только нужные поля)
+      if (myStats.allActions) {
+        myStats.allActions.unshift({
+          action_type: actionType,
+          occurred_at: new Date().toISOString(),
+          ref_id: opts.ref_id || null,
+        });
+      }
       renderMyGameWidget();
       // Тост с баллами
       if (pts > 0) {
@@ -877,6 +933,8 @@
       } else if (pts < 0) {
         toast(`${pts} баллов · ${GAME_LABELS[actionType] || actionType}`, 'err');
       }
+      // Проверяем не пора ли выдать новый бейдж
+      setTimeout(() => checkBadges({ silent: false }), 300);
     } catch (e) {
       console.error('Award error:', e);
     }
@@ -894,6 +952,7 @@
   async function loadMyStats() {
     if (!currentManager) {
       myStats = { monthPoints: 0, todayPoints: 0, recentActions: [] };
+      myBadges = new Set();
       renderMyGameWidget();
       return;
     }
@@ -901,14 +960,17 @@
       const now = new Date();
       const monthStart = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01T00:00:00`;
       const todayStart = todayLocalISO() + 'T00:00:00';
-      // Загружаем все действия за месяц
-      const { data, error } = await sb.from('game_actions')
-        .select('*')
-        .eq('manager_id', currentManager.id)
-        .gte('occurred_at', monthStart)
-        .order('occurred_at', { ascending: false });
-      if (error) throw error;
-      const actions = data || [];
+      // Параллельно: действия за месяц, ВСЕ действия для бейджей, текущие бейджи
+      const [monthRes, allRes, badgeRes] = await Promise.all([
+        sb.from('game_actions').select('*').eq('manager_id', currentManager.id).gte('occurred_at', monthStart).order('occurred_at', { ascending: false }),
+        sb.from('game_actions').select('action_type,occurred_at,ref_id').eq('manager_id', currentManager.id).order('occurred_at', { ascending: false }).limit(2000),
+        sb.from('badges_earned').select('badge_code').eq('manager_id', currentManager.id),
+      ]);
+      if (monthRes.error) throw monthRes.error;
+      if (allRes.error) throw allRes.error;
+      if (badgeRes.error) throw badgeRes.error;
+
+      const actions = monthRes.data || [];
       let monthPts = 0, todayPts = 0;
       for (const a of actions) {
         monthPts += a.points || 0;
@@ -917,10 +979,117 @@
       myStats.monthPoints = monthPts;
       myStats.todayPoints = todayPts;
       myStats.recentActions = actions.slice(0, 30);
+      myStats.allActions = allRes.data || [];
+      myBadges = new Set((badgeRes.data || []).map(b => b.badge_code));
     } catch (e) {
       console.error('loadMyStats error:', e);
     }
     renderMyGameWidget();
+    // После загрузки данных проверяем не пора ли выдать новые бейджи
+    checkBadges({ silent: true });
+  }
+
+  // Подсчёт агрегатов для проверки бейджей
+  function computeBadgeAggregates() {
+    const all = myStats.allActions || [];
+    const agg = {
+      byType: {},          // {sold_antirain: 12, ...}
+      lateClosings: 0,     // car_closed_* после 19:00
+      earlyAdds: 0,        // car_added до 9:00
+      maxClosingsPerDay: 0,// макс закрытий за один день
+      closingsLastWeek: 0, // закрытия за последние 7 дней
+      premiumDay: false,   // 3 машины с 3+ допами за день
+    };
+    const closingByDay = {};
+    const addonsByCar = {};
+    const carDayMap = {};
+    const closingTypes = ['car_closed_retail','car_closed_insurance','car_closed_corp','car_closed_detail'];
+    const sevenDaysAgo = Date.now() - 7 * 24 * 36e5;
+    const addonTypes = ['sold_antirain','sold_brush','sold_armor','sold_tinting','sold_chip_repair','sold_glass_polish','sold_headlight_polish','sold_silicone_seal'];
+
+    for (const a of all) {
+      agg.byType[a.action_type] = (agg.byType[a.action_type] || 0) + 1;
+      const d = new Date(a.occurred_at);
+      const hour = d.getHours();
+      const dayStr = a.occurred_at.substring(0, 10);
+
+      if (closingTypes.includes(a.action_type)) {
+        if (hour >= 19) agg.lateClosings++;
+        closingByDay[dayStr] = (closingByDay[dayStr] || 0) + 1;
+        if (d.getTime() > sevenDaysAgo) agg.closingsLastWeek++;
+      }
+      if (a.action_type === 'car_added' && hour < 9) {
+        agg.earlyAdds++;
+      }
+      // Группируем допы по машинам
+      if (addonTypes.includes(a.action_type) && a.ref_id) {
+        if (!addonsByCar[a.ref_id]) addonsByCar[a.ref_id] = new Set();
+        addonsByCar[a.ref_id].add(a.action_type);
+        carDayMap[a.ref_id] = dayStr;
+      }
+    }
+    // Максимум закрытий за день
+    for (const d in closingByDay) {
+      if (closingByDay[d] > agg.maxClosingsPerDay) agg.maxClosingsPerDay = closingByDay[d];
+    }
+    // Премиум-день: 3 машины с 3+ допами в один день
+    const premiumCarsByDay = {};
+    for (const carId in addonsByCar) {
+      if (addonsByCar[carId].size >= 3) {
+        const day = carDayMap[carId];
+        premiumCarsByDay[day] = (premiumCarsByDay[day] || 0) + 1;
+        if (premiumCarsByDay[day] >= 3) agg.premiumDay = true;
+      }
+    }
+    return agg;
+  }
+
+  // Проверка бейджей. silent=true — не показывать тост при первой загрузке всех уже имеющихся.
+  async function checkBadges(opts = {}) {
+    if (!currentManager) return;
+    const agg = computeBadgeAggregates();
+    const newBadges = [];
+    for (const b of BADGE_CATALOG) {
+      if (myBadges.has(b.code)) continue;
+      try {
+        if (b.check(agg)) newBadges.push(b);
+      } catch (e) { console.error('Badge check error:', b.code, e); }
+    }
+    if (newBadges.length === 0) return;
+    // Записываем в БД и показываем тосты
+    for (const b of newBadges) {
+      try {
+        const { error } = await sb.from('badges_earned').insert({
+          manager_id: currentManager.id,
+          badge_code: b.code,
+        });
+        if (error) {
+          // Если уже есть (race condition) — игнорируем
+          if (!String(error.message || '').includes('duplicate')) {
+            console.error('Badge insert error:', error);
+          }
+          continue;
+        }
+        myBadges.add(b.code);
+        if (!opts.silent) {
+          // Бейджевый тост — более заметный
+          showBadgeToast(b);
+        }
+      } catch (e) { console.error('Badge save error:', e); }
+    }
+  }
+
+  function showBadgeToast(b) {
+    // Используем обычный toast, но с длинным сообщением
+    toast(`🏅 НОВЫЙ БЕЙДЖ: ${b.emoji} ${b.name} — ${b.desc}`, 'ok');
+    // Дублируем в обычной ленте чтобы в "📜 ИСТОРИЯ" было видно
+    myStats.recentActions.unshift({
+      id: 'tmp-badge-' + b.code,
+      action_type: 'badge_earned',
+      points: 0,
+      occurred_at: new Date().toISOString(),
+      comment: `${b.emoji} ${b.name} — ${b.desc}`,
+    });
   }
 
   // Рендер виджета "Моя игра" в шапке
@@ -1212,9 +1381,9 @@
         ${recentHtml}
       </div>
 
-      <div class="game-section" style="opacity:.6;">
-        <div class="game-sect-title">🏅 МОИ БЕЙДЖИ</div>
-        <div class="ga-empty">Бейджи появятся на следующем этапе разработки</div>
+      <div class="game-section">
+        <div class="game-sect-title">🏅 МОИ БЕЙДЖИ <span style="font-size:11px;color:var(--muted);font-weight:400;letter-spacing:0;">${myBadges.size} из ${BADGE_CATALOG.length}</span></div>
+        ${renderMyBadges()}
       </div>
 
       <div class="game-section" style="opacity:.6;">
@@ -1222,6 +1391,58 @@
         <div class="ga-empty">Челленджи появятся на следующем этапе разработки</div>
       </div>
     `;
+  }
+
+  function renderMyBadges() {
+    const earned = BADGE_CATALOG.filter(b => myBadges.has(b.code));
+    const available = BADGE_CATALOG.filter(b => !myBadges.has(b.code));
+    let html = '';
+    if (earned.length > 0) {
+      html += '<div class="badges-grid">';
+      html += earned.map(b => `
+        <div class="badge-item earned" title="${escapeHtml(b.desc)}">
+          <div class="badge-emoji">${b.emoji}</div>
+          <div class="badge-name">${b.name}</div>
+        </div>
+      `).join('');
+      html += '</div>';
+    } else {
+      html += '<div class="ga-empty">Пока нет бейджей. Начни внести первую машину — получишь 🥉 Стартёр!</div>';
+    }
+    if (available.length > 0) {
+      // Считаем прогресс по каждому доступному (если есть числовая метрика)
+      const agg = computeBadgeAggregates();
+      html += '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:14px;margin-bottom:8px;">Доступные для получения</div>';
+      html += '<div class="badges-grid">';
+      html += available.slice(0, 8).map(b => {
+        const prog = badgeProgress(b, agg);
+        return `<div class="badge-item available" title="${escapeHtml(b.desc)}">
+          <div class="badge-emoji" style="opacity:.5;">${b.emoji}</div>
+          <div class="badge-name">${b.name}</div>
+          ${prog ? `<div class="badge-prog">${prog}</div>` : ''}
+        </div>`;
+      }).join('');
+      html += '</div>';
+    }
+    return html;
+  }
+
+  function badgeProgress(b, agg) {
+    // Возвращает строку прогресса для бейджа (например "8 / 50 антидождей")
+    switch (b.code) {
+      case 'starter':     return `${agg.byType['car_added']||0} / 1`;
+      case 'jubilee_100': return `${agg.byType['car_added']||0} / 100`;
+      case 'jubilee_500': return `${agg.byType['car_added']||0} / 500`;
+      case 'bombardir':   return `${agg.byType['sold_antirain']||0} / 50`;
+      case 'zashitnik':   return `${agg.byType['sold_armor']||0} / 10`;
+      case 'eagle_eye':   return `${agg.byType['sold_chip_repair']||0} / 30`;
+      case 'sova':        return `${agg.lateClosings} / 10`;
+      case 'larks':       return `${agg.earlyAdds} / 10`;
+      case 'speedy':      return `${agg.maxClosingsPerDay} / 10 за день`;
+      case 'fire':        return `${agg.closingsLastWeek} / 30 за неделю`;
+      case 'premium':     return agg.premiumDay ? '✓' : '0 / 3 машин с 3+ допами';
+      default: return null;
+    }
   }
 
   function computeBestDay(actions) {
