@@ -121,6 +121,43 @@
 
   .tab-page{display:none;} .tab-page.active{display:block;}
 
+  /* === Staff (управление сотрудниками) === */
+  .staff-section{margin-bottom:22px;}
+  .staff-section-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+  .staff-point-title{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--text);letter-spacing:1.5px;}
+  .staff-add-btn{background:var(--accent);color:#000;border:none;padding:7px 14px;border-radius:7px;font-weight:700;font-size:12px;cursor:pointer;letter-spacing:.3px;}
+  .staff-add-btn:hover{filter:brightness(1.05);}
+  .staff-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;}
+  .staff-card{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;cursor:pointer;transition:all .15s;}
+  .staff-card:hover{border-color:var(--accent);}
+  .staff-card.inactive{opacity:.5;}
+  .staff-emoji{font-size:28px;line-height:1;}
+  .staff-info{flex:1;min-width:0;}
+  .staff-name{font-size:14px;font-weight:600;color:var(--text);}
+  .staff-short{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-top:2px;}
+  .staff-empty{padding:20px;text-align:center;color:var(--muted);font-size:13px;background:#0e0e0e;border:1px dashed var(--border);border-radius:10px;}
+
+  /* Модалка редактирования */
+  .se-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);backdrop-filter:blur(4px);z-index:500;align-items:center;justify-content:center;padding:20px;}
+  .se-modal.show{display:flex;}
+  .se-sheet{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px;max-width:480px;width:100%;max-height:90vh;overflow-y:auto;}
+  .se-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
+  .se-title{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--text);letter-spacing:1px;}
+  .se-x{background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;}
+  .se-row{margin-bottom:11px;}
+  .se-lbl{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;}
+  .se-inp{background:#0e0e0e;border:1px solid var(--border);border-radius:7px;padding:9px 11px;color:var(--text);font-family:'Inter',sans-serif;font-size:13px;outline:none;width:100%;}
+  .se-inp:focus{border-color:var(--accent);}
+  .se-emoji-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:5px;}
+  .se-emoji-btn{background:#0e0e0e;border:1px solid var(--border);border-radius:7px;padding:6px;cursor:pointer;font-size:18px;line-height:1;transition:all .12s;}
+  .se-emoji-btn:hover{border-color:var(--accent);background:#1a1a1a;}
+  .se-emoji-btn.selected{border-color:var(--accent);background:rgba(232,184,75,.15);}
+  .se-actions{display:flex;flex-direction:column;gap:7px;margin-top:14px;}
+  .se-btn{padding:10px;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;border:1px solid var(--border);background:#0e0e0e;color:var(--text);letter-spacing:.3px;}
+  .se-btn.primary{background:var(--accent);color:#000;border-color:var(--accent);}
+  .se-btn.danger{background:transparent;color:var(--red);border-color:var(--red);}
+  .se-btn.warn{background:transparent;color:var(--orange);border-color:var(--orange);}
+
   .city-section{margin-bottom:24px;}
   .city-title{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--muted);letter-spacing:2px;margin-bottom:12px;display:flex;align-items:center;gap:10px;}
   .city-title::before{content:'';width:24px;height:2px;background:var(--accent);}
@@ -364,6 +401,7 @@
     <button class="top-tab" onclick="showPage('plans')">🎯 Планы</button>
     <button class="top-tab" onclick="showPage('myreport')">📋 Мой отчёт</button>
     <button class="top-tab" onclick="showPage('breakdown')">📈 Детализация</button>
+    <button class="top-tab" onclick="showPage('staff')">👥 Сотрудники</button>
   </div>
 
   <div class="tab-page active" id="page-overview">
@@ -381,8 +419,52 @@
   <div class="tab-page" id="page-breakdown">
     <div id="breakdown-content"><div class="loader"><div class="spinner"></div>Загружаю детализацию...</div></div>
   </div>
+
+  <div class="tab-page" id="page-staff">
+    <div id="staff-content"><div class="loader"><div class="spinner"></div>Загружаю сотрудников...</div></div>
+  </div>
 </div>
 
+</div>
+
+<div class="se-modal" id="se-modal" onclick="if(event.target===this)closeStaffEdit()">
+  <div class="se-sheet">
+    <div class="se-head">
+      <div class="se-title" id="se-title">Сотрудник</div>
+      <button class="se-x" onclick="closeStaffEdit()">✕</button>
+    </div>
+    <div class="se-row">
+      <div class="se-lbl">Точка</div>
+      <select id="se-point" class="se-inp">
+        <option value="kaluga">Калужская (Москва)</option>
+        <option value="serpuhov">Серпуховская (Москва)</option>
+        <option value="sovhoz">Совхозная (Ижевск)</option>
+        <option value="poyma">Пойма (Ижевск)</option>
+      </select>
+    </div>
+    <div class="se-row">
+      <div class="se-lbl">Полное имя</div>
+      <input id="se-name" type="text" class="se-inp" placeholder="Иванов Иван Иванович">
+    </div>
+    <div class="se-row">
+      <div class="se-lbl">Короткое имя <span style="color:var(--muted);font-weight:400;text-transform:none;">(показывается в шапке)</span></div>
+      <input id="se-short" type="text" class="se-inp" placeholder="Иван">
+    </div>
+    <div class="se-row">
+      <div class="se-lbl">Аватар</div>
+      <div class="se-emoji-grid" id="se-emoji-grid"></div>
+    </div>
+    <div class="se-row">
+      <div class="se-lbl">Ссылка на Битрикс <span style="color:var(--muted);font-weight:400;text-transform:none;">(опц.)</span></div>
+      <input id="se-bitrix" type="text" class="se-inp" placeholder="https://plaza18.bitrix24.ru/...">
+    </div>
+    <div class="se-actions">
+      <button class="se-btn primary" onclick="saveStaff()">💾 Сохранить</button>
+      <button class="se-btn warn" id="se-toggle-btn" style="display:none;" onclick="toggleStaffActive()">⏸ Деактивировать</button>
+      <button class="se-btn danger" id="se-delete-btn" style="display:none;" onclick="deleteStaff()">🗑 Удалить</button>
+      <button class="se-btn" onclick="closeStaffEdit()">Отмена</button>
+    </div>
+  </div>
 </div>
 
 <div class="mp-modal" id="mp-modal" onclick="if(event.target===this)mpCloseGrid()">
@@ -479,6 +561,7 @@
     if (p === 'plans' && cachedData) renderPlans(cachedData);
     if (p === 'myreport' && cachedData) renderMyReport(cachedData);
     if (p === 'breakdown') renderBreakdown();
+    if (p === 'staff') loadAndRenderStaff();
   }
 
   function toast(msg, type) {
@@ -1768,6 +1851,233 @@ ${point.name} ${flow}`;
   function setBreakdownFilter(field, value) {
     breakdownState[field] = value;
     drawBreakdown();
+  }
+
+  // ============ УПРАВЛЕНИЕ СОТРУДНИКАМИ (Staff) ============
+  let staffData = [];        // все менеджеры из БД (включая inactive)
+  let editingStaffId = null; // null = создание, иначе uuid
+
+  // Палитра эмодзи на выбор
+  const STAFF_EMOJI_PALETTE = [
+    '😊','🙂','😎','🤓','🤠','🥸','😉','🌟',
+    '🦊','🐯','🐻','🦁','🦅','🐺','🐧','🦉',
+    '🚀','⭐','🎯','⚡','🔥','💎','👑','🏆',
+    '🌸','🌺','🌹','🌻','🌷','🦋','🍀','✨'
+  ];
+
+  const POINT_LABELS = {
+    kaluga:   'Калужская',
+    serpuhov: 'Серпуховская',
+    sovhoz:   'Совхозная',
+    poyma:    'Пойма',
+  };
+  const POINT_CITIES = {
+    kaluga: 'Москва', serpuhov: 'Москва',
+    sovhoz: 'Ижевск', poyma: 'Ижевск',
+  };
+
+  async function loadAndRenderStaff() {
+    const container = document.getElementById('staff-content');
+    container.innerHTML = '<div class="loader"><div class="spinner"></div>Загружаю сотрудников...</div>';
+    try {
+      const { data, error } = await sb.from('managers')
+        .select('*')
+        .order('point_id')
+        .order('short_name');
+      if (error) throw error;
+      staffData = data || [];
+      renderStaff();
+    } catch (e) {
+      console.error('Staff load error:', e);
+      container.innerHTML = `<div style="color:var(--red);padding:20px;text-align:center;">Ошибка загрузки: ${e.message||e}</div>`;
+    }
+  }
+
+  function renderStaff() {
+    const container = document.getElementById('staff-content');
+    // Группировка по городам, потом по точкам
+    const order = [
+      { city: 'Москва', points: ['kaluga','serpuhov'] },
+      { city: 'Ижевск', points: ['sovhoz','poyma']   },
+    ];
+    let html = `
+      <div style="margin-bottom:16px;padding:12px 14px;background:#0e0e0e;border:1px solid var(--border);border-radius:10px;font-size:12px;color:var(--muted);line-height:1.5;">
+        💡 Сотрудники видны в приложении менеджера при входе на точку. Деактивация (⏸) скроет из списка, но сохранит историю действий. Удаление безвозвратно.
+      </div>
+      <div style="text-align:right;margin-bottom:14px;">
+        <button class="staff-add-btn" onclick="openStaffEdit(null)">+ Добавить сотрудника</button>
+      </div>
+    `;
+    for (const sec of order) {
+      html += `<div class="city-section"><div class="city-title">${sec.city}</div>`;
+      for (const pid of sec.points) {
+        const list = staffData.filter(s => s.point_id === pid);
+        const active = list.filter(s => s.active);
+        const inactive = list.filter(s => !s.active);
+        html += `
+          <div class="staff-section">
+            <div class="staff-section-head">
+              <div class="staff-point-title">${POINT_LABELS[pid]} <span style="color:var(--muted);font-size:11px;letter-spacing:.5px;">· ${active.length} активных${inactive.length ? ' · ' + inactive.length + ' в архиве' : ''}</span></div>
+              <button class="staff-add-btn" onclick="openStaffEdit(null,'${pid}')">+ Добавить</button>
+            </div>
+            ${active.length === 0 && inactive.length === 0
+              ? '<div class="staff-empty">Сотрудников нет</div>'
+              : `<div class="staff-list">
+                  ${active.map(s => staffCardHtml(s)).join('')}
+                  ${inactive.map(s => staffCardHtml(s)).join('')}
+                </div>`
+            }
+          </div>
+        `;
+      }
+      html += `</div>`;
+    }
+    container.innerHTML = html;
+  }
+
+  function staffCardHtml(s) {
+    return `<div class="staff-card ${s.active ? '' : 'inactive'}" onclick="openStaffEdit('${s.id}')">
+      <div class="staff-emoji">${s.avatar_emoji || '😊'}</div>
+      <div class="staff-info">
+        <div class="staff-name">${escapeHtml(s.name)} ${!s.active ? '<span style="font-size:9px;color:var(--orange);background:rgba(255,140,0,.15);padding:1px 5px;border-radius:3px;margin-left:4px;">архив</span>' : ''}</div>
+        <div class="staff-short">${escapeHtml(s.short_name || '')}</div>
+      </div>
+    </div>`;
+  }
+
+  function openStaffEdit(id, defaultPoint) {
+    editingStaffId = id;
+    const modal = document.getElementById('se-modal');
+    const titleEl = document.getElementById('se-title');
+    const toggleBtn = document.getElementById('se-toggle-btn');
+    const deleteBtn = document.getElementById('se-delete-btn');
+
+    // Рендерим палитру эмодзи
+    const palette = document.getElementById('se-emoji-grid');
+    palette.innerHTML = STAFF_EMOJI_PALETTE.map(e =>
+      `<button class="se-emoji-btn" onclick="selectStaffEmoji('${e}', this)">${e}</button>`
+    ).join('');
+
+    if (id) {
+      // Редактирование
+      const s = staffData.find(x => x.id === id);
+      if (!s) return;
+      titleEl.textContent = `✏ ${s.short_name || s.name}`;
+      document.getElementById('se-point').value = s.point_id;
+      document.getElementById('se-name').value = s.name || '';
+      document.getElementById('se-short').value = s.short_name || '';
+      document.getElementById('se-bitrix').value = s.bitrix_url || '';
+      // Выделить текущий эмодзи
+      const currentEmoji = s.avatar_emoji || '😊';
+      palette.querySelectorAll('.se-emoji-btn').forEach(btn => {
+        if (btn.textContent === currentEmoji) btn.classList.add('selected');
+      });
+      toggleBtn.style.display = '';
+      toggleBtn.textContent = s.active ? '⏸ Деактивировать' : '▶ Активировать';
+      deleteBtn.style.display = '';
+    } else {
+      // Создание
+      titleEl.textContent = '+ Новый сотрудник';
+      document.getElementById('se-point').value = defaultPoint || 'sovhoz';
+      document.getElementById('se-name').value = '';
+      document.getElementById('se-short').value = '';
+      document.getElementById('se-bitrix').value = '';
+      // Случайный эмодзи
+      const randomEmoji = STAFF_EMOJI_PALETTE[Math.floor(Math.random() * STAFF_EMOJI_PALETTE.length)];
+      palette.querySelectorAll('.se-emoji-btn').forEach(btn => {
+        if (btn.textContent === randomEmoji) btn.classList.add('selected');
+      });
+      toggleBtn.style.display = 'none';
+      deleteBtn.style.display = 'none';
+    }
+    modal.classList.add('show');
+  }
+
+  function selectStaffEmoji(emoji, btn) {
+    document.querySelectorAll('.se-emoji-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+  }
+
+  function closeStaffEdit() {
+    document.getElementById('se-modal').classList.remove('show');
+    editingStaffId = null;
+  }
+
+  function getSelectedEmoji() {
+    const sel = document.querySelector('.se-emoji-btn.selected');
+    return sel ? sel.textContent : '😊';
+  }
+
+  async function saveStaff() {
+    const name = document.getElementById('se-name').value.trim();
+    const short = document.getElementById('se-short').value.trim();
+    const point_id = document.getElementById('se-point').value;
+    const bitrix = document.getElementById('se-bitrix').value.trim();
+    const emoji = getSelectedEmoji();
+    if (!name) { toast('Укажи полное имя', 'err'); return; }
+    if (!short) { toast('Укажи короткое имя', 'err'); return; }
+    const payload = {
+      point_id,
+      name,
+      short_name: short,
+      avatar_emoji: emoji,
+      bitrix_url: bitrix || null,
+    };
+    try {
+      if (editingStaffId) {
+        const { error } = await sb.from('managers').update(payload).eq('id', editingStaffId);
+        if (error) throw error;
+        toast('Сохранено', 'ok');
+      } else {
+        const { error } = await sb.from('managers').insert(payload);
+        if (error) throw error;
+        toast('Сотрудник добавлен', 'ok');
+      }
+      closeStaffEdit();
+      loadAndRenderStaff();
+    } catch (e) {
+      toast('Ошибка: ' + (e.message||e), 'err');
+    }
+  }
+
+  async function toggleStaffActive() {
+    if (!editingStaffId) return;
+    const s = staffData.find(x => x.id === editingStaffId);
+    if (!s) return;
+    const newActive = !s.active;
+    if (!confirm(newActive ? 'Активировать сотрудника?' : 'Деактивировать? Он не сможет войти в приложение, но история сохранится.')) return;
+    try {
+      const { error } = await sb.from('managers').update({ active: newActive }).eq('id', editingStaffId);
+      if (error) throw error;
+      toast(newActive ? '▶ Активирован' : '⏸ Деактивирован', 'ok');
+      closeStaffEdit();
+      loadAndRenderStaff();
+    } catch (e) {
+      toast('Ошибка: ' + (e.message||e), 'err');
+    }
+  }
+
+  async function deleteStaff() {
+    if (!editingStaffId) return;
+    const s = staffData.find(x => x.id === editingStaffId);
+    if (!s) return;
+    if (!confirm(`Удалить ${s.name} НАВСЕГДА?\nЛучше использовать "Деактивировать" — тогда сохранится история действий.\n\nТочно удалить?`)) return;
+    if (!confirm('Это второе подтверждение — точно удалить?')) return;
+    try {
+      const { error } = await sb.from('managers').delete().eq('id', editingStaffId);
+      if (error) throw error;
+      toast('Удалён', 'ok');
+      closeStaffEdit();
+      loadAndRenderStaff();
+    } catch (e) {
+      toast('Ошибка: ' + (e.message||e), 'err');
+    }
+  }
+
+  // escapeHtml для безопасного рендеринга имён
+  function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
   }
 
   // Авто-обновление обзора каждые 60 сек (не трогаем планы чтобы не сбить ввод)
