@@ -2538,26 +2538,47 @@
       // 3) Quality (гарантии/переделки/обслуживание своего) → пишем в cars_in_work со спец-категорией
       const allCars = [...p.closed, ...p.inWork, ...p.quality];
       for (const car of allCars) {
-        // Формируем car_number и car_brand из модели (берём первое слово)
-        const firstWord = (car.model || '').split(/\s+/)[0] || '';
-        const carPlate = car.plate && car.plate !== 'Б/Н' ? car.plate : '';
-        // car_type для daily_reports compatibility:
+        // Формируем info: "номер · марка · клиент" (формат как при ручном вводе)
+        const carPlate = car.plate && car.plate !== 'Б/Н' ? car.plate : 'Б/Н';
+        const infoStr = `${carPlate} · ${car.model || ''} · ${car.customer || car.payer || ''}`.trim();
+
+        // service_type для cars_in_work:
         // retail/equity → retail; corp → corp; ins → ins;
-        // warranty/internal → warranty (новый внутренний тип, не идёт в выручку)
-        let carType = 'retail';
-        if (car.category === 'corp') carType = 'corp';
-        else if (car.category === 'ins') carType = 'ins';
-        else if (car.category === 'warranty' || car.category === 'internal') carType = 'warranty';
+        // warranty/internal → warranty (для метрик качества)
+        let svcType = 'retail';
+        if (car.category === 'corp')      svcType = 'corp';
+        else if (car.category === 'ins')   svcType = 'ins';
+        else if (car.category === 'warranty' || car.category === 'internal') svcType = 'warranty';
+        // equity (РАВТ-розница) хранится как retail с пометкой в comment/payer
+
+        // Дата заезда — дата создания ЗН
+        const arrivedDate = car.date_created ? isoDate(car.date_created) : null;
+        // Дата выдачи — для закрытых
+        const expectedDate = car.date_shipped ? isoDate(car.date_shipped) : null;
+
+        // Комментарий — собираем из 1С-комментария + плательщик если корп
+        let combinedComment = car.comment || '';
+        if (car.payer && car.payer !== car.customer && !combinedComment.includes(car.payer)) {
+          combinedComment = `[${car.payer}] ${combinedComment}`.trim();
+        }
+        if (car.category === 'equity' && !combinedComment.toLowerCase().includes('равт')) {
+          combinedComment = `[РАВТ] ${combinedComment}`.trim();
+        }
 
         const payload = {
           point_id: car.point_id,
-          car_number: carPlate || `ZN${car.zn_number}`,
-          car_brand: firstWord,
-          client_name: car.customer || car.payer || '',
-          car_price: car.sum || null,
-          car_type: carType,
+          info: infoStr,
+          plate: carPlate,
+          brand: '',
+          client: '',
+          service_type: svcType,
           status: car.internalStatus || 'in_progress',
-          comment: car.comment || null,
+          description: '',
+          amount: car.sum || null,
+          arrived_at: arrivedDate,
+          expected_at: expectedDate,
+          comment: combinedComment || null,
+          // Новые поля от 1С (из SQL import_1c_setup.sql)
           zn_number: car.zn_number,
           vin: car.vin || null,
           payer: car.payer || null,
@@ -2565,6 +2586,7 @@
           imported_at: new Date().toISOString(),
           status_1c: car.status_1c,
         };
+
         // Upsert по zn_number
         const { error } = await sb.from('cars_in_work').upsert(payload, { onConflict: 'zn_number' });
         if (error) {
