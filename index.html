@@ -848,6 +848,12 @@
           <textarea id="ce-todo" class="cf-inp" rows="2" placeholder="Принять оплату, подписать акты"></textarea>
         </div>
 
+        <!-- Внутренняя заметка менеджера: видна только для 1С-машин -->
+        <div class="cf-row" id="ce-manager-note-row" style="display:none;">
+          <label class="cf-lbl">📝 Заметка менеджера <span style="color:var(--muted);font-weight:400;text-transform:none;">(только в хабе, не уйдёт в 1С)</span></label>
+          <textarea id="ce-manager-note" class="cf-inp" rows="2" placeholder="Внутренний коммент для смены, не перетирается импортом"></textarea>
+        </div>
+
         <div class="cf-row addons-block">
           <label class="cf-lbl">💡 Допы предложены / согласованы клиентом</label>
           <div id="ce-addons-list" class="addons-list">
@@ -4068,19 +4074,32 @@ ${planLine}
       document.getElementById('ce-arrived').value = c.arrived_at || '';
       document.getElementById('ce-expected').value = c.expected_at || '';
       document.getElementById('ce-time').value = c.expected_time || '';
+      // Поле «Заметка менеджера» — видно только для 1С-машин
+      const noteRow = document.getElementById('ce-manager-note-row');
+      const noteEl = document.getElementById('ce-manager-note');
+      if (c.source_1c) {
+        noteRow.style.display = '';
+        noteEl.value = c.manager_note || '';
+      } else {
+        noteRow.style.display = 'none';
+        noteEl.value = '';
+      }
+      // Симбиоз: для 1С-машин 1С — источник истины. Делаем поля из 1С read-only,
+      // оставляем редактируемыми только: тип услуги, допы, todo, manager_note.
+      applyCarEditMode(c.source_1c, c.status_1c);
       addons = c.addons || {};
       closeBtn.style.display = '';
-      // Удаление доступно только в первый час после создания (защита от накруток баллов)
+      // Удаление 1С-машин в хабе не разрешаем (она вернётся при следующем импорте)
       const createdAt = c.created_at ? new Date(c.created_at).getTime() : null;
       const hoursSinceCreated = createdAt ? (Date.now() - createdAt) / 36e5 : 999;
-      if (hoursSinceCreated < 1) {
+      if (!c.source_1c && hoursSinceCreated < 1) {
         delBtn.style.display = '';
         delBtn.textContent = `🗑 Удалить (осталось ${Math.ceil(60 - hoursSinceCreated * 60)} мин)`;
       } else {
         delBtn.style.display = 'none';
       }
     } else {
-      // Новая
+      // Новая (только ручная)
       titleEl.textContent = '+ Новая машина';
       document.getElementById('ce-info').value = '';
       document.getElementById('ce-type').value = 'розн';
@@ -4091,11 +4110,50 @@ ${planLine}
       document.getElementById('ce-arrived').value = todayLocalISO();
       document.getElementById('ce-expected').value = '';
       document.getElementById('ce-time').value = '';
+      document.getElementById('ce-manager-note-row').style.display = 'none';
+      document.getElementById('ce-manager-note').value = '';
+      applyCarEditMode(false, null);
       closeBtn.style.display = 'none';
       delBtn.style.display = 'none';
     }
     renderAddonsList(addons);
     overlay.classList.add('show');
+  }
+
+  // Переключает редактор в режим 1С-машины (read-only поля 1С) или ручной (всё редактируется)
+  function applyCarEditMode(isFrom1c, status1c) {
+    const READONLY_FOR_1C = ['ce-info','ce-status','ce-desc','ce-amount','ce-arrived','ce-expected','ce-time'];
+    // ce-type, ce-todo, ce-manager-note и допы остаются редактируемыми всегда
+    READONLY_FOR_1C.forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (isFrom1c) {
+        el.setAttribute('readonly', 'readonly');
+        if (el.tagName === 'SELECT') el.setAttribute('disabled', 'disabled');
+        el.style.opacity = '0.65';
+        el.style.cursor = 'not-allowed';
+      } else {
+        el.removeAttribute('readonly');
+        el.removeAttribute('disabled');
+        el.style.opacity = '';
+        el.style.cursor = '';
+      }
+    });
+    // Баннер «Из 1С» — добавляем/удаляем
+    let banner = document.getElementById('ce-1c-banner');
+    if (isFrom1c) {
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'ce-1c-banner';
+        banner.style.cssText = 'background:rgba(33,150,243,.1);border:1px solid var(--blue);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--text);line-height:1.5;';
+        const body = document.querySelector('#car-edit-overlay .sheet-body');
+        if (body) body.insertBefore(banner, body.firstChild);
+      }
+      const statusHint = status1c ? ` · статус в 1С: <b>${escapeHtml(status1c)}</b>` : '';
+      banner.innerHTML = `☁ <b>Данные из 1С</b>${statusHint}<br><span style="color:var(--muted);">Чтобы изменить статус, сумму, описание или даты — отредактируй ЗН в 1С. Здесь редактируются: тип услуги, чек-лист допов, TODO и заметка менеджера.</span>`;
+    } else if (banner) {
+      banner.remove();
+    }
   }
 
   // === Чек-лист допов ===
@@ -4243,21 +4301,35 @@ ${planLine}
     // Извлекаем plate (первое слово) для legacy-поля и сортировки
     const firstWord = info.split(/\s+/)[0] || '';
     const todo = document.getElementById('ce-todo').value.trim();
-    const payload = {
-      point_id: currentPoint.id,
-      info: info,
-      plate: firstWord,
-      brand: '', client: '',  // больше не используем
-      service_type: document.getElementById('ce-type').value,
-      status: document.getElementById('ce-status').value,
-      description: document.getElementById('ce-desc').value.trim(),
-      todo: todo,
-      amount: +document.getElementById('ce-amount').value || 0,
-      arrived_at: document.getElementById('ce-arrived').value || todayLocalISO(),
-      expected_at: document.getElementById('ce-expected').value || null,
-      expected_time: document.getElementById('ce-time').value.trim(),
-    };
     const isNew = !editingCarId;
+
+    // Для 1С-машины не перетираем поля из 1С — шлём только редактируемые
+    const existing = !isNew ? carsInWork.find(c => c.id === editingCarId) : null;
+    const isFrom1c = existing && existing.source_1c === true;
+
+    let payload;
+    if (isFrom1c) {
+      payload = {
+        service_type: document.getElementById('ce-type').value,
+        todo: todo,
+        manager_note: document.getElementById('ce-manager-note').value.trim() || null,
+      };
+    } else {
+      payload = {
+        point_id: currentPoint.id,
+        info: info,
+        plate: firstWord,
+        brand: '', client: '',
+        service_type: document.getElementById('ce-type').value,
+        status: document.getElementById('ce-status').value,
+        description: document.getElementById('ce-desc').value.trim(),
+        todo: todo,
+        amount: +document.getElementById('ce-amount').value || 0,
+        arrived_at: document.getElementById('ce-arrived').value || todayLocalISO(),
+        expected_at: document.getElementById('ce-expected').value || null,
+        expected_time: document.getElementById('ce-time').value.trim(),
+      };
+    }
     // Запоминаем предыдущее TODO до апдейта (для проверки "появилось ли новое TODO")
     let prevTodo = '';
     if (!isNew && Array.isArray(carsInWork)) {
