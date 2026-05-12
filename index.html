@@ -2270,6 +2270,20 @@
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   }
 
+  // Парсер суммы из 1С. XLSX с raw:false форматирует числа по локали — "5 000",
+  // "12 500,50" и т.д. parseFloat("5 000") = 5 (обрезает на пробеле).
+  // Удаляем все пробелы (включая non-breaking U+00A0 и narrow no-break U+202F),
+  // меняем запятую на точку, и тогда parseFloat читает корректно.
+  function parseSum1c(val) {
+    if (val === null || val === undefined || val === '') return 0;
+    if (typeof val === 'number') return val;
+    const cleaned = String(val)
+      .replace(/[\s\u00A0\u202F]/g, '')   // все виды пробелов
+      .replace(',', '.');                  // десятичная запятая → точка
+    const n = parseFloat(cleaned);
+    return isNaN(n) ? 0 : n;
+  }
+
   async function parseImport1cFile() {
     const file = document.getElementById('import1c-file').files[0];
     const errEl = document.getElementById('import1c-error');
@@ -2360,7 +2374,7 @@
           zn_number: String(number).trim(),
           point_id,
           category: cat,
-          sum: parseFloat(row[cols.sum]) || 0,
+          sum: parseSum1c(row[cols.sum]),
           customer: customer ? String(customer).trim() : '',
           model: cols.model >= 0 ? String(row[cols.model] || '').trim() : '',
           plate: cols.plate >= 0 ? String(row[cols.plate] || '').trim() : '',
@@ -2556,11 +2570,10 @@
       client: '',
       service_type: svcType,
       status: car.internalStatus || 'in_progress',
-      description: '',
+      description: combinedComment || '',
       amount: car.sum || null,
       arrived_at: arrivedDate,
       expected_at: expectedDate,
-      comment: combinedComment || null,
       zn_number: car.zn_number,
       vin: car.vin || null,
       payer: car.payer || null,
