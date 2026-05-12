@@ -2844,7 +2844,7 @@ ${point.name} ${flow}`;
           .gte('date', prevStart).lte('date', prevEnd),
         sb.from('monthly_ovr_items').select('*').eq('period', cachedData.period),
         sb.from('daily_reports_unified')
-          .select('point_id,date,total_day,bn_day,nal_day,kart_day,bs_day')
+          .select('point_id,date,total_day,cash_card,cash_money')
           .gte('date', range.start).lte('date', range.end),
         sb.from('cars_in_work')
           .select('point_id,car_type,status_1c,imported_at,zn_number')
@@ -2931,13 +2931,11 @@ ${point.name} ${flow}`;
       detail: cars.detail ? Math.round(channels.detail / cars.detail) : 0,
     };
 
-    // Поступления (нал/карта/безнал)
-    const cash = { nal: 0, kart: 0, bn: 0, bs: 0 };
+    // Поступления (карта + нал)
+    const cash = { kart: 0, nal: 0, bn: 0, bs: 0 };
     for (const rep of r.cashReports || []) {
-      cash.nal  += (+rep.nal_day  || 0);
-      cash.kart += (+rep.kart_day || 0);
-      cash.bn   += (+rep.bn_day   || 0);
-      cash.bs   += (+rep.bs_day   || 0);
+      cash.kart += (+rep.cash_card  || 0);
+      cash.nal  += (+rep.cash_money || 0);
     }
     const cashTotal = cash.nal + cash.kart + cash.bn + cash.bs;
 
