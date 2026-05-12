@@ -663,6 +663,19 @@
           <div class="ablock full"><div class="albl t">Общая</div><input class="ainp" type="number" id="debt_total" placeholder="0" oninput="autoCalcTriad('debt','total')"></div>
           <div class="ablock"><div class="albl g">Розница</div><input class="ainp" type="number" id="debt_retail" placeholder="0" oninput="autoCalcTriad('debt','retail')"></div>
           <div class="ablock"><div class="albl b">Страховые</div><input class="ainp" type="number" id="debt_insurance" placeholder="0" oninput="autoCalcTriad('debt','insurance')"></div>
+          <div class="ablock"><div class="albl" style="color:#9c27b0;">Корп</div><input class="ainp" type="number" id="debt_corp" placeholder="0" oninput="autoCalcTriad('debt','corp')"></div>
+        </div>
+
+        <!-- Подсказка из 1С: текущая дебиторка -->
+        <div id="debt-1c-hint" style="display:none;margin-bottom:14px;background:rgba(33,150,243,.08);border:1px solid var(--blue);border-radius:8px;padding:10px 12px;font-size:12px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+            <div style="color:var(--text);">
+              <span style="color:var(--blue);font-weight:700;">☁ По 1С:</span>
+              <span id="d1c-total" style="color:var(--text);font-weight:700;">0</span> ₽
+              <span style="color:var(--muted);" id="d1c-breakdown"></span>
+            </div>
+            <button onclick="applyDebt1c()" style="background:var(--blue);border:none;color:#fff;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer;font-weight:600;">📋 Взять из 1С</button>
+          </div>
         </div>
 
         <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;text-transform:uppercase;margin-bottom:6px;margin-top:14px;">Мы должны (₽)</div>
@@ -3011,44 +3024,50 @@
   function ch(k, d) { C[k] = Math.max(0, C[k]+d); document.getElementById(k+'-v').textContent = C[k]; }
   function cs(k, d) { C[k] = Math.max(0, C[k]+d); document.getElementById(k+'-v').textContent = C[k]; C.ret = C.phy + C.cop + C.det; document.getElementById('ret-v').textContent = C.ret; }
 
-  // Авторасчёт 3-го поля в триаде (общая / часть А / часть Б).
-  // Когда менеджер заполнил 2 поля — 3-е заполняется автоматически.
-  // changed — какое поле сейчас трогали (его не перезаписываем).
-  // group: 'debt' (Долги: total/retail/insurance) или 'owe' (Мы должны: total/ravt/other)
+  // Авторасчёт в группе долгов/обязательств.
+  // 'debt' (Долги по ЗН): total = retail + insurance + corp (4 поля)
+  // 'owe' (Мы должны): total = ravt + other (3 поля как было)
   function autoCalcTriad(group, changed) {
-    const fields = group === 'debt'
-      ? { total: 'debt_total', a: 'debt_retail',  b: 'debt_insurance' }
-      : { total: 'owe_total',  a: 'owe_ravt',     b: 'owe_other'      };
-    // Какие из 3 полей сейчас имеют значение
+    if (group === 'debt') {
+      return autoCalcDebt(changed);
+    }
+    // 'owe' — старая логика
+    const fields = { total: 'owe_total', a: 'owe_ravt', b: 'owe_other' };
     const get = id => { const v = document.getElementById(id).value; return v === '' ? null : (+v || 0); };
     const tot = get(fields.total);
     const a   = get(fields.a);
     const b   = get(fields.b);
-
-    // Логика триангуляции: пересчитываем поле которое НЕ trogalsя только если 2 других заполнены
     if (changed === 'total') {
-      // Менеджер изменил Общую. Если части обе заполнены — НЕ перезаписываем (он сам выбрал)
-      // Если из частей заполнена одна — пересчитываем вторую
-      if (a !== null && b === null && tot !== null) {
-        document.getElementById(fields.b).value = Math.max(0, tot - a);
-      } else if (b !== null && a === null && tot !== null) {
-        document.getElementById(fields.a).value = Math.max(0, tot - b);
-      }
-    } else if (changed === 'retail' || changed === 'ravt') {
-      // Менеджер изменил часть А → пересчитываем total если b заполнено, иначе пересчитываем b если total заполнено
-      if (a !== null && b !== null) {
-        document.getElementById(fields.total).value = a + b;
-      } else if (a !== null && tot !== null && b === null) {
-        document.getElementById(fields.b).value = Math.max(0, tot - a);
-      }
-    } else { // 'insurance' / 'other' — часть Б
-      if (a !== null && b !== null) {
-        document.getElementById(fields.total).value = a + b;
-      } else if (b !== null && tot !== null && a === null) {
-        document.getElementById(fields.a).value = Math.max(0, tot - b);
-      }
+      if (a !== null && b === null && tot !== null) document.getElementById(fields.b).value = Math.max(0, tot - a);
+      else if (b !== null && a === null && tot !== null) document.getElementById(fields.a).value = Math.max(0, tot - b);
+    } else if (changed === 'ravt') {
+      if (a !== null && b !== null) document.getElementById(fields.total).value = a + b;
+      else if (a !== null && tot !== null && b === null) document.getElementById(fields.b).value = Math.max(0, tot - a);
+    } else { // 'other'
+      if (a !== null && b !== null) document.getElementById(fields.total).value = a + b;
+      else if (b !== null && tot !== null && a === null) document.getElementById(fields.a).value = Math.max(0, tot - b);
     }
   }
+
+  // Логика для долгов: total = retail + insurance + corp.
+  // Если менеджер вводит total — не перезаписываем (он сам выбрал).
+  // Если меняется любая из частей — пересчитываем total как сумму всех 3 частей.
+  function autoCalcDebt(changed) {
+    const get = id => { const v = document.getElementById(id).value; return v === '' ? null : (+v || 0); };
+    const ret = get('debt_retail');
+    const ins = get('debt_insurance');
+    const cor = get('debt_corp');
+    if (changed !== 'total') {
+      // Любая часть изменилась → пересчитываем total как сумму существующих частей
+      const parts = [ret, ins, cor].filter(x => x !== null);
+      if (parts.length > 0) {
+        const sum = parts.reduce((s, x) => s + x, 0);
+        document.getElementById('debt_total').value = sum;
+      }
+    }
+    // Если total изменили вручную — не трогаем части (менеджер знает что делает)
+  }
+
 
   // Локальная сегодняшняя дата без UTC-сдвига
   function todayLocalISO() {
@@ -3105,6 +3124,7 @@
         document.getElementById('debt_total').value = data.debt_total || '';
         document.getElementById('debt_retail').value = data.debt_retail || '';
         document.getElementById('debt_insurance').value = data.debt_insurance || '';
+        document.getElementById('debt_corp').value = data.debt_corp || '';
         document.getElementById('owe_total').value = data.owe_total || '';
         document.getElementById('owe_ravt').value = data.owe_ravt || '';
         document.getElementById('owe_other').value = data.owe_other || '';
@@ -3116,6 +3136,8 @@
       await loadDayIssuedCars(date);
       // Подсказка по броням на завтра из 1С
       await updateBookings1cHint(date);
+      // Подсказка по дебиторке из 1С
+      await updateDebt1cHint(date);
       setSync('ok');
     } catch (e) { console.error(e); setSync('offline'); toast('Ошибка загрузки дня', 'err'); }
   }
@@ -3200,6 +3222,72 @@
     toast(`📋 Взято из 1С: ${count} записей на завтра`, 'ok');
   }
   window.applyBookings1c = applyBookings1c;
+
+  // === Подсказка «Дебиторка по 1С» ===
+  // Считает текущую дебиторку из orders_history_1c по точке.
+  // Показывается ТОЛЬКО на дату последнего импорта 1С (имеет смысл «на конец дня X» = свежая выгрузка),
+  // не показывается на старые даты — там цифра уже не релевантна.
+  let debt1cCache = null;
+  async function updateDebt1cHint(reportDate) {
+    const hint = document.getElementById('debt-1c-hint');
+    if (!hint || !currentPoint) return;
+    try {
+      // Сначала смотрим есть ли вообще 1С-данные на эту дату
+      const { data: dr, error: drErr } = await sb.from('daily_reports')
+        .select('source_1c_at, total_1c')
+        .eq('point_id', currentPoint.id).eq('date', reportDate).maybeSingle();
+      if (drErr) throw drErr;
+      // Показываем только если у выбранной даты есть свежий 1С-импорт
+      if (!dr || !dr.source_1c_at) {
+        hint.style.display = 'none';
+        return;
+      }
+      // Считаем дебиторку из orders_history_1c — там же лежит debt по каждой ЗН.
+      // Берём только открытые долги: debt > 0.
+      // ВАЖНО: это «снимок на момент последнего импорта», не «долг ровно на эту дату».
+      // Но показываем именно для свежей даты — это эквивалентно «текущему долгу».
+      const { data: orders, error: oErr } = await sb.from('orders_history_1c')
+        .select('category, debt')
+        .eq('point_id', currentPoint.id)
+        .gt('debt', 0);
+      if (oErr) throw oErr;
+      const list = orders || [];
+      if (list.length === 0) {
+        hint.style.display = 'none';
+        return;
+      }
+      const sums = { retail: 0, ins: 0, corp: 0, equity: 0 };
+      for (const o of list) {
+        const c = o.category;
+        sums[c] = (sums[c] || 0) + (+o.debt || 0);
+      }
+      const retailDebt = sums.retail + sums.equity; // равт-розница идёт в розницу
+      const insDebt = sums.ins;
+      const corpDebt = sums.corp;
+      const total = retailDebt + insDebt + corpDebt;
+      debt1cCache = { retail: Math.round(retailDebt), insurance: Math.round(insDebt), corp: Math.round(corpDebt), total: Math.round(total) };
+      hint.style.display = '';
+      document.getElementById('d1c-total').textContent = fm(Math.round(total));
+      const parts = [];
+      if (retailDebt > 0) parts.push(`розн ${fm(Math.round(retailDebt))}`);
+      if (insDebt > 0) parts.push(`страх ${fm(Math.round(insDebt))}`);
+      if (corpDebt > 0) parts.push(`корп ${fm(Math.round(corpDebt))}`);
+      document.getElementById('d1c-breakdown').textContent = parts.length ? ` · ${parts.join(' / ')}` : '';
+    } catch (e) {
+      console.error('updateDebt1cHint error:', e);
+      hint.style.display = 'none';
+    }
+  }
+
+  function applyDebt1c() {
+    if (!debt1cCache) return;
+    document.getElementById('debt_retail').value    = debt1cCache.retail || '';
+    document.getElementById('debt_insurance').value = debt1cCache.insurance || '';
+    document.getElementById('debt_corp').value      = debt1cCache.corp || '';
+    document.getElementById('debt_total').value     = debt1cCache.total || '';
+    toast(`📋 Дебиторка взята из 1С: ${fm(debt1cCache.total)} ₽`, 'ok');
+  }
+  window.applyDebt1c = applyDebt1c;
 
 
   // Грузим машины выданные за выбранный день (closed_at::date = date)
@@ -3330,6 +3418,7 @@
       debt_total: +document.getElementById('debt_total').value || 0,
       debt_retail: +document.getElementById('debt_retail').value || 0,
       debt_insurance: +document.getElementById('debt_insurance').value || 0,
+      debt_corp: +document.getElementById('debt_corp').value || 0,
       owe_total: +document.getElementById('owe_total').value || 0,
       owe_ravt: +document.getElementById('owe_ravt').value || 0,
       owe_other: +document.getElementById('owe_other').value || 0,
