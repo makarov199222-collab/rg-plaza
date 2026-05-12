@@ -2601,7 +2601,13 @@
     const testCar = p.closed[0] || p.inWork[0] || p.quality[0];
     const payload = buildCar1cPayload(testCar);
     const report = [];
-    report.push('=== ДИАГНОСТИКА ИМПОРТА 1С ===');
+    report.push('=== ДИАГНОСТИКА ИМПОРТА 1С (build v3) ===');
+    report.push('');
+    report.push('Самотест parseSum1c:');
+    report.push(`  parseSum1c("5 000")       = ${parseSum1c('5 000')}    (ждём 5000)`);
+    report.push(`  parseSum1c("5\u00A0000")      = ${parseSum1c('5\u00A0000')}    (ждём 5000, non-breaking space)`);
+    report.push(`  parseSum1c("12 500,50")   = ${parseSum1c('12 500,50')} (ждём 12500.5)`);
+    report.push(`  parseSum1c("5000")        = ${parseSum1c('5000')}    (ждём 5000)`);
     report.push('');
     report.push('Тестовая машина из файла:');
     report.push(`  ЗН:        ${testCar.zn_number}`);
@@ -2673,6 +2679,64 @@
       } else {
         report.push(`✅ Найдено записей: ${data.length}`);
         if (data.length > 0) report.push(`  ${JSON.stringify(data)}`);
+      }
+    } catch (e) {
+      report.push(`❌ EXCEPTION: ${e.message || e}`);
+    }
+    report.push('');
+
+    // Тест 4: insert БЕЗ service_type — ловим CHECK constraint на этом поле
+    report.push('--- ТЕСТ 4: insert без service_type (ловим CHECK на нём) ---');
+    const payload4 = { ...payload, zn_number: payload.zn_number + '-DIAG4' };
+    delete payload4.service_type;
+    try {
+      const { data, error } = await sb.from('cars_in_work').insert(payload4).select();
+      if (error) {
+        report.push(`❌ ${error.code}: ${error.message}`);
+      } else {
+        report.push(`✅ Без service_type — insert прошёл. Значит CHECK именно на нём.`);
+        if (data?.[0]?.id) {
+          await sb.from('cars_in_work').delete().eq('id', data[0].id);
+        }
+      }
+    } catch (e) {
+      report.push(`❌ EXCEPTION: ${e.message || e}`);
+    }
+    report.push('');
+
+    // Тест 5: insert с другими значениями service_type — найдём что принимается
+    report.push('--- ТЕСТ 5: перебираем варианты service_type ---');
+    const variants = ['retail', 'corp', 'ins', 'warranty', 'physical', 'phys', 'физик', 'корп', 'страховой', 'детейлинг', 'detail'];
+    for (const v of variants) {
+      const p5 = { ...payload, zn_number: payload.zn_number + '-DIAG5-' + v, service_type: v };
+      try {
+        const { data, error } = await sb.from('cars_in_work').insert(p5).select();
+        if (error) {
+          if (error.code === '23514') {
+            report.push(`  ❌ "${v}" — CHECK violation`);
+          } else {
+            report.push(`  ⚠ "${v}" — другая ошибка: ${error.code}: ${error.message}`);
+            break; // если уже другая ошибка — дальше нет смысла
+          }
+        } else {
+          report.push(`  ✅ "${v}" — ПРИНИМАЕТСЯ!`);
+          if (data?.[0]?.id) await sb.from('cars_in_work').delete().eq('id', data[0].id);
+        }
+      } catch (e) {
+        report.push(`  ❌ "${v}" — EXCEPTION: ${e.message || e}`);
+      }
+    }
+    report.push('');
+
+    // Тест 6: select примера реальной записи (из существующих в cars_in_work) — увидим легальный service_type
+    report.push('--- ТЕСТ 6: какие service_type уже есть в таблице ---');
+    try {
+      const { data, error } = await sb.from('cars_in_work').select('service_type').limit(50);
+      if (error) {
+        report.push(`❌ ${error.message}`);
+      } else {
+        const uniq = [...new Set((data || []).map(r => r.service_type))];
+        report.push(`✅ Уникальные service_type (из выборки ${data.length}): ${JSON.stringify(uniq)}`);
       }
     } catch (e) {
       report.push(`❌ EXCEPTION: ${e.message || e}`);
