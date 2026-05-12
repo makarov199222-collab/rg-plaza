@@ -2303,6 +2303,7 @@
         date:       find('Дата'),
         number:     find('Номер'),
         sum:        find('Сумма'),
+        debt:       find('Задолженность'),
         customer:   find('Наименование заказчика'),
         model:      find('Модель'),
         plate:      find('Рег.знак'),
@@ -2315,6 +2316,8 @@
         manager:    find('Менеджер'),
         comment:    find('Комментарий'),
       };
+      // Резерв для написания «Задолжность» (опечатка в шаблоне 1С Фреш)
+      if (cols.debt === -1) cols.debt = find('Задолжность');
       // Резерв: если "Статус ЗН расширенный" не найден — пробуем "Статус ЗН"
       if (cols.statusExt === -1) cols.statusExt = find('Статус ЗН');
       // Резерв для дат: 1С может выгружать "Отгружен" как 2 колонки (Да/Нет + дата)
@@ -2375,6 +2378,7 @@
           point_id,
           category: cat,
           sum: parseSum1c(row[cols.sum]),
+          debt: cols.debt >= 0 ? parseSum1c(row[cols.debt]) : 0,
           customer: customer ? String(customer).trim() : '',
           model: cols.model >= 0 ? String(row[cols.model] || '').trim() : '',
           plate: cols.plate >= 0 ? String(row[cols.plate] || '').trim() : '',
@@ -2439,11 +2443,16 @@
     document.getElementById('import1c-step2').style.display = '';
     document.getElementById('import1c-actions').style.display = '';
 
-    const totalRev = p.closed.reduce((s,c) => s + c.sum, 0);
+    const totalRev  = p.closed.reduce((s,c) => s + c.sum, 0);
+    const totalPaid = p.closed.reduce((s,c) => s + c.sum - (c.debt || 0), 0);
+    const totalDebt = p.closed.reduce((s,c) => s + Math.max(c.debt || 0, 0), 0);
+    const totalOverpay = p.closed.reduce((s,c) => s + Math.min(c.debt || 0, 0), 0); // отрицательная сумма
     const byCat = { retail: 0, corp: 0, equity: 0, ins: 0 };
+    const byCatDebt = { retail: 0, corp: 0, equity: 0, ins: 0 };
     const carsByCat = { retail: 0, corp: 0, equity: 0, ins: 0 };
     for (const c of p.closed) {
       byCat[c.category] += c.sum;
+      byCatDebt[c.category] += Math.max(c.debt || 0, 0);
       carsByCat[c.category]++;
     }
     const days = Object.values(p.byDayPoint).sort((a,b) => a.date.localeCompare(b.date));
@@ -2485,6 +2494,23 @@
         </div>
       </div>
 
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;font-weight:700;">Финансы по закрытым ЗН</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:14px;">
+        <div style="background:#0e0e0e;border:1px solid var(--border);border-left:3px solid var(--green);border-radius:6px;padding:10px;">
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Выручка по ЗН</div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--text);line-height:1.1;margin-top:4px;">${fs(totalRev)} ₽</div>
+        </div>
+        <div style="background:#0e0e0e;border:1px solid var(--border);border-left:3px solid var(--blue);border-radius:6px;padding:10px;">
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Реально получено</div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--text);line-height:1.1;margin-top:4px;">${fs(totalPaid)} ₽</div>
+          ${totalOverpay < 0 ? `<div style="font-size:10px;color:var(--muted);margin-top:2px;">вкл. ${fs(-totalOverpay)} ₽ переплат</div>` : ''}
+        </div>
+        <div style="background:#0e0e0e;border:1px solid var(--border);border-left:3px solid ${totalDebt > 0 ? 'var(--red)' : 'var(--border)'};border-radius:6px;padding:10px;">
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Дебиторка (нам должны)</div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${totalDebt > 0 ? 'var(--red)' : 'var(--text)'};line-height:1.1;margin-top:4px;">${fs(totalDebt)} ₽</div>
+        </div>
+      </div>
+
       <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;font-weight:700;">По категориям (только закрытые)</div>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:14px;">
         ${['retail','equity','corp','ins'].map(c => `
@@ -2492,6 +2518,7 @@
             <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--accent);line-height:1;">${carsByCat[c]}</div>
             <div style="font-size:9px;color:var(--muted);margin-top:3px;">${CAT_LABELS[c]}</div>
             <div style="font-size:10px;color:var(--text);margin-top:2px;">${fs(byCat[c])} ₽</div>
+            ${byCatDebt[c] > 0 ? `<div style="font-size:9px;color:var(--red);margin-top:1px;">долг ${fs(byCatDebt[c])} ₽</div>` : ''}
           </div>
         `).join('')}
       </div>
@@ -2626,6 +2653,7 @@
       point_id: car.point_id,
       category: car.category,
       amount: car.sum || 0,
+      debt: car.debt != null ? car.debt : 0,
       customer: car.customer || null,
       payer: car.payer || null,
       car_model: car.model || null,
