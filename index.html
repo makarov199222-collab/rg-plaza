@@ -2293,7 +2293,7 @@
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: 'array', cellDates: true });
       const sheet = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: false });
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true });
       if (rows.length < 2) throw new Error('Файл пустой или нет данных');
       // Первая строка — заголовки. Ищем колонки по их именам.
       const headers = (rows[0] || []).map(h => String(h || '').trim());
@@ -2544,6 +2544,26 @@
     `;
   }
 
+  // Ручной upsert в cars_in_work по zn_number (без onConflict, чтобы не зависеть от частичного индекса)
+  // Возвращает { error, action } где action = 'inserted' | 'updated'
+  async function upsertCarInWork(payload) {
+    if (!payload.zn_number) {
+      const { error } = await sb.from('cars_in_work').insert(payload);
+      return { error, action: 'inserted' };
+    }
+    // Ищем существующую запись по zn_number
+    const { data: existing, error: selErr } = await sb.from('cars_in_work')
+      .select('id').eq('zn_number', payload.zn_number).limit(1);
+    if (selErr) return { error: selErr, action: null };
+    if (existing && existing.length > 0) {
+      const { error } = await sb.from('cars_in_work').update(payload).eq('id', existing[0].id);
+      return { error, action: 'updated' };
+    } else {
+      const { error } = await sb.from('cars_in_work').insert(payload);
+      return { error, action: 'inserted' };
+    }
+  }
+
   // === МАППИНГ 1С → RG Hub ===
   // service_type для cars_in_work (CHECK: 'страх','розн','корп','детейл')
   function mapCategoryToServiceType(category) {
@@ -2690,21 +2710,20 @@
 
     const cleanups = []; // массив функций удаления тестовых записей
 
-    // === ТЕСТ A: cars_in_work upsert (in_work машина) ===
+    // === ТЕСТ A: cars_in_work upsert (in_work машина) — через ручной select+insert/update ===
     if (inWorkCar) {
-      report.push('--- ТЕСТ A: cars_in_work upsert (машина в работе) ---');
+      report.push('--- ТЕСТ A: cars_in_work (машина в работе) ---');
       const pa = buildCarInWorkPayload(inWorkCar);
       report.push(`payload: ${JSON.stringify(pa, null, 2)}`);
       try {
-        const { data, error } = await sb.from('cars_in_work')
-          .upsert(pa, { onConflict: 'zn_number' }).select();
+        const { error, action } = await upsertCarInWork(pa);
         if (error) {
           report.push(`❌ ${error.code}: ${error.message}`);
           if (error.details) report.push(`   details: ${error.details}`);
           if (error.hint)    report.push(`   hint:    ${error.hint}`);
         } else {
-          report.push(`✅ УСПЕХ. ID: ${data?.[0]?.id}`);
-          if (data?.[0]?.id) cleanups.push(() => sb.from('cars_in_work').delete().eq('id', data[0].id));
+          report.push(`✅ УСПЕХ (${action}).`);
+          cleanups.push(() => sb.from('cars_in_work').delete().eq('zn_number', pa.zn_number));
         }
       } catch (e) { report.push(`❌ EXCEPTION: ${e.message || e}`); }
       report.push('');
@@ -2809,7 +2828,7 @@
       // === 1) Машины в работе → cars_in_work (76 шт.) ===
       for (const car of p.inWork) {
         const payload = buildCarInWorkPayload(car);
-        const { error } = await sb.from('cars_in_work').upsert(payload, { onConflict: 'zn_number' });
+        const { error } = await upsertCarInWork(payload);
         if (error) {
           if (firstErrors.length < 5) firstErrors.push({ table: 'cars_in_work', zn: car.zn_number, code: error.code, message: error.message });
           console.error('cars_in_work upsert error:', car.zn_number, error);
