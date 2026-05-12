@@ -2609,7 +2609,7 @@
       service_type: mapCategoryToServiceType(car.category),
       status: mapInternalStatusToCarStatus(car.internalStatus),
       description: buildComment1c(car),
-      amount: car.sum || null,
+      amount: car.sum != null ? car.sum : 0,
       arrived_at: arrivedDate,
       expected_at: null,
       zn_number: car.zn_number,
