@@ -409,9 +409,9 @@
 
       const [pointsRes, currentRes, prevRes, yearRes, plansRes, fotRes, expRes, taxRes, loansRes, dirsRes, ravtRes, channelsRes, companiesRes, breakdownRes, breakdownPrevRes, breakdownYearRes, ravtSettlementsRes, pnlRes, ovrItemsRes] = await Promise.all([
         sb.from('points').select('*').order('id'),
-        sb.from('daily_reports').select('*').gte('date', range.start).lte('date', range.end).order('date'),
-        sb.from('daily_reports').select('point_id,date,total_day,retail_day,ins_day,phys_day,corp_day,detail_day,cars_total,cars_retail,cars_ins,cars_corp,cars_detail,owe_total,owe_ravt,owe_other').gte('date', prevRange.start).lte('date', prevRange.end),
-        sb.from('daily_reports').select('point_id,date,total_day,retail_day,ins_day,debt_total,debt_retail,debt_insurance,owe_total,owe_ravt,owe_other').gte('date', yearStart).lte('date', range.end),
+        sb.from('daily_reports_unified').select('*').gte('date', range.start).lte('date', range.end).order('date'),
+        sb.from('daily_reports_unified').select('point_id,date,total_day,retail_day,ins_day,phys_day,corp_day,detail_day,cars_total,cars_retail,cars_ins,cars_corp,cars_detail,owe_total,owe_ravt,owe_other').gte('date', prevRange.start).lte('date', prevRange.end),
+        sb.from('daily_reports_unified').select('point_id,date,total_day,retail_day,ins_day,debt_total,debt_retail,debt_insurance,owe_total,owe_ravt,owe_other').gte('date', yearStart).lte('date', range.end),
         sb.from('plans').select('*'),
         sb.from('fot_summary').select('*').eq('period', period).maybeSingle(),
         sb.from('expenses_monthly').select('*').eq('period', period),
