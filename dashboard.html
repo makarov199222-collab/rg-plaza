@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#1a1a1a">
 <link rel="manifest" href="/manifest.json">
-<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-apple-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RG Hub">
@@ -2838,7 +2838,7 @@ ${point.name} ${flow}`;
       const prevStart = `${prevDate.getFullYear()}-${String(prevDate.getMonth()+1).padStart(2,'0')}-01`;
       const prevEnd = `${prevDate.getFullYear()}-${String(prevDate.getMonth()+1).padStart(2,'0')}-31`;
 
-      const [prevRes, ovrItemsRes, cashRes] = await Promise.all([
+      const [prevRes, ovrItemsRes, cashRes, qualityRes] = await Promise.all([
         sb.from('daily_reports')
           .select('point_id,date,total_day,retail_day,ins_day,phys_day,corp_day,detail_day,cars_total,cars_retail,cars_ins,cars_corp,cars_detail')
           .gte('date', prevStart).lte('date', prevEnd),
@@ -2846,6 +2846,11 @@ ${point.name} ${flow}`;
         sb.from('daily_reports')
           .select('point_id,date,total_day,bn_day,nal_day,kart_day,bs_day')
           .gte('date', range.start).lte('date', range.end),
+        sb.from('cars_in_work')
+          .select('point_id,car_type,status_1c,imported_at,zn_number')
+          .eq('source_1c', true)
+          .gte('imported_at', range.start)
+          .lte('imported_at', range.end + 'T23:59:59'),
       ]);
 
       pulseData = {
@@ -2856,6 +2861,7 @@ ${point.name} ${flow}`;
         directions: cachedData.directions,
         ovrItems: ovrItemsRes.data || [],
         cashReports: cashRes.data || [],
+        qualityCars: qualityRes.data || [],
         range,
         period: cachedData.period,
       };
@@ -3211,16 +3217,65 @@ ${point.name} ${flow}`;
             </div>
           </div>
 
-          <div class="pulse-card coming-soon">
-            <div class="pulse-card-head">
-              <div class="pulse-title">Переделки и гарантии</div>
-              <span class="pulse-coming-tag">скоро</span>
-            </div>
-            <div class="pulse-cs-msg">
-              Нужны <b>флаги</b> в ЗН: норм / переделка / отмена.<br>
-              Появится после интеграции с 1С.
-            </div>
-          </div>
+          ${(() => {
+            const q = pulseData.qualityCars || [];
+            const warranty = q.filter(c => c.car_type === 'warranty' && (c.status_1c||'').toLowerCase().includes('гарант')).length;
+            const costs = q.filter(c => (c.status_1c||'').toLowerCase().includes('затраты') && c.car_type !== 'warranty').length;
+            // Группируем по точкам — переделки
+            const byPoint = {};
+            for (const c of q) {
+              const key = c.point_id;
+              if (!byPoint[key]) byPoint[key] = { warranty: 0, costs: 0 };
+              if (c.car_type === 'warranty') byPoint[key].warranty++;
+              else byPoint[key].costs++;
+            }
+            const POINT_LBL = { kaluga: 'Калужская', serpuhov: 'Серпуховская', sovhoz: 'Совхозная', poyma: 'Пойма' };
+            const points = Object.entries(byPoint).filter(([_, v]) => v.warranty + v.costs > 0);
+            const total = q.length;
+            if (total === 0) {
+              return `
+                <div class="pulse-card coming-soon">
+                  <div class="pulse-card-head">
+                    <div class="pulse-title">Переделки и гарантии</div>
+                    <span class="pulse-coming-tag">нет данных</span>
+                  </div>
+                  <div class="pulse-cs-msg">
+                    Нет ЗН со статусом «Гарантийный» или «Закрыт на затраты» за период.<br>
+                    Данные подтянутся после импорта 1С менеджерами.
+                  </div>
+                </div>
+              `;
+            }
+            return `
+              <div class="pulse-card">
+                <div class="pulse-card-head">
+                  <div class="pulse-title">Переделки и гарантии</div>
+                  <div class="pulse-hint">${total} ЗН за месяц</div>
+                </div>
+                <div class="pulse-big-numbers" style="margin-bottom:10px;">
+                  <div class="pbn-card">
+                    <div class="pbn-val" style="color:#ff8c00;">${warranty}</div>
+                    <div class="pbn-lbl">Гарантия</div>
+                  </div>
+                  <div class="pbn-card">
+                    <div class="pbn-val" style="color:#ff8c00;">${costs}</div>
+                    <div class="pbn-lbl">Переделки / косяки</div>
+                  </div>
+                </div>
+                ${points.length > 0 ? `
+                  <div style="font-size:10px;color:#a0a0a0;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:700;">По точкам</div>
+                  <div class="pulse-top-list">
+                    ${points.map(([pid, v]) => `
+                      <div class="ptop-row">
+                        <div class="ptop-name">${POINT_LBL[pid] || pid}</div>
+                        <div><span class="ptop-val">${v.warranty + v.costs}</span><span class="ptop-share">гар: ${v.warranty} · перед: ${v.costs}</span></div>
+                      </div>
+                    `).join('')}
+                  </div>
+                ` : ''}
+              </div>
+            `;
+          })()}
 
           <div class="pulse-card coming-soon">
             <div class="pulse-card-head">
