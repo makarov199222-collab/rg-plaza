@@ -2665,11 +2665,12 @@
       btn.disabled = false; btn.textContent = '🔬 Диагностика (1 строка)';
       return;
     }
-    // Берём первую закрытую (чаще всего самая «полная»)
-    const testCar = p.closed[0] || p.inWork[0] || p.quality[0];
-    const payload = buildCar1cPayload(testCar);
+    // Берём по одной из каждой категории для тестов
+    const inWorkCar  = p.inWork[0]  || null;
+    const closedCar  = p.closed[0]  || null;
+    const qualityCar = p.quality[0] || null;
     const report = [];
-    report.push('=== ДИАГНОСТИКА ИМПОРТА 1С (build v3) ===');
+    report.push('=== ДИАГНОСТИКА ИМПОРТА 1С (build v4 — 3 таблицы) ===');
     report.push('');
     report.push('Самотест parseSum1c:');
     report.push(`  parseSum1c("5 000")       = ${parseSum1c('5 000')}    (ждём 5000)`);
@@ -2677,140 +2678,107 @@
     report.push(`  parseSum1c("12 500,50")   = ${parseSum1c('12 500,50')} (ждём 12500.5)`);
     report.push(`  parseSum1c("5000")        = ${parseSum1c('5000')}    (ждём 5000)`);
     report.push('');
-    report.push('Тестовая машина из файла:');
-    report.push(`  ЗН:        ${testCar.zn_number}`);
-    report.push(`  Точка:     ${testCar.point_id}`);
-    report.push(`  Категория: ${testCar.category}`);
-    report.push(`  Статус 1С: ${testCar.status_1c}`);
-    report.push(`  Internal:  ${testCar.internalStatus}`);
-    report.push(`  Сумма:     ${testCar.sum}`);
-    report.push('');
-    report.push('Payload который шлём в cars_in_work:');
-    report.push(JSON.stringify(payload, null, 2));
+    report.push('Из текущего разбора файла (import1cParsed):');
+    report.push(`  inWork:  ${p.inWork.length}`);
+    report.push(`  closed:  ${p.closed.length}`);
+    report.push(`  quality: ${p.quality.length}`);
+    report.push(`  skipped: ${p.skipped.length}`);
+    if (inWorkCar)  report.push(`  inWork[0]  sum = ${inWorkCar.sum}  (если 5, а не 5000 — парсер старый, перечитай файл)`);
+    if (closedCar)  report.push(`  closed[0]  sum = ${closedCar.sum}`);
+    if (qualityCar) report.push(`  quality[0] sum = ${qualityCar.sum}`);
     report.push('');
 
-    // Тест 1: upsert на zn_number (как в текущем коде)
-    report.push('--- ТЕСТ 1: upsert с onConflict zn_number ---');
-    try {
-      const { data, error, status, statusText } = await sb.from('cars_in_work')
-        .upsert(payload, { onConflict: 'zn_number' }).select();
-      if (error) {
-        report.push('❌ ОШИБКА:');
-        report.push(`  code:    ${error.code}`);
-        report.push(`  message: ${error.message}`);
-        report.push(`  details: ${error.details || '—'}`);
-        report.push(`  hint:    ${error.hint || '—'}`);
-        report.push(`  HTTP:    ${status} ${statusText}`);
-      } else {
-        report.push('✅ УСПЕХ: записалось');
-        report.push(`  Возврат: ${JSON.stringify(data)}`);
-      }
-    } catch (e) {
-      report.push(`❌ EXCEPTION: ${e.message || e}`);
-    }
-    report.push('');
+    const cleanups = []; // массив функций удаления тестовых записей
 
-    // Тест 2: чистый insert (без upsert) — если падает тест 1, поймём дело в onConflict или в payload
-    report.push('--- ТЕСТ 2: чистый insert (для понимания где проблема) ---');
-    const payload2 = { ...payload, zn_number: payload.zn_number + '-DIAG' };
-    try {
-      const { data, error, status, statusText } = await sb.from('cars_in_work')
-        .insert(payload2).select();
-      if (error) {
-        report.push('❌ ОШИБКА:');
-        report.push(`  code:    ${error.code}`);
-        report.push(`  message: ${error.message}`);
-        report.push(`  details: ${error.details || '—'}`);
-        report.push(`  hint:    ${error.hint || '—'}`);
-        report.push(`  HTTP:    ${status} ${statusText}`);
-      } else {
-        report.push('✅ УСПЕХ: insert прошёл');
-        report.push(`  ID: ${data?.[0]?.id || '—'}`);
-        // Чистим за собой
-        if (data?.[0]?.id) {
-          await sb.from('cars_in_work').delete().eq('id', data[0].id);
-          report.push(`  (тестовая запись удалена)`);
-        }
-      }
-    } catch (e) {
-      report.push(`❌ EXCEPTION: ${e.message || e}`);
-    }
-    report.push('');
-
-    // Тест 3: проверка существования zn_number (видна ли уже запись)
-    report.push('--- ТЕСТ 3: select по zn_number ---');
-    try {
-      const { data, error } = await sb.from('cars_in_work')
-        .select('id, zn_number, status, point_id').eq('zn_number', testCar.zn_number);
-      if (error) {
-        report.push(`❌ ${error.message} (code ${error.code})`);
-      } else {
-        report.push(`✅ Найдено записей: ${data.length}`);
-        if (data.length > 0) report.push(`  ${JSON.stringify(data)}`);
-      }
-    } catch (e) {
-      report.push(`❌ EXCEPTION: ${e.message || e}`);
-    }
-    report.push('');
-
-    // Тест 4: insert БЕЗ service_type — ловим CHECK constraint на этом поле
-    report.push('--- ТЕСТ 4: insert без service_type (ловим CHECK на нём) ---');
-    const payload4 = { ...payload, zn_number: payload.zn_number + '-DIAG4' };
-    delete payload4.service_type;
-    try {
-      const { data, error } = await sb.from('cars_in_work').insert(payload4).select();
-      if (error) {
-        report.push(`❌ ${error.code}: ${error.message}`);
-      } else {
-        report.push(`✅ Без service_type — insert прошёл. Значит CHECK именно на нём.`);
-        if (data?.[0]?.id) {
-          await sb.from('cars_in_work').delete().eq('id', data[0].id);
-        }
-      }
-    } catch (e) {
-      report.push(`❌ EXCEPTION: ${e.message || e}`);
-    }
-    report.push('');
-
-    // Тест 5: insert с другими значениями service_type — найдём что принимается
-    report.push('--- ТЕСТ 5: перебираем варианты service_type ---');
-    const variants = ['retail', 'corp', 'ins', 'warranty', 'physical', 'phys', 'физик', 'корп', 'страховой', 'детейлинг', 'detail'];
-    for (const v of variants) {
-      const p5 = { ...payload, zn_number: payload.zn_number + '-DIAG5-' + v, service_type: v };
+    // === ТЕСТ A: cars_in_work upsert (in_work машина) ===
+    if (inWorkCar) {
+      report.push('--- ТЕСТ A: cars_in_work upsert (машина в работе) ---');
+      const pa = buildCarInWorkPayload(inWorkCar);
+      report.push(`payload: ${JSON.stringify(pa, null, 2)}`);
       try {
-        const { data, error } = await sb.from('cars_in_work').insert(p5).select();
+        const { data, error } = await sb.from('cars_in_work')
+          .upsert(pa, { onConflict: 'zn_number' }).select();
         if (error) {
-          if (error.code === '23514') {
-            report.push(`  ❌ "${v}" — CHECK violation`);
-          } else {
-            report.push(`  ⚠ "${v}" — другая ошибка: ${error.code}: ${error.message}`);
-            break; // если уже другая ошибка — дальше нет смысла
-          }
+          report.push(`❌ ${error.code}: ${error.message}`);
+          if (error.details) report.push(`   details: ${error.details}`);
+          if (error.hint)    report.push(`   hint:    ${error.hint}`);
         } else {
-          report.push(`  ✅ "${v}" — ПРИНИМАЕТСЯ!`);
-          if (data?.[0]?.id) await sb.from('cars_in_work').delete().eq('id', data[0].id);
+          report.push(`✅ УСПЕХ. ID: ${data?.[0]?.id}`);
+          if (data?.[0]?.id) cleanups.push(() => sb.from('cars_in_work').delete().eq('id', data[0].id));
         }
-      } catch (e) {
-        report.push(`  ❌ "${v}" — EXCEPTION: ${e.message || e}`);
-      }
+      } catch (e) { report.push(`❌ EXCEPTION: ${e.message || e}`); }
+      report.push('');
+    } else {
+      report.push('--- ТЕСТ A: cars_in_work — пропущен (в файле нет машин в работе) ---');
+      report.push('');
     }
-    report.push('');
 
-    // Тест 6: select примера реальной записи (из существующих в cars_in_work) — увидим легальный service_type
-    report.push('--- ТЕСТ 6: какие service_type уже есть в таблице ---');
-    try {
-      const { data, error } = await sb.from('cars_in_work').select('service_type').limit(50);
-      if (error) {
-        report.push(`❌ ${error.message}`);
-      } else {
-        const uniq = [...new Set((data || []).map(r => r.service_type))];
-        report.push(`✅ Уникальные service_type (из выборки ${data.length}): ${JSON.stringify(uniq)}`);
-      }
-    } catch (e) {
-      report.push(`❌ EXCEPTION: ${e.message || e}`);
+    // === ТЕСТ B: orders_history_1c upsert ===
+    if (closedCar) {
+      report.push('--- ТЕСТ B: orders_history_1c upsert (закрытый ЗН) ---');
+      const pb = buildOrderHistoryPayload(closedCar, 'DIAG');
+      report.push(`payload: ${JSON.stringify(pb, null, 2)}`);
+      try {
+        const { data, error } = await sb.from('orders_history_1c')
+          .upsert(pb, { onConflict: 'zn_number' }).select();
+        if (error) {
+          report.push(`❌ ${error.code}: ${error.message}`);
+          if (error.details) report.push(`   details: ${error.details}`);
+        } else {
+          report.push(`✅ УСПЕХ. ID: ${data?.[0]?.id}`);
+          if (data?.[0]?.id) cleanups.push(() => sb.from('orders_history_1c').delete().eq('id', data[0].id));
+        }
+      } catch (e) { report.push(`❌ EXCEPTION: ${e.message || e}`); }
+      report.push('');
     }
+
+    // === ТЕСТ C: quality_events_1c upsert ===
+    if (qualityCar) {
+      report.push('--- ТЕСТ C: quality_events_1c upsert (гарантия/обслуживание) ---');
+      const pc = buildQualityEventPayload(qualityCar, 'DIAG');
+      report.push(`payload: ${JSON.stringify(pc, null, 2)}`);
+      try {
+        const { data, error } = await sb.from('quality_events_1c')
+          .upsert(pc, { onConflict: 'zn_number' }).select();
+        if (error) {
+          report.push(`❌ ${error.code}: ${error.message}`);
+          if (error.details) report.push(`   details: ${error.details}`);
+        } else {
+          report.push(`✅ УСПЕХ. ID: ${data?.[0]?.id}`);
+          if (data?.[0]?.id) cleanups.push(() => sb.from('quality_events_1c').delete().eq('id', data[0].id));
+        }
+      } catch (e) { report.push(`❌ EXCEPTION: ${e.message || e}`); }
+      report.push('');
+    }
+
+    // === ТЕСТ D: RPC recalc_daily_reports_from_1c ===
+    if (closedCar) {
+      report.push('--- ТЕСТ D: RPC recalc_daily_reports_from_1c (сухой запуск) ---');
+      try {
+        const today = isoDate(new Date());
+        const { data, error } = await sb.rpc('recalc_daily_reports_from_1c', {
+          p_point_id: closedCar.point_id,
+          p_date_from: today,
+          p_date_to: today,
+        });
+        if (error) {
+          report.push(`❌ ${error.code}: ${error.message}`);
+          if (error.hint) report.push(`   hint: ${error.hint}`);
+        } else {
+          report.push(`✅ RPC работает. Возврат: ${JSON.stringify(data)} (пусто — это норм, в БД ещё нет orders для today)`);
+        }
+      } catch (e) { report.push(`❌ EXCEPTION: ${e.message || e}`); }
+      report.push('');
+    }
+
+    // Чистим за собой
+    for (const cleanup of cleanups) {
+      try { await cleanup(); } catch(e) {}
+    }
+    if (cleanups.length) report.push(`(удалено тестовых записей: ${cleanups.length})`);
     report.push('');
-    report.push('💡 Перешли весь этот текст в чат — починю по ошибке.');
+    report.push('💡 Если все три ✅ A/B/C — жми «Импортировать», должно пройти.');
+    report.push('💡 Если что-то ❌ — пришли мне этот текст.');
 
     // Показываем результат в textarea (можно скопировать)
     const text = report.join('\n');
