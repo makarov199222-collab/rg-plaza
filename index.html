@@ -662,7 +662,7 @@
         <div class="agrid" style="margin-bottom:10px;">
           <div class="ablock full"><div class="albl t">Общая</div><input class="ainp" type="number" id="debt_total" placeholder="0" oninput="autoCalcTriad('debt','total')"></div>
           <div class="ablock"><div class="albl g">Розница</div><input class="ainp" type="number" id="debt_retail" placeholder="0" oninput="autoCalcTriad('debt','retail')"></div>
-          <div class="ablock"><div class="albl b">Страховые</div><input class="ainp" type="number" id="debt_insurance" placeholder="0" oninput="autoCalcTriad('debt','insurance')"></div>
+          <div class="ablock"><div class="albl b">СК + РАВТ</div><input class="ainp" type="number" id="debt_insurance" placeholder="0" oninput="autoCalcTriad('debt','insurance')"></div>
           <div class="ablock"><div class="albl" style="color:#9c27b0;">Корп</div><input class="ainp" type="number" id="debt_corp" placeholder="0" oninput="autoCalcTriad('debt','corp')"></div>
         </div>
 
@@ -2320,6 +2320,16 @@
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   }
 
+  // Парсит дату из текста поля «Комментарий к оценке» формата
+  // "10 Реестр от 10.04.2026 ИП Шаколюков" → "2026-04-10"
+  function extractRegistryDate(val) {
+    if (!val) return null;
+    const s = String(val);
+    const m = s.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+    if (!m) return null;
+    return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  }
+
   // Парсер суммы из 1С. XLSX с raw:false форматирует числа по локали — "5 000",
   // "12 500,50" и т.д. parseFloat("5 000") = 5 (обрезает на пробеле).
   // Удаляем все пробелы (включая non-breaking U+00A0 и narrow no-break U+202F),
@@ -2367,6 +2377,7 @@
         comment:    find('Комментарий'),
         planStart:  find('Планируемая дата начала работ'),    // AA — дата+время записи клиента
         planEnd:    find('Планируемая дата завершения'),       // AB — ожидаемое время выдачи
+        registry:   find('Комментарий к оценке'),              // AL — «N Реестр от DD.MM.YYYY ИП ...»
       };
       // Резерв для написания «Задолжность» (опечатка в шаблоне 1С Фреш)
       if (cols.debt === -1) cols.debt = find('Задолжность');
@@ -2443,6 +2454,8 @@
           date_shipped: cols.shippedAt >= 0 ? parseDate(row[cols.shippedAt]) : null,
           plan_start: cols.planStart >= 0 ? parseDate(row[cols.planStart]) : null,
           plan_end:   cols.planEnd   >= 0 ? parseDate(row[cols.planEnd])   : null,
+          registry_label: cols.registry >= 0 ? (String(row[cols.registry] || '').trim() || null) : null,
+          registry_date:  cols.registry >= 0 ? extractRegistryDate(row[cols.registry]) : null,
         };
 
         // Особые категории (гарантия/обслуживание своего) или закрыт на затраты → quality
@@ -2696,6 +2709,7 @@
       status: mapInternalStatusToCarStatus(car.internalStatus),
       description: buildComment1c(car),
       amount: car.sum != null ? car.sum : 0,
+      debt: car.debt != null ? car.debt : 0,
       arrived_at: arrivedDate,
       expected_at: planDate,
       expected_time: planTime,
@@ -2723,6 +2737,8 @@
       date_shipped: car.date_shipped ? isoDate(car.date_shipped) : (car.date_created ? isoDate(car.date_created) : null),
       status_1c: car.status_1c,
       comment: buildComment1c(car),
+      registry_label: car.registry_label || null,
+      registry_date: car.registry_date || null,
       source_file: sourceFile || null,
       imported_by: currentManager?.id || null,
     };
@@ -3224,54 +3240,83 @@
   window.applyBookings1c = applyBookings1c;
 
   // === Подсказка «Дебиторка по 1С» ===
-  // Считает текущую дебиторку из orders_history_1c по точке.
-  // Показывается ТОЛЬКО на дату последнего импорта 1С (имеет смысл «на конец дня X» = свежая выгрузка),
-  // не показывается на старые даты — там цифра уже не релевантна.
+  // Суммирует долги по точке из ДВУХ источников:
+  //   • orders_history_1c — закрытые ЗН (категория есть в записи)
+  //   • cars_in_work (source_1c=true, closed_at IS NULL) — открытые ЗН с долгом
+  // Категории: retail (физик) / equity (РАВТ) + ins (СК) = «СК + РАВТ» / corp.
+  // Показываем только если у выбранной даты есть свежий 1С-импорт.
   let debt1cCache = null;
   async function updateDebt1cHint(reportDate) {
     const hint = document.getElementById('debt-1c-hint');
     if (!hint || !currentPoint) return;
     try {
-      // Сначала смотрим есть ли вообще 1С-данные на эту дату
       const { data: dr, error: drErr } = await sb.from('daily_reports')
-        .select('source_1c_at, total_1c')
+        .select('source_1c_at')
         .eq('point_id', currentPoint.id).eq('date', reportDate).maybeSingle();
       if (drErr) throw drErr;
-      // Показываем только если у выбранной даты есть свежий 1С-импорт
       if (!dr || !dr.source_1c_at) {
         hint.style.display = 'none';
         return;
       }
-      // Считаем дебиторку из orders_history_1c — там же лежит debt по каждой ЗН.
-      // Берём только открытые долги: debt > 0.
-      // ВАЖНО: это «снимок на момент последнего импорта», не «долг ровно на эту дату».
-      // Но показываем именно для свежей даты — это эквивалентно «текущему долгу».
-      const { data: orders, error: oErr } = await sb.from('orders_history_1c')
+      // 1. Долги по закрытым ЗН
+      const closedQ = sb.from('orders_history_1c')
         .select('category, debt')
         .eq('point_id', currentPoint.id)
         .gt('debt', 0);
-      if (oErr) throw oErr;
-      const list = orders || [];
-      if (list.length === 0) {
-        hint.style.display = 'none';
-        return;
-      }
+      // 2. Долги по машинам в работе (mapping service_type→category для unify)
+      const inWorkQ = sb.from('cars_in_work')
+        .select('service_type, debt')
+        .eq('point_id', currentPoint.id)
+        .eq('source_1c', true)
+        .is('closed_at', null)
+        .gt('debt', 0);
+      const [closedRes, inWorkRes] = await Promise.all([closedQ, inWorkQ]);
+      if (closedRes.error) throw closedRes.error;
+      if (inWorkRes.error) throw inWorkRes.error;
+      const closedList = closedRes.data || [];
+      const inWorkList = inWorkRes.data || [];
+
       const sums = { retail: 0, ins: 0, corp: 0, equity: 0 };
-      for (const o of list) {
+      for (const o of closedList) {
         const c = o.category;
         sums[c] = (sums[c] || 0) + (+o.debt || 0);
       }
-      const retailDebt = sums.retail + sums.equity; // равт-розница идёт в розницу
-      const insDebt = sums.ins;
-      const corpDebt = sums.corp;
-      const total = retailDebt + insDebt + corpDebt;
-      debt1cCache = { retail: Math.round(retailDebt), insurance: Math.round(insDebt), corp: Math.round(corpDebt), total: Math.round(total) };
+      // Машины в работе: service_type → category
+      // 'розн' → retail (если плательщик не РАВТ — но в cars_in_work это не отличить,
+      //                  поэтому пока всё розничное идёт в retail, РАВТ-розница потеряется как retail)
+      // 'корп' → corp
+      // 'страх' → ins
+      // 'детейл' → retail (нет соответствия, считаем как розницу)
+      for (const c of inWorkList) {
+        const t = c.service_type;
+        let cat;
+        if (t === 'корп') cat = 'corp';
+        else if (t === 'страх') cat = 'ins';
+        else cat = 'retail';
+        sums[cat] = (sums[cat] || 0) + (+c.debt || 0);
+      }
+
+      // Финальная разбивка для UI (по решению: СК + РАВТ вместе)
+      const retailDebt = sums.retail;                  // только физик-розница
+      const insDebt    = sums.ins + sums.equity;       // СК + РАВТ
+      const corpDebt   = sums.corp;
+      const total      = retailDebt + insDebt + corpDebt;
+      if (total === 0) {
+        hint.style.display = 'none';
+        return;
+      }
+      debt1cCache = {
+        retail: Math.round(retailDebt),
+        insurance: Math.round(insDebt),
+        corp: Math.round(corpDebt),
+        total: Math.round(total),
+      };
       hint.style.display = '';
       document.getElementById('d1c-total').textContent = fm(Math.round(total));
       const parts = [];
       if (retailDebt > 0) parts.push(`розн ${fm(Math.round(retailDebt))}`);
-      if (insDebt > 0) parts.push(`страх ${fm(Math.round(insDebt))}`);
-      if (corpDebt > 0) parts.push(`корп ${fm(Math.round(corpDebt))}`);
+      if (insDebt > 0)    parts.push(`СК+РАВТ ${fm(Math.round(insDebt))}`);
+      if (corpDebt > 0)   parts.push(`корп ${fm(Math.round(corpDebt))}`);
       document.getElementById('d1c-breakdown').textContent = parts.length ? ` · ${parts.join(' / ')}` : '';
     } catch (e) {
       console.error('updateDebt1cHint error:', e);
