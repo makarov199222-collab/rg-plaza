@@ -520,6 +520,21 @@
             <input type="text" id="bnote" placeholder="типы работ..." style="margin-top:4px;font-size:12px;padding:7px 9px;">
           </div>
         </div>
+        <!-- Подсказка из 1С: записи на завтра -->
+        <div id="bookings-1c-hint" style="display:none;margin-top:10px;background:rgba(33,150,243,.08);border:1px solid var(--blue);border-radius:8px;padding:10px 12px;font-size:12px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+            <div style="color:var(--text);">
+              <span style="color:var(--blue);font-weight:700;">☁ По 1С на завтра:</span>
+              <span id="b1c-count" style="color:var(--text);font-weight:700;">0</span>
+              записей
+            </div>
+            <div style="display:flex;gap:6px;">
+              <button onclick="toggleBookings1cList()" id="b1c-toggle-btn" style="background:#0e0e0e;border:1px solid var(--border);color:var(--text);font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer;">показать</button>
+              <button onclick="applyBookings1c()" style="background:var(--blue);border:none;color:#fff;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer;font-weight:600;">📋 Взять из 1С</button>
+            </div>
+          </div>
+          <div id="b1c-list" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);line-height:1.7;"></div>
+        </div>
       </div>
     </div>
 
@@ -3099,9 +3114,93 @@
       updateCarsSummary();
       // Загружаем выданные машины из cars_in_work за выбранный день (для всех точек)
       await loadDayIssuedCars(date);
+      // Подсказка по броням на завтра из 1С
+      await updateBookings1cHint(date);
       setSync('ok');
     } catch (e) { console.error(e); setSync('offline'); toast('Ошибка загрузки дня', 'err'); }
   }
+
+  // === Подсказка «Записи на завтра по 1С» ===
+  // Считает 1С-машины со status_1c='Ожидание клиента' и expected_at=завтрашний день относительно
+  // даты выбранного отчёта (т.е. если открыт отчёт на 12.05 — смотрим записи на 13.05).
+  let bookings1cCache = null;
+  async function updateBookings1cHint(reportDate) {
+    const hint = document.getElementById('bookings-1c-hint');
+    if (!hint || !currentPoint) return;
+    // Завтра = reportDate + 1 день
+    const d = new Date(reportDate);
+    d.setDate(d.getDate() + 1);
+    const tomorrow = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    try {
+      const { data, error } = await sb.from('cars_in_work')
+        .select('zn_number, info, plate, expected_at, expected_time, amount, service_type')
+        .eq('point_id', currentPoint.id)
+        .eq('source_1c', true)
+        .eq('status_1c', 'Ожидание клиента')
+        .eq('expected_at', tomorrow)
+        .is('closed_at', null)
+        .order('expected_time', { nullsFirst: false });
+      if (error) throw error;
+      const list = (data || []).sort((a, b) => (a.expected_time || '99:99').localeCompare(b.expected_time || '99:99'));
+      bookings1cCache = list;
+      if (list.length === 0) {
+        hint.style.display = 'none';
+        return;
+      }
+      hint.style.display = '';
+      document.getElementById('b1c-count').textContent = list.length;
+      // Свернуть список при перезагрузке
+      document.getElementById('b1c-list').style.display = 'none';
+      document.getElementById('b1c-toggle-btn').textContent = 'показать';
+      // Заполняем список
+      const items = list.map(c => {
+        const time = c.expected_time || '—';
+        const title = c.info || c.plate || '—';
+        const titleShort = title.length > 60 ? title.slice(0, 57) + '…' : title;
+        return `<div>· <span style="color:var(--text);font-weight:600;">${escapeHtml(time)}</span> — ${escapeHtml(titleShort)}</div>`;
+      }).join('');
+      document.getElementById('b1c-list').innerHTML = items;
+    } catch (e) {
+      console.error('updateBookings1cHint error:', e);
+      hint.style.display = 'none';
+    }
+  }
+
+  function toggleBookings1cList() {
+    const list = document.getElementById('b1c-list');
+    const btn = document.getElementById('b1c-toggle-btn');
+    if (list.style.display === 'none') {
+      list.style.display = '';
+      btn.textContent = 'скрыть';
+    } else {
+      list.style.display = 'none';
+      btn.textContent = 'показать';
+    }
+  }
+  window.toggleBookings1cList = toggleBookings1cList;
+
+  // Подставляет данные из 1С в поля bk и bnote.
+  // bnote = автосгенерированное примечание (типы работ через тип services).
+  function applyBookings1c() {
+    if (!bookings1cCache || bookings1cCache.length === 0) return;
+    const count = bookings1cCache.length;
+    C.bk = count;
+    const el = document.getElementById('bk-v');
+    if (el) el.textContent = count;
+    // Примечание: компактная сводка по типам услуг
+    // service_type: розн / страх / корп / детейл
+    const TYPE_LABELS = { розн: 'розница', страх: 'страх', корп: 'корп', детейл: 'детейл' };
+    const byType = {};
+    for (const b of bookings1cCache) {
+      const t = TYPE_LABELS[b.service_type] || 'розн';
+      byType[t] = (byType[t] || 0) + 1;
+    }
+    const parts = Object.entries(byType).map(([t, n]) => `${n} ${t}`);
+    document.getElementById('bnote').value = parts.join(', ');
+    toast(`📋 Взято из 1С: ${count} записей на завтра`, 'ok');
+  }
+  window.applyBookings1c = applyBookings1c;
+
 
   // Грузим машины выданные за выбранный день (closed_at::date = date)
   async function loadDayIssuedCars(date) {
@@ -3693,6 +3792,8 @@ ${planLine}
 
   // === 6 групп для отображения в аккордеоне ===
   // Каждая группа: ключ, заголовок, иконка, цвет, порог зависания (дней), правило отнесения.
+  // ВАЖНО: для 1С-машин смотрим status_1c (точный 1С-статус), для ручных — RG Hub status.
+  // Ручная машина НЕ может попасть в группу 1С-специфичную (Запись РАВТ / Решение СК / Звонок).
   const CAR_GROUPS = [
     {
       key: 'now_at_posts',
@@ -3700,7 +3801,6 @@ ${planLine}
       icon: '🛠',
       color: '#2196F3',
       stuckDays: 3,
-      // 1С: В работе. Ручные: in_work / wait_payment / ready (готовые к выдаче ≈ ещё на территории).
       match: (c) => c.source_1c
         ? c.status_1c === 'В работе'
         : ['in_work','ready','wait_payment'].includes(c.status),
@@ -3710,7 +3810,7 @@ ${planLine}
       title: 'Запись на день',
       icon: '📅',
       color: '#4CAF50',
-      stuckDays: null, // зависание считается особо: если дата записи прошла +1 день
+      stuckDays: null,
       match: (c) => c.source_1c
         ? c.status_1c === 'Ожидание клиента'
         : c.status === 'wait_pickup',
