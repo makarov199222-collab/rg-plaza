@@ -790,6 +790,22 @@
   </div>
 </div>
 
+<!-- Модалка «Клиент не приехал» — открывается вместо car-edit для 1С-машин с просроченной записью -->
+<div class="overlay" id="client-noshow-overlay" onclick="if(event.target.id==='client-noshow-overlay') closeClientNoShow()">
+  <div class="sheet" style="max-width:480px;">
+    <div class="sheet-head">
+      <div class="sheet-title">📞 Не приехал на запись</div>
+      <button class="xbtn" onclick="closeClientNoShow()">✕</button>
+    </div>
+    <div class="sheet-body">
+      <div id="cns-content"></div>
+    </div>
+    <div class="cf-actions" style="padding:14px;border-top:1px solid var(--border);">
+      <button class="ce-btn primary" style="width:100%;" onclick="closeClientNoShow()">Понятно</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="car-edit-overlay" onclick="if(event.target.id==='car-edit-overlay') closeCarEdit()">
   <div class="sheet" style="max-width:520px;">
     <div class="sheet-head">
@@ -3934,6 +3950,99 @@ ${planLine}
   }
 
   function openCarEdit(id) {
+    if (id) {
+      const c = carsInWork.find(x => x.id === id);
+      // Триггер для 1С-машин в статусе «Ожидание клиента» с просроченной датой записи
+      if (c && c.source_1c && c.status_1c === 'Ожидание клиента' && c.expected_at) {
+        const today = todayLocalISO();
+        const daysLate = Math.floor((new Date(today) - new Date(c.expected_at)) / 86400000);
+        if (daysLate > 0) {
+          openClientNoShow(c, daysLate);
+          return;
+        }
+      }
+    }
+    openCarEditNormal(id);
+  }
+
+  // Модалка «Клиент не приехал» — лёгкая, без редактирования (всё в 1С)
+  function openClientNoShow(c, daysLate) {
+    const overlay = document.getElementById('client-noshow-overlay');
+    const exp = new Date(c.expected_at);
+    const dd = String(exp.getDate()).padStart(2,'0');
+    const mm = String(exp.getMonth()+1).padStart(2,'0');
+    const yy = exp.getFullYear();
+    const timeStr = c.expected_time || '';
+    const clientName = (c.info || '').split('·').pop().trim() || c.client || '—';
+    const carInfo = c.info ? c.info.split('·').slice(0, 2).map(s => s.trim()).join(' · ') : (c.plate || '—');
+    const znNumber = c.zn_number || '—';
+    const amount = c.amount > 0 ? `${fm(c.amount)} ₽` : '';
+    document.getElementById('cns-content').innerHTML = `
+      <div style="background:rgba(244,67,54,.12);border:1px solid var(--red);border-radius:10px;padding:14px;margin-bottom:18px;text-align:center;">
+        <div style="font-size:14px;font-weight:700;color:var(--red);margin-bottom:6px;">⚠ Клиент не приехал</div>
+        <div style="font-size:12px;color:var(--muted);">Запись была на ${dd}.${mm}.${yy}${timeStr ? ' ' + timeStr : ''} — это ${daysLate} ${daysLate === 1 ? 'день' : (daysLate < 5 ? 'дня' : 'дней')} назад</div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:18px;">
+        <div style="display:flex;align-items:center;gap:10px;background:#0e0e0e;border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
+          <span style="font-size:18px;">👤</span>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Клиент</div>
+            <div style="font-size:14px;color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(clientName)}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;background:#0e0e0e;border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
+          <span style="font-size:18px;">🚗</span>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Авто</div>
+            <div style="font-size:14px;color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(carInfo)}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;background:#0e0e0e;border:1px solid var(--border);border-radius:8px;padding:10px 12px;cursor:pointer;" onclick="copyZnNumber('${znNumber}', this)">
+          <span style="font-size:18px;">📋</span>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">ЗН (клик чтобы скопировать)</div>
+            <div style="font-size:14px;color:var(--text);font-weight:600;font-family:monospace;">${escapeHtml(znNumber)}${amount ? ' · ' + amount : ''}</div>
+          </div>
+          <span style="font-size:11px;color:var(--blue);" class="cns-copy-hint">📋</span>
+        </div>
+      </div>
+
+      <div style="background:rgba(33,150,243,.08);border:1px solid var(--blue);border-radius:8px;padding:12px;margin-bottom:18px;font-size:12px;color:var(--text);line-height:1.5;">
+        <div style="font-weight:700;color:var(--blue);margin-bottom:6px;">Как перезаписать клиента</div>
+        <ol style="margin:0;padding-left:18px;color:var(--muted);">
+          <li>Свяжись с клиентом (по телефону из 1С)</li>
+          <li>Узнай удобную новую дату</li>
+          <li>Открой ЗН <span style="color:var(--text);font-family:monospace;">${escapeHtml(znNumber)}</span> в 1С и обнови «Планируемая дата начала работ»</li>
+          <li>При следующем импорте 1С запись обновится автоматически</li>
+        </ol>
+      </div>
+    `;
+    overlay.dataset.carId = c.id;
+    overlay.classList.add('show');
+  }
+  window.openClientNoShow = openClientNoShow;
+
+  function closeClientNoShow() {
+    document.getElementById('client-noshow-overlay').classList.remove('show');
+  }
+  window.closeClientNoShow = closeClientNoShow;
+
+  function copyZnNumber(zn, el) {
+    navigator.clipboard.writeText(zn).then(() => {
+      const hint = el.querySelector('.cns-copy-hint');
+      if (hint) {
+        const prev = hint.textContent;
+        hint.textContent = '✓ скопировано';
+        hint.style.color = 'var(--green)';
+        setTimeout(() => { hint.textContent = prev; hint.style.color = 'var(--blue)'; }, 1500);
+      }
+    });
+  }
+  window.copyZnNumber = copyZnNumber;
+
+  // Открытие полной модалки редактирования — для ручных машин и записей в срок
+  function openCarEditNormal(id) {
     editingCarId = id;
     const overlay = document.getElementById('car-edit-overlay');
     const titleEl = document.getElementById('car-edit-title');
