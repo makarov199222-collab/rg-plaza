@@ -416,7 +416,7 @@
         sb.from('fot_penalties').select('*').eq('period', period),
         sb.from('loans_leases').select('*').eq('active', true),
         sb.from('payment_calendar').select('*').eq('period', period),
-        sb.from('daily_reports').select('*').gte('date', period+'-01').lte('date', period+'-31'),
+        sb.from('daily_reports_unified').select('*').gte('date', period+'-01').lte('date', period+'-31'),
       ]);
       data.expenses = exp.data || [];
       data.taxes = tax.data || [];
@@ -868,7 +868,7 @@
     // Текущие долги РАВТу из daily_reports — по регионам
     const oweByRegion = { moscow: 0, izhevsk: 0 };
     try {
-      const { data: dr } = await sb.from('daily_reports')
+      const { data: dr } = await sb.from('daily_reports_unified')
         .select('point_id,date,owe_ravt,points(id,format)')
         .gt('owe_ravt', 0)
         .order('date', { ascending: false })
