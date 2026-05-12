@@ -14,6 +14,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 <style>
   /* RG PLAZA — стиль фирменного сайта */
   :root {
@@ -716,7 +717,10 @@
     <div class="card">
       <div class="card-head">
         <div class="card-title">🚗 Машины в работе</div>
-        <button class="add-car-btn" onclick="openCarEdit(null)">+ Машина</button>
+        <div style="display:flex;gap:6px;">
+          <button class="tab-mini" onclick="openImport1c()" title="Импорт реестра ОПП из 1С">📥 Импорт 1С</button>
+          <button class="add-car-btn" onclick="openCarEdit(null)">+ Машина</button>
+        </div>
       </div>
       <div class="card-body">
         <div id="cw-summary" style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6;">Загрузка...</div>
@@ -743,6 +747,31 @@
   <div class="page" id="tab-learn">
     <div id="learn-content">
       <div class="loader"><div class="spinner"></div>Загружаю обучение...</div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="import1c-overlay" onclick="if(event.target.id==='import1c-overlay') closeImport1c()">
+  <div class="sheet" style="max-width:680px;">
+    <div class="sheet-head">
+      <div class="sheet-title">📥 Импорт реестра 1С</div>
+      <button class="xbtn" onclick="closeImport1c()">✕</button>
+    </div>
+    <div class="sheet-body">
+      <div id="import1c-step1">
+        <div style="font-size:13px;color:var(--text);line-height:1.5;margin-bottom:14px;">
+          Выгрузи реестр ОПП из <b>1С Фреш</b> в Excel и загрузи сюда. Я разберу все ЗН, покажу что попадёт в Отчёт дня и в Машины, и спрошу подтверждение.
+        </div>
+        <input type="file" id="import1c-file" accept=".xlsx,.xls" style="width:100%;padding:10px;background:#0e0e0e;border:1px dashed var(--accent);border-radius:8px;color:var(--text);font-family:Inter,sans-serif;font-size:13px;cursor:pointer;" onchange="parseImport1cFile()">
+        <div id="import1c-error" style="display:none;margin-top:10px;color:var(--red);font-size:12px;line-height:1.5;"></div>
+      </div>
+      <div id="import1c-step2" style="display:none;">
+        <div id="import1c-summary"></div>
+      </div>
+    </div>
+    <div class="cf-actions" id="import1c-actions" style="display:none;">
+      <button class="ce-btn primary" id="import1c-confirm-btn" onclick="confirmImport1c()">Импортировать</button>
+      <button class="ce-btn" onclick="closeImport1c()">Отмена</button>
     </div>
   </div>
 </div>
@@ -2109,6 +2138,491 @@
       return '<p>' + p.replace(/\n/g, '<br>') + '</p>';
     }).join('\n');
     return s;
+  }
+
+  // ============ ИМПОРТ 1С ============
+  // Парсит реестр ОПП из 1С Фреш (Excel), показывает preview, импортирует
+  let import1cParsed = null; // распарсенные данные для подтверждения
+
+  function openImport1c() {
+    if (!currentPoint || !currentManager) {
+      toast('Сначала войди как менеджер', 'err');
+      return;
+    }
+    import1cParsed = null;
+    document.getElementById('import1c-step1').style.display = '';
+    document.getElementById('import1c-step2').style.display = 'none';
+    document.getElementById('import1c-actions').style.display = 'none';
+    document.getElementById('import1c-error').style.display = 'none';
+    document.getElementById('import1c-file').value = '';
+    document.getElementById('import1c-overlay').classList.add('show');
+  }
+  function closeImport1c() {
+    document.getElementById('import1c-overlay').classList.remove('show');
+    import1cParsed = null;
+  }
+
+  // Сопоставление территории из 1С → point_id
+  const ONEC_TERRITORY_MAP = {
+    'калужская': 'kaluga',
+    'серпуховская': 'serpuhov',
+    'совхозная': 'sovhoz',
+    'пойма': 'poyma',
+  };
+
+  // Маркеры страховых компаний для авто-определения по заказчику
+  const INSURANCE_MARKERS = [
+    'страх', 'ингос', 'ресо', 'согаз', 'альфастрах', 'альфа страх',
+    'росгосстрах', 'сбербанк страх', 'сбер страх', 'вск', 'согласие', 'зетта',
+    'тинькофф страх', 'макс', 'ренессанс', 'гайде', 'югория', 'энергогарант',
+    'армеец', 'совком', 'юнити', 'абсолют страх', 'ск '
+  ];
+
+  function detectInsuranceCompany(payerOrCustomer) {
+    if (!payerOrCustomer) return null;
+    const lower = String(payerOrCustomer).toLowerCase();
+    for (const m of INSURANCE_MARKERS) {
+      if (lower.includes(m)) return payerOrCustomer.trim();
+    }
+    return null;
+  }
+
+  // 1С статус → внутренний статус cars_in_work и решение что делать
+  // bucket: 'closed' (в выручку и историю), 'quality' (только история — гарантии/переделки),
+  //         'in_work' (машины в работе), 'skip' (вообще игнор)
+  function mapOnecStatus(statusExt) {
+    const s = String(statusExt || '').trim().toLowerCase();
+    if (!s) return { bucket: 'skip' };
+    // Закрытые → выручка
+    if (s === 'отгружен') return { bucket: 'closed', internalStatus: 'closed' };
+    // Списания, гарантии, переделки — НЕ идут в выручку, но идут в историю для метрик качества
+    if (s === 'закрыт на затраты') return { bucket: 'quality', internalStatus: 'closed_costs' };
+    // Отменённые
+    if (s === 'не актуален') return { bucket: 'skip', internalStatus: 'cancelled' };
+    if (s === 'завершен' || s === 'проверено') return { bucket: 'skip' };
+    // В работе
+    if (s === 'вызов клиента')           return { bucket: 'in_work', internalStatus: 'call_client' };
+    if (s === 'заказ запчастей')         return { bucket: 'in_work', internalStatus: 'await_parts' };
+    if (s === 'ожидание записи клиента') return { bucket: 'in_work', internalStatus: 'await_booking' };
+    if (s === 'ожидание клиента')        return { bucket: 'in_work', internalStatus: 'await_client' };
+    if (s === 'в работе')                 return { bucket: 'in_work', internalStatus: 'in_progress' };
+    if (s === 'предварительный')          return { bucket: 'in_work', internalStatus: 'draft' };
+    return { bucket: 'skip' };
+  }
+
+  // Тип ЗН (колонка C) + заказчик → категория в RG Hub
+  // Возвращает: 'retail' | 'corp' | 'equity' | 'ins' | 'warranty' | 'internal' | 'skip'
+  function mapOnecType(typeRaw, customer, payer) {
+    const t = String(typeRaw || '').trim().toLowerCase();
+    if (t.includes('гарант'))     return 'warranty';   // Гарантийный — для метрик качества
+    if (t.includes('обслуживан')) return 'internal';   // Обслуживание своего авто
+    if (t === 'корпоративный')    return 'corp';
+    if (t.includes('равт'))       return 'equity';
+    if (t === 'розничный') {
+      // Розничный может быть страховым (заказчик — страховая)
+      if (detectInsuranceCompany(customer) || detectInsuranceCompany(payer)) return 'ins';
+      return 'retail';
+    }
+    return 'retail';
+  }
+
+  function parseDate(val) {
+    if (!val) return null;
+    if (val instanceof Date) return val;
+    // 1С формат: "15.10.2025 13:38:08" или "15.10.2025"
+    const s = String(val).trim();
+    const m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (m) {
+      return new Date(+m[3], +m[2]-1, +m[1], +(m[4]||0), +(m[5]||0), +(m[6]||0));
+    }
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  function isoDate(d) {
+    if (!d) return null;
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+
+  async function parseImport1cFile() {
+    const file = document.getElementById('import1c-file').files[0];
+    const errEl = document.getElementById('import1c-error');
+    errEl.style.display = 'none';
+    if (!file) return;
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: false });
+      if (rows.length < 2) throw new Error('Файл пустой или нет данных');
+      // Первая строка — заголовки. Ищем колонки по их именам.
+      const headers = (rows[0] || []).map(h => String(h || '').trim());
+      const find = (name) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
+      const cols = {
+        type:       find('Тип'),
+        date:       find('Дата'),
+        number:     find('Номер'),
+        sum:        find('Сумма'),
+        customer:   find('Наименование заказчика'),
+        model:      find('Модель'),
+        plate:      find('Рег.знак'),
+        vin:        find('VIN'),
+        statusExt:  find('Статус ЗН расширенный'),
+        shippedAt:  find('Отгружен'),  // дата (R)
+        territory:  find('Территория'),
+        payer:      find('Плательщик'),
+        zakazchik:  find('Заказчик'),
+        manager:    find('Менеджер'),
+        comment:    find('Комментарий'),
+      };
+      // Резерв: если "Статус ЗН расширенный" не найден — пробуем "Статус ЗН"
+      if (cols.statusExt === -1) cols.statusExt = find('Статус ЗН');
+      // Резерв для дат: 1С может выгружать "Отгружен" как 2 колонки (Да/Нет + дата)
+      // Если "Отгружен" найден как Да/Нет, ищем дату по соседним
+      if (cols.shippedAt !== -1) {
+        const sample = rows[1] ? rows[1][cols.shippedAt] : null;
+        if (sample === 'Да' || sample === 'Нет') {
+          // Это флаг, дата может быть в следующих колонках после "Завершен"
+          // По нашему примеру дата отгрузки в колонке R (индекс 17)
+          // R = 18 — "Отгружен" заголовок. Дата идёт следом
+          // Попробуем найти колонку которая выглядит как дата в той же строке
+          for (let i = cols.shippedAt + 1; i < headers.length; i++) {
+            const v = rows[1][i];
+            if (v && parseDate(v)) { cols.shippedAt = i; break; }
+          }
+        }
+      }
+
+      if (cols.type === -1 || cols.number === -1 || cols.statusExt === -1) {
+        throw new Error('Не нашёл нужные колонки. Должны быть: Тип, Номер, Статус ЗН расширенный');
+      }
+
+      // Парсим все строки
+      const parsed = {
+        closed: [],       // выручка → daily_reports
+        inWork: [],       // в работе → cars_in_work
+        quality: [],      // гарантии/переделки/закрыт на затраты → cars_in_work с флагом
+        skipped: [],
+        byDayPoint: {},   // дата+точка → агрегаты выручки
+        qualityStats: {}, // точка → { warranty: N, costs: N, internal: N }
+        unknownPoint: 0,
+        totalRows: rows.length - 1,
+      };
+
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row || row.length === 0) continue;
+        const type = row[cols.type];
+        const number = row[cols.number];
+        const statusExt = row[cols.statusExt];
+        if (!number) continue;
+        const customer = row[cols.customer];
+        const payer = cols.payer >= 0 ? row[cols.payer] : null;
+        const cat = mapOnecType(type, customer, payer);
+        const stat = mapOnecStatus(statusExt);
+
+        if (cat === 'skip' || stat.bucket === 'skip') {
+          parsed.skipped.push({ zn: number, reason: cat === 'skip' ? `тип: ${type}` : `статус: ${statusExt}` });
+          continue;
+        }
+
+        const territory = cols.territory >= 0 ? String(row[cols.territory] || '').trim().toLowerCase() : '';
+        const point_id = ONEC_TERRITORY_MAP[territory] || null;
+        if (!point_id) { parsed.unknownPoint++; continue; }
+
+        const item = {
+          zn_number: String(number).trim(),
+          point_id,
+          category: cat,
+          sum: parseFloat(row[cols.sum]) || 0,
+          customer: customer ? String(customer).trim() : '',
+          model: cols.model >= 0 ? String(row[cols.model] || '').trim() : '',
+          plate: cols.plate >= 0 ? String(row[cols.plate] || '').trim() : '',
+          vin: cols.vin >= 0 ? String(row[cols.vin] || '').trim() : '',
+          payer: payer ? String(payer).trim() : '',
+          status_1c: String(statusExt || '').trim(),
+          internalStatus: stat.internalStatus,
+          comment: cols.comment >= 0 ? String(row[cols.comment] || '').trim() : '',
+          date_created: parseDate(row[cols.date]),
+          date_shipped: cols.shippedAt >= 0 ? parseDate(row[cols.shippedAt]) : null,
+        };
+
+        // Особые категории (гарантия/обслуживание своего) или закрыт на затраты → quality
+        // независимо от статуса
+        if (cat === 'warranty' || cat === 'internal' || stat.bucket === 'quality') {
+          parsed.quality.push(item);
+          // Статистика по точке
+          if (!parsed.qualityStats[point_id]) {
+            parsed.qualityStats[point_id] = { warranty: 0, costs: 0, internal: 0 };
+          }
+          if (cat === 'warranty') parsed.qualityStats[point_id].warranty++;
+          else if (cat === 'internal') parsed.qualityStats[point_id].internal++;
+          else parsed.qualityStats[point_id].costs++;
+          continue;
+        }
+
+        if (stat.bucket === 'closed') {
+          // Берём дату отгрузки, если её нет — дату создания
+          const closeDate = item.date_shipped || item.date_created;
+          item.close_iso = isoDate(closeDate);
+          parsed.closed.push(item);
+          // Агрегация по день+точка
+          const key = `${item.close_iso}::${item.point_id}`;
+          if (!parsed.byDayPoint[key]) {
+            parsed.byDayPoint[key] = {
+              date: item.close_iso, point_id: item.point_id,
+              retail: 0, corp: 0, equity: 0, ins: 0,
+              cars_retail: 0, cars_corp: 0, cars_equity: 0, cars_ins: 0,
+            };
+          }
+          const agg = parsed.byDayPoint[key];
+          agg[item.category] += item.sum;
+          agg[`cars_${item.category}`] += 1;
+        } else {
+          parsed.inWork.push(item);
+        }
+      }
+
+      import1cParsed = parsed;
+      renderImport1cPreview();
+    } catch (e) {
+      errEl.textContent = 'Ошибка при чтении файла: ' + (e.message || e);
+      errEl.style.display = '';
+      console.error('Import 1C parse error:', e);
+    }
+  }
+
+  function renderImport1cPreview() {
+    const p = import1cParsed;
+    if (!p) return;
+    document.getElementById('import1c-step1').style.display = 'none';
+    document.getElementById('import1c-step2').style.display = '';
+    document.getElementById('import1c-actions').style.display = '';
+
+    const totalRev = p.closed.reduce((s,c) => s + c.sum, 0);
+    const byCat = { retail: 0, corp: 0, equity: 0, ins: 0 };
+    const carsByCat = { retail: 0, corp: 0, equity: 0, ins: 0 };
+    for (const c of p.closed) {
+      byCat[c.category] += c.sum;
+      carsByCat[c.category]++;
+    }
+    const days = Object.values(p.byDayPoint).sort((a,b) => a.date.localeCompare(b.date));
+    const points = Array.from(new Set(p.closed.map(c => c.point_id).concat(p.inWork.map(c => c.point_id))));
+
+    const CAT_LABELS = { retail: 'Розничные', corp: 'Корп', equity: 'РАВТ-розница', ins: 'Страх' };
+    const POINT_LBL = { kaluga: 'Калужская', serpuhov: 'Серпуховская', sovhoz: 'Совхозная', poyma: 'Пойма' };
+
+    // Если точка отличается от currentPoint — предупреждение
+    const foreignPoints = points.filter(p => p !== currentPoint.id);
+    const foreignWarn = foreignPoints.length > 0 ?
+      `<div style="background:rgba(232,184,75,.1);border:1px solid var(--accent);border-radius:8px;padding:10px;margin-bottom:14px;font-size:12px;color:var(--accent);">
+        ⚠ В файле есть данные по другим точкам: ${foreignPoints.map(p => POINT_LBL[p] || p).join(', ')}. 
+        Импортируются <b>все точки</b> — данные пойдут в правильные отчёты.
+      </div>` : '';
+
+    document.getElementById('import1c-summary').innerHTML = `
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">Всего строк в файле: <b style="color:var(--text);">${p.totalRows}</b></div>
+      
+      ${foreignWarn}
+
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;">
+        <div style="background:#0e0e0e;border:1px solid var(--border);border-left:3px solid var(--green);border-radius:8px;padding:10px;">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--green);line-height:1;letter-spacing:1px;">${p.closed.length}</div>
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;margin-top:4px;letter-spacing:.5px;">Закрытых ЗН</div>
+          <div style="font-size:11px;color:var(--text);margin-top:2px;">${fs(totalRev)} ₽</div>
+        </div>
+        <div style="background:#0e0e0e;border:1px solid var(--border);border-left:3px solid var(--blue);border-radius:8px;padding:10px;">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--blue);line-height:1;letter-spacing:1px;">${p.inWork.length}</div>
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;margin-top:4px;letter-spacing:.5px;">В работе</div>
+        </div>
+        <div style="background:#0e0e0e;border:1px solid var(--border);border-left:3px solid var(--orange);border-radius:8px;padding:10px;">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--orange);line-height:1;letter-spacing:1px;">${p.quality.length}</div>
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;margin-top:4px;letter-spacing:.5px;">Гарант. / Переделки</div>
+        </div>
+        <div style="background:#0e0e0e;border:1px solid var(--border);border-left:3px solid #555;border-radius:8px;padding:10px;">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--muted);line-height:1;letter-spacing:1px;">${p.skipped.length}</div>
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;margin-top:4px;letter-spacing:.5px;">Пропущено</div>
+        </div>
+      </div>
+
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;font-weight:700;">По категориям (только закрытые)</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:14px;">
+        ${['retail','equity','corp','ins'].map(c => `
+          <div style="background:#0e0e0e;border:1px solid var(--border);border-radius:6px;padding:8px;text-align:center;">
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--accent);line-height:1;">${carsByCat[c]}</div>
+            <div style="font-size:9px;color:var(--muted);margin-top:3px;">${CAT_LABELS[c]}</div>
+            <div style="font-size:10px;color:var(--text);margin-top:2px;">${fs(byCat[c])} ₽</div>
+          </div>
+        `).join('')}
+      </div>
+
+      ${p.quality.length > 0 ? (() => {
+        const warranty = p.quality.filter(q => q.category === 'warranty').length;
+        const internal = p.quality.filter(q => q.category === 'internal').length;
+        const costs = p.quality.filter(q => q.category !== 'warranty' && q.category !== 'internal').length;
+        return `
+          <div style="font-size:11px;color:var(--orange);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;font-weight:700;">Качество (без выручки)</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:14px;">
+            <div style="background:#0e0e0e;border:1px solid var(--border);border-radius:6px;padding:8px;text-align:center;">
+              <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--orange);line-height:1;">${warranty}</div>
+              <div style="font-size:9px;color:var(--muted);margin-top:3px;">Гарантия</div>
+            </div>
+            <div style="background:#0e0e0e;border:1px solid var(--border);border-radius:6px;padding:8px;text-align:center;">
+              <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--orange);line-height:1;">${costs}</div>
+              <div style="font-size:9px;color:var(--muted);margin-top:3px;">Переделки/косяки</div>
+            </div>
+            <div style="background:#0e0e0e;border:1px solid var(--border);border-radius:6px;padding:8px;text-align:center;">
+              <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--muted);line-height:1;">${internal}</div>
+              <div style="font-size:9px;color:var(--muted);margin-top:3px;">Свои авто</div>
+            </div>
+          </div>
+        `;
+      })() : ''}
+
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;font-weight:700;">По дням</div>
+      <div style="max-height:200px;overflow:auto;background:#0e0e0e;border:1px solid var(--border);border-radius:8px;padding:8px;">
+        ${days.length === 0 ? '<div style="color:var(--muted);font-size:11px;text-align:center;padding:8px 0;">Закрытых ЗН не найдено</div>' :
+          days.map(d => {
+            const total = d.retail + d.corp + d.equity + d.ins;
+            const cars = d.cars_retail + d.cars_corp + d.cars_equity + d.cars_ins;
+            const dispDate = d.date.split('-').reverse().join('.');
+            return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #1a1a1a;font-size:11px;">
+              <div><span style="color:var(--text);">${dispDate}</span> <span style="color:var(--muted);">· ${POINT_LBL[d.point_id]||d.point_id}</span></div>
+              <div><span style="color:var(--text);">${cars} маш</span> <span style="color:var(--accent);font-family:'Bebas Neue',sans-serif;letter-spacing:.5px;margin-left:6px;">${fs(total)}</span></div>
+            </div>`;
+          }).join('')
+        }
+      </div>
+
+      <div style="margin-top:12px;padding:10px;background:rgba(33,150,243,.08);border-radius:6px;font-size:11px;color:var(--text);line-height:1.5;">
+        <b style="color:var(--blue);">Что произойдёт при импорте:</b><br>
+        • Машины <b>в работе</b> попадут в «🚗 Машины» (без дублей, по номеру ЗН)<br>
+        • <b>Закрытые ЗН</b> агрегируются и плюсуются к Отчёту дня по каждой точке<br>
+        • Если по дню уже есть отчёт — суммы добавятся к существующим<br>
+        • При повторном импорте этого же файла — данные не дублируются (ключ = № ЗН)
+      </div>
+    `;
+  }
+
+  async function confirmImport1c() {
+    const p = import1cParsed;
+    if (!p) return;
+    const btn = document.getElementById('import1c-confirm-btn');
+    btn.disabled = true;
+    btn.textContent = 'Импортирую...';
+    try {
+      let carsImported = 0, carsUpdated = 0, daysAffected = 0;
+
+      // 1) Закрытые ЗН → пишем в cars_in_work (для истории) + агрегируем в daily_reports
+      // 2) В работе → пишем в cars_in_work
+      // 3) Quality (гарантии/переделки/обслуживание своего) → пишем в cars_in_work со спец-категорией
+      const allCars = [...p.closed, ...p.inWork, ...p.quality];
+      for (const car of allCars) {
+        // Формируем car_number и car_brand из модели (берём первое слово)
+        const firstWord = (car.model || '').split(/\s+/)[0] || '';
+        const carPlate = car.plate && car.plate !== 'Б/Н' ? car.plate : '';
+        // car_type для daily_reports compatibility:
+        // retail/equity → retail; corp → corp; ins → ins;
+        // warranty/internal → warranty (новый внутренний тип, не идёт в выручку)
+        let carType = 'retail';
+        if (car.category === 'corp') carType = 'corp';
+        else if (car.category === 'ins') carType = 'ins';
+        else if (car.category === 'warranty' || car.category === 'internal') carType = 'warranty';
+
+        const payload = {
+          point_id: car.point_id,
+          car_number: carPlate || `ZN${car.zn_number}`,
+          car_brand: firstWord,
+          client_name: car.customer || car.payer || '',
+          car_price: car.sum || null,
+          car_type: carType,
+          status: car.internalStatus || 'in_progress',
+          comment: car.comment || null,
+          zn_number: car.zn_number,
+          vin: car.vin || null,
+          payer: car.payer || null,
+          source_1c: true,
+          imported_at: new Date().toISOString(),
+          status_1c: car.status_1c,
+        };
+        // Upsert по zn_number
+        const { error } = await sb.from('cars_in_work').upsert(payload, { onConflict: 'zn_number' });
+        if (error) {
+          console.error('Car upsert error:', car.zn_number, error);
+        } else {
+          carsImported++;
+        }
+      }
+
+      // 3) Агрегируем закрытые в daily_reports
+      for (const key in p.byDayPoint) {
+        const agg = p.byDayPoint[key];
+        // Загружаем существующий отчёт если есть
+        const { data: existing } = await sb.from('daily_reports')
+          .select('*').eq('point_id', agg.point_id).eq('date', agg.date).maybeSingle();
+        // Считаем суммы (РАВТ-розница идёт в retail для дневной выручки)
+        const retailSum = agg.retail + agg.equity;
+        const corpSum = agg.corp;
+        const insSum = agg.ins;
+        const physCount = agg.cars_retail + agg.cars_equity;
+        const corpCount = agg.cars_corp;
+        const insCount = agg.cars_ins;
+        const totalSum = retailSum + corpSum + insSum;
+        const totalCars = physCount + corpCount + insCount;
+
+        // Если отчёт уже есть — плюсуем к существующим значениям
+        // Если нет — создаём с этими цифрами
+        const newPayload = {
+          point_id: agg.point_id,
+          date: agg.date,
+          retail_day: (existing?.retail_day || 0) + retailSum,
+          phys_day:   (existing?.phys_day   || 0) + (agg.retail + agg.equity),
+          corp_day:   (existing?.corp_day   || 0) + corpSum,
+          ins_day:    (existing?.ins_day    || 0) + insSum,
+          total_day:  (existing?.total_day  || 0) + totalSum,
+          cars_retail: (existing?.cars_retail || 0) + physCount,
+          cars_corp:   (existing?.cars_corp   || 0) + corpCount,
+          cars_ins:    (existing?.cars_ins    || 0) + insCount,
+          cars_total:  (existing?.cars_total  || 0) + totalCars,
+        };
+        const { error } = await sb.from('daily_reports')
+          .upsert(newPayload, { onConflict: 'point_id,date' });
+        if (error) {
+          console.error('Daily report error:', key, error);
+        } else {
+          daysAffected++;
+        }
+      }
+
+      // 4) Запись в журнал импортов (для аудита)
+      await sb.from('imports_1c').insert({
+        imported_by: currentManager.id,
+        point_id: currentPoint.id,
+        file_name: document.getElementById('import1c-file').files[0]?.name || null,
+        rows_total: p.totalRows,
+        rows_imported: carsImported,
+        rows_skipped: p.skipped.length,
+        rows_updated: carsUpdated,
+        summary: {
+          closed: p.closed.length,
+          in_work: p.inWork.length,
+          quality: p.quality.length,
+          skipped: p.skipped.length,
+          days: daysAffected,
+        },
+      });
+
+      toast(`☁ Импортировано: ${carsImported} машин, ${daysAffected} дней`, 'ok');
+      closeImport1c();
+      // Перезагрузка вкладок
+      loadCars();
+      loadDayFromCloud();
+    } catch (e) {
+      console.error('Import 1C confirm error:', e);
+      toast('Ошибка импорта: ' + (e.message || e), 'err');
+      btn.disabled = false;
+      btn.textContent = 'Импортировать';
+    }
   }
 
   function ch(k, d) { C[k] = Math.max(0, C[k]+d); document.getElementById(k+'-v').textContent = C[k]; }
