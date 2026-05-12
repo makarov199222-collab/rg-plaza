@@ -770,6 +770,7 @@
       </div>
     </div>
     <div class="cf-actions" id="import1c-actions" style="display:none;">
+      <button class="ce-btn" id="import1c-diag-btn" onclick="diagnoseImport1c()" style="background:#0e0e0e;border:1px solid var(--blue);color:var(--blue);">🔬 Диагностика (1 строка)</button>
       <button class="ce-btn primary" id="import1c-confirm-btn" onclick="confirmImport1c()">Импортировать</button>
       <button class="ce-btn" onclick="closeImport1c()">Отмена</button>
     </div>
@@ -2234,12 +2235,17 @@
   // Возвращает: 'retail' | 'corp' | 'equity' | 'ins' | 'warranty' | 'internal' | 'skip'
   function mapOnecType(typeRaw, customer, payer) {
     const t = String(typeRaw || '').trim().toLowerCase();
-    if (t.includes('гарант'))     return 'warranty';   // Гарантийный — для метрик качества
-    if (t.includes('обслуживан')) return 'internal';   // Обслуживание своего авто
-    if (t === 'корпоративный')    return 'corp';
-    if (t.includes('равт'))       return 'equity';
+    const payerLow = String(payer || '').toLowerCase();
+    if (t.includes('гарант'))    return 'warranty';   // Гарантийный — для метрик качества
+    if (t.includes('обслужив'))  return 'internal';   // Обслуживание/обслуживаине своего (опечатка в 1С)
+    if (t === 'корпоративный')   return 'corp';
+    // Тип "Розница равт" (физик пришёл от РАВТ-сервиса) или "Страховой" (РАВТ-розница в 1С Фреш у RG Plaza
+    // всегда equity — стёкла от РАВТ, у 99% строк плательщик = РАВТ ООО). Любое упоминание "равт" в типе
+    // или плательщике — equity.
+    if (t.includes('равт') || payerLow.includes('равт')) return 'equity';
+    if (t === 'страховой')       return 'equity';     // У RG Plaza тип 'Страховой' в 1С = РАВТ-сервис
     if (t === 'розничный') {
-      // Розничный может быть страховым (заказчик — страховая)
+      // Розничный может быть страховым (реальная СК как заказчик/плательщик)
       if (detectInsuranceCompany(customer) || detectInsuranceCompany(payer)) return 'ins';
       return 'retail';
     }
@@ -2524,6 +2530,156 @@
     `;
   }
 
+  // Строит payload одной машины ровно как confirmImport1c — для диагностики и реального импорта
+  function buildCar1cPayload(car) {
+    const carPlate = car.plate && car.plate !== 'Б/Н' ? car.plate : 'Б/Н';
+    const infoStr = `${carPlate} · ${car.model || ''} · ${car.customer || car.payer || ''}`.trim();
+    let svcType = 'retail';
+    if (car.category === 'corp')      svcType = 'corp';
+    else if (car.category === 'ins')   svcType = 'ins';
+    else if (car.category === 'equity') svcType = 'retail';
+    else if (car.category === 'warranty' || car.category === 'internal') svcType = 'warranty';
+    const arrivedDate = car.date_created ? isoDate(car.date_created) : null;
+    const expectedDate = car.date_shipped ? isoDate(car.date_shipped) : null;
+    let combinedComment = car.comment || '';
+    if (car.payer && car.payer !== car.customer && !combinedComment.includes(car.payer)) {
+      combinedComment = `[${car.payer}] ${combinedComment}`.trim();
+    }
+    if (car.category === 'equity' && !combinedComment.toLowerCase().includes('равт')) {
+      combinedComment = `[РАВТ] ${combinedComment}`.trim();
+    }
+    return {
+      point_id: car.point_id,
+      info: infoStr,
+      plate: carPlate,
+      brand: '',
+      client: '',
+      service_type: svcType,
+      status: car.internalStatus || 'in_progress',
+      description: '',
+      amount: car.sum || null,
+      arrived_at: arrivedDate,
+      expected_at: expectedDate,
+      comment: combinedComment || null,
+      zn_number: car.zn_number,
+      vin: car.vin || null,
+      payer: car.payer || null,
+      source_1c: true,
+      imported_at: new Date().toISOString(),
+      status_1c: car.status_1c,
+    };
+  }
+
+  // 🔬 Диагностика: пробует записать ПЕРВУЮ строку и показывает полную ошибку от Supabase.
+  // Без массового импорта, без daily_reports. Цель — поймать точный текст ошибки.
+  async function diagnoseImport1c() {
+    const p = import1cParsed;
+    if (!p) return;
+    const btn = document.getElementById('import1c-diag-btn');
+    btn.disabled = true;
+    btn.textContent = 'Тестирую...';
+    const allCars = [...p.closed, ...p.inWork, ...p.quality];
+    if (allCars.length === 0) {
+      alert('Нет машин для теста');
+      btn.disabled = false; btn.textContent = '🔬 Диагностика (1 строка)';
+      return;
+    }
+    // Берём первую закрытую (чаще всего самая «полная»)
+    const testCar = p.closed[0] || p.inWork[0] || p.quality[0];
+    const payload = buildCar1cPayload(testCar);
+    const report = [];
+    report.push('=== ДИАГНОСТИКА ИМПОРТА 1С ===');
+    report.push('');
+    report.push('Тестовая машина из файла:');
+    report.push(`  ЗН:        ${testCar.zn_number}`);
+    report.push(`  Точка:     ${testCar.point_id}`);
+    report.push(`  Категория: ${testCar.category}`);
+    report.push(`  Статус 1С: ${testCar.status_1c}`);
+    report.push(`  Internal:  ${testCar.internalStatus}`);
+    report.push(`  Сумма:     ${testCar.sum}`);
+    report.push('');
+    report.push('Payload который шлём в cars_in_work:');
+    report.push(JSON.stringify(payload, null, 2));
+    report.push('');
+
+    // Тест 1: upsert на zn_number (как в текущем коде)
+    report.push('--- ТЕСТ 1: upsert с onConflict zn_number ---');
+    try {
+      const { data, error, status, statusText } = await sb.from('cars_in_work')
+        .upsert(payload, { onConflict: 'zn_number' }).select();
+      if (error) {
+        report.push('❌ ОШИБКА:');
+        report.push(`  code:    ${error.code}`);
+        report.push(`  message: ${error.message}`);
+        report.push(`  details: ${error.details || '—'}`);
+        report.push(`  hint:    ${error.hint || '—'}`);
+        report.push(`  HTTP:    ${status} ${statusText}`);
+      } else {
+        report.push('✅ УСПЕХ: записалось');
+        report.push(`  Возврат: ${JSON.stringify(data)}`);
+      }
+    } catch (e) {
+      report.push(`❌ EXCEPTION: ${e.message || e}`);
+    }
+    report.push('');
+
+    // Тест 2: чистый insert (без upsert) — если падает тест 1, поймём дело в onConflict или в payload
+    report.push('--- ТЕСТ 2: чистый insert (для понимания где проблема) ---');
+    const payload2 = { ...payload, zn_number: payload.zn_number + '-DIAG' };
+    try {
+      const { data, error, status, statusText } = await sb.from('cars_in_work')
+        .insert(payload2).select();
+      if (error) {
+        report.push('❌ ОШИБКА:');
+        report.push(`  code:    ${error.code}`);
+        report.push(`  message: ${error.message}`);
+        report.push(`  details: ${error.details || '—'}`);
+        report.push(`  hint:    ${error.hint || '—'}`);
+        report.push(`  HTTP:    ${status} ${statusText}`);
+      } else {
+        report.push('✅ УСПЕХ: insert прошёл');
+        report.push(`  ID: ${data?.[0]?.id || '—'}`);
+        // Чистим за собой
+        if (data?.[0]?.id) {
+          await sb.from('cars_in_work').delete().eq('id', data[0].id);
+          report.push(`  (тестовая запись удалена)`);
+        }
+      }
+    } catch (e) {
+      report.push(`❌ EXCEPTION: ${e.message || e}`);
+    }
+    report.push('');
+
+    // Тест 3: проверка существования zn_number (видна ли уже запись)
+    report.push('--- ТЕСТ 3: select по zn_number ---');
+    try {
+      const { data, error } = await sb.from('cars_in_work')
+        .select('id, zn_number, status, point_id').eq('zn_number', testCar.zn_number);
+      if (error) {
+        report.push(`❌ ${error.message} (code ${error.code})`);
+      } else {
+        report.push(`✅ Найдено записей: ${data.length}`);
+        if (data.length > 0) report.push(`  ${JSON.stringify(data)}`);
+      }
+    } catch (e) {
+      report.push(`❌ EXCEPTION: ${e.message || e}`);
+    }
+    report.push('');
+    report.push('💡 Перешли весь этот текст в чат — починю по ошибке.');
+
+    // Показываем результат в textarea (можно скопировать)
+    const text = report.join('\n');
+    const sumEl = document.getElementById('import1c-summary');
+    sumEl.innerHTML = `
+      <div style="background:rgba(33,150,243,.08);border:1px solid var(--blue);border-radius:8px;padding:12px;margin-bottom:14px;">
+        <div style="color:var(--blue);font-weight:700;margin-bottom:8px;font-size:13px;">🔬 Результат диагностики</div>
+        <textarea readonly style="width:100%;height:380px;background:#0a0a0a;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:monospace;font-size:11px;line-height:1.5;resize:vertical;">${text.replace(/</g,'&lt;')}</textarea>
+        <button class="ce-btn" style="margin-top:8px;width:100%;" onclick="navigator.clipboard.writeText(this.previousElementSibling.value); this.textContent='Скопировано ✓'; setTimeout(()=>this.textContent='📋 Скопировать в буфер',1500);">📋 Скопировать в буфер</button>
+      </div>
+    `;
+    btn.disabled = false; btn.textContent = '🔬 Диагностика (1 строка)';
+  }
+
   async function confirmImport1c() {
     const p = import1cParsed;
     if (!p) return;
@@ -2533,110 +2689,36 @@
     try {
       let carsImported = 0, carsUpdated = 0, daysAffected = 0;
 
-      // 1) Закрытые ЗН → пишем в cars_in_work (для истории) + агрегируем в daily_reports
-      // 2) В работе → пишем в cars_in_work
-      // 3) Quality (гарантии/переделки/обслуживание своего) → пишем в cars_in_work со спец-категорией
+      // 1) Машины (закрытые + в работе + quality) → пишем в cars_in_work
       const allCars = [...p.closed, ...p.inWork, ...p.quality];
+      const firstErrors = [];
       for (const car of allCars) {
-        // Формируем info: "номер · марка · клиент" (формат как при ручном вводе)
-        const carPlate = car.plate && car.plate !== 'Б/Н' ? car.plate : 'Б/Н';
-        const infoStr = `${carPlate} · ${car.model || ''} · ${car.customer || car.payer || ''}`.trim();
-
-        // service_type для cars_in_work:
-        // retail/equity → retail; corp → corp; ins → ins;
-        // warranty/internal → warranty (для метрик качества)
-        let svcType = 'retail';
-        if (car.category === 'corp')      svcType = 'corp';
-        else if (car.category === 'ins')   svcType = 'ins';
-        else if (car.category === 'warranty' || car.category === 'internal') svcType = 'warranty';
-        // equity (РАВТ-розница) хранится как retail с пометкой в comment/payer
-
-        // Дата заезда — дата создания ЗН
-        const arrivedDate = car.date_created ? isoDate(car.date_created) : null;
-        // Дата выдачи — для закрытых
-        const expectedDate = car.date_shipped ? isoDate(car.date_shipped) : null;
-
-        // Комментарий — собираем из 1С-комментария + плательщик если корп
-        let combinedComment = car.comment || '';
-        if (car.payer && car.payer !== car.customer && !combinedComment.includes(car.payer)) {
-          combinedComment = `[${car.payer}] ${combinedComment}`.trim();
-        }
-        if (car.category === 'equity' && !combinedComment.toLowerCase().includes('равт')) {
-          combinedComment = `[РАВТ] ${combinedComment}`.trim();
-        }
-
-        const payload = {
-          point_id: car.point_id,
-          info: infoStr,
-          plate: carPlate,
-          brand: '',
-          client: '',
-          service_type: svcType,
-          status: car.internalStatus || 'in_progress',
-          description: '',
-          amount: car.sum || null,
-          arrived_at: arrivedDate,
-          expected_at: expectedDate,
-          comment: combinedComment || null,
-          // Новые поля от 1С (из SQL import_1c_setup.sql)
-          zn_number: car.zn_number,
-          vin: car.vin || null,
-          payer: car.payer || null,
-          source_1c: true,
-          imported_at: new Date().toISOString(),
-          status_1c: car.status_1c,
-        };
-
-        // Upsert по zn_number
+        const payload = buildCar1cPayload(car);
         const { error } = await sb.from('cars_in_work').upsert(payload, { onConflict: 'zn_number' });
         if (error) {
+          if (firstErrors.length < 3) {
+            firstErrors.push({
+              zn: car.zn_number,
+              code: error.code,
+              message: error.message,
+              details: error.details,
+              hint: error.hint,
+            });
+          }
           console.error('Car upsert error:', car.zn_number, error);
         } else {
           carsImported++;
         }
       }
 
-      // 3) Агрегируем закрытые в daily_reports
-      for (const key in p.byDayPoint) {
-        const agg = p.byDayPoint[key];
-        // Загружаем существующий отчёт если есть
-        const { data: existing } = await sb.from('daily_reports')
-          .select('*').eq('point_id', agg.point_id).eq('date', agg.date).maybeSingle();
-        // Считаем суммы (РАВТ-розница идёт в retail для дневной выручки)
-        const retailSum = agg.retail + agg.equity;
-        const corpSum = agg.corp;
-        const insSum = agg.ins;
-        const physCount = agg.cars_retail + agg.cars_equity;
-        const corpCount = agg.cars_corp;
-        const insCount = agg.cars_ins;
-        const totalSum = retailSum + corpSum + insSum;
-        const totalCars = physCount + corpCount + insCount;
+      // 2) daily_reports — ВРЕМЕННО ОТКЛЮЧЕНО до починки cars_in_work
+      // Прошлый импорт уже прибавил суммы к ручным записям (двойной счёт).
+      // Включу обратно после: (а) убеждаемся что cars_in_work работает,
+      // (б) добавляем отдельные поля _1c_* для безопасной агрегации.
+      // for (const key in p.byDayPoint) { ... }
+      daysAffected = 0;
 
-        // Если отчёт уже есть — плюсуем к существующим значениям
-        // Если нет — создаём с этими цифрами
-        const newPayload = {
-          point_id: agg.point_id,
-          date: agg.date,
-          retail_day: (existing?.retail_day || 0) + retailSum,
-          phys_day:   (existing?.phys_day   || 0) + (agg.retail + agg.equity),
-          corp_day:   (existing?.corp_day   || 0) + corpSum,
-          ins_day:    (existing?.ins_day    || 0) + insSum,
-          total_day:  (existing?.total_day  || 0) + totalSum,
-          cars_retail:    (existing?.cars_retail    || 0) + physCount,
-          cars_phys:      (existing?.cars_phys      || 0) + physCount,
-          cars_corp:      (existing?.cars_corp      || 0) + corpCount,
-          cars_insurance: (existing?.cars_insurance || 0) + insCount,
-        };
-        const { error } = await sb.from('daily_reports')
-          .upsert(newPayload, { onConflict: 'point_id,date' });
-        if (error) {
-          console.error('Daily report error:', key, error);
-        } else {
-          daysAffected++;
-        }
-      }
-
-      // 4) Запись в журнал импортов (для аудита)
+      // 3) Запись в журнал импортов (для аудита)
       await sb.from('imports_1c').insert({
         imported_by: currentManager.id,
         point_id: currentPoint.id,
@@ -2651,11 +2733,18 @@
           quality: p.quality.length,
           skipped: p.skipped.length,
           days: daysAffected,
+          first_errors: firstErrors,
         },
       });
 
-      toast(`☁ Импортировано: ${carsImported} машин, ${daysAffected} дней`, 'ok');
-      closeImport1c();
+      if (carsImported === 0 && allCars.length > 0) {
+        // Все упало — показываем первую ошибку
+        const e0 = firstErrors[0];
+        toast(`❌ 0 из ${allCars.length}. ${e0?.code || ''}: ${e0?.message || 'нет связи'}`, 'err');
+      } else {
+        toast(`☁ Импортировано: ${carsImported}/${allCars.length} машин (daily_reports отключён)`, 'ok');
+        closeImport1c();
+      }
       // Перезагрузка вкладок
       loadCars();
       if (typeof loadDayForDate === 'function') loadDayForDate();
