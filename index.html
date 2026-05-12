@@ -1053,9 +1053,9 @@
     try {
       const items = await queueGetAll();
       if (items.length === 0) { updateQueueIndicator(); return; }
-      let success = 0, fail = 0;
+      let success = 0, fail = 0, dropped = 0;
       for (const item of items) {
-        if (item.attempts >= 10) { await queueRemove(item.id); continue; } // дроп старых
+        if (item.attempts >= 5) { await queueRemove(item.id); dropped++; continue; } // дроп старых (после 5 попыток)
         try {
           await execSbOp(item);
           await queueRemove(item.id);
@@ -1066,17 +1066,37 @@
             fail++;
             break; // если сеть — нет смысла продолжать
           } else {
-            // Не сетевая (бизнес-ошибка) — увеличиваем счётчик, но оставляем
-            await queueUpdate(item.id, { attempts: (item.attempts||0) + 1, last_error: String(e?.message||e) });
+            // Не сетевая (бизнес-ошибка) — это битый payload (колонка не существует и т.п.)
+            // Дропаем сразу — нет смысла повторять
+            console.warn('Queue drop (business error):', item.table, String(e?.message||e));
+            await queueRemove(item.id);
+            dropped++;
           }
         }
       }
       if (success > 0) toast(`☁ Синхронизировано ${success} ${success === 1 ? 'запись' : 'записей'}`, 'ok');
+      if (dropped > 0) toast(`🗑 Удалено ${dropped} битых записей из очереди`, 'err');
       updateQueueIndicator();
     } finally {
       queueFlushing = false;
     }
   }
+
+  // Принудительная очистка очереди (доступна через window.__clearQueue() в консоли)
+  window.__clearQueue = async function() {
+    try {
+      const db = await openOfflineDb();
+      return new Promise((resolve) => {
+        const tx = db.transaction(OFFLINE_STORE, 'readwrite');
+        tx.objectStore(OFFLINE_STORE).clear();
+        tx.oncomplete = () => {
+          updateQueueIndicator();
+          toast('🗑 Очередь очищена', 'ok');
+          resolve();
+        };
+      });
+    } catch(e) { console.error(e); }
+  };
 
   async function updateQueueIndicator() {
     const items = await queueGetAll();
@@ -2580,10 +2600,10 @@
           corp_day:   (existing?.corp_day   || 0) + corpSum,
           ins_day:    (existing?.ins_day    || 0) + insSum,
           total_day:  (existing?.total_day  || 0) + totalSum,
-          cars_retail: (existing?.cars_retail || 0) + physCount,
-          cars_corp:   (existing?.cars_corp   || 0) + corpCount,
-          cars_ins:    (existing?.cars_ins    || 0) + insCount,
-          cars_total:  (existing?.cars_total  || 0) + totalCars,
+          cars_retail:    (existing?.cars_retail    || 0) + physCount,
+          cars_phys:      (existing?.cars_phys      || 0) + physCount,
+          cars_corp:      (existing?.cars_corp      || 0) + corpCount,
+          cars_insurance: (existing?.cars_insurance || 0) + insCount,
         };
         const { error } = await sb.from('daily_reports')
           .upsert(newPayload, { onConflict: 'point_id,date' });
@@ -2616,7 +2636,7 @@
       closeImport1c();
       // Перезагрузка вкладок
       loadCars();
-      loadDayFromCloud();
+      if (typeof loadDayForDate === 'function') loadDayForDate();
     } catch (e) {
       console.error('Import 1C confirm error:', e);
       toast('Ошибка импорта: ' + (e.message || e), 'err');
