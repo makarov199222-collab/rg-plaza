@@ -2544,43 +2544,111 @@
     `;
   }
 
-  // Строит payload одной машины ровно как confirmImport1c — для диагностики и реального импорта
-  function buildCar1cPayload(car) {
+  // === МАППИНГ 1С → RG Hub ===
+  // service_type для cars_in_work (CHECK: 'страх','розн','корп','детейл')
+  function mapCategoryToServiceType(category) {
+    if (category === 'corp')   return 'корп';
+    if (category === 'ins')    return 'страх';
+    return 'розн'; // retail, equity, warranty, internal → розничный
+  }
+  // status для cars_in_work (CHECK: 'in_work','ready','wait_payment','wait_docs','wait_pickup')
+  function mapInternalStatusToCarStatus(internalStatus) {
+    switch (internalStatus) {
+      case 'in_progress':    return 'in_work';     // В работе
+      case 'draft':          return 'in_work';     // Предварительный
+      case 'await_parts':    return 'wait_docs';   // Заказ запчастей (ждём запчасти)
+      case 'await_client':   return 'wait_pickup'; // Ожидание клиента
+      case 'await_booking':  return 'wait_pickup'; // Ожидание записи клиента
+      case 'call_client':    return 'wait_pickup'; // Вызов клиента
+      default:               return 'in_work';
+    }
+  }
+  // Унифицированный комментарий с подсказками о плательщике/РАВТ
+  function buildComment1c(car) {
+    let c = car.comment || '';
+    if (car.payer && car.payer !== car.customer && !c.includes(car.payer)) {
+      c = `[${car.payer}] ${c}`.trim();
+    }
+    if (car.category === 'equity' && !c.toLowerCase().includes('равт')) {
+      c = `[РАВТ] ${c}`.trim();
+    }
+    return c;
+  }
+
+  // === BUILDER 1: cars_in_work (только машины в работе) ===
+  function buildCarInWorkPayload(car) {
     const carPlate = car.plate && car.plate !== 'Б/Н' ? car.plate : 'Б/Н';
     const infoStr = `${carPlate} · ${car.model || ''} · ${car.customer || car.payer || ''}`.trim();
-    let svcType = 'retail';
-    if (car.category === 'corp')      svcType = 'corp';
-    else if (car.category === 'ins')   svcType = 'ins';
-    else if (car.category === 'equity') svcType = 'retail';
-    else if (car.category === 'warranty' || car.category === 'internal') svcType = 'warranty';
     const arrivedDate = car.date_created ? isoDate(car.date_created) : null;
-    const expectedDate = car.date_shipped ? isoDate(car.date_shipped) : null;
-    let combinedComment = car.comment || '';
-    if (car.payer && car.payer !== car.customer && !combinedComment.includes(car.payer)) {
-      combinedComment = `[${car.payer}] ${combinedComment}`.trim();
-    }
-    if (car.category === 'equity' && !combinedComment.toLowerCase().includes('равт')) {
-      combinedComment = `[РАВТ] ${combinedComment}`.trim();
-    }
     return {
       point_id: car.point_id,
       info: infoStr,
       plate: carPlate,
       brand: '',
       client: '',
-      service_type: svcType,
-      status: car.internalStatus || 'in_progress',
-      description: combinedComment || '',
+      service_type: mapCategoryToServiceType(car.category),
+      status: mapInternalStatusToCarStatus(car.internalStatus),
+      description: buildComment1c(car),
       amount: car.sum || null,
       arrived_at: arrivedDate,
-      expected_at: expectedDate,
+      expected_at: null,
       zn_number: car.zn_number,
-      vin: car.vin || null,
-      payer: car.payer || null,
       source_1c: true,
-      imported_at: new Date().toISOString(),
       status_1c: car.status_1c,
+      imported_at: new Date().toISOString(),
     };
+  }
+
+  // === BUILDER 2: orders_history_1c (закрытые ЗН → выручка + история) ===
+  function buildOrderHistoryPayload(car, sourceFile) {
+    return {
+      zn_number: car.zn_number,
+      point_id: car.point_id,
+      category: car.category,
+      amount: car.sum || 0,
+      customer: car.customer || null,
+      payer: car.payer || null,
+      car_model: car.model || null,
+      plate: car.plate || null,
+      vin: car.vin || null,
+      date_created: car.date_created ? isoDate(car.date_created) : null,
+      date_shipped: car.date_shipped ? isoDate(car.date_shipped) : (car.date_created ? isoDate(car.date_created) : null),
+      status_1c: car.status_1c,
+      comment: buildComment1c(car),
+      source_file: sourceFile || null,
+      imported_by: currentManager?.id || null,
+    };
+  }
+
+  // === BUILDER 3: quality_events_1c (гарантия / своё авто / закрыт на затраты) ===
+  function buildQualityEventPayload(car, sourceFile) {
+    // kind: warranty | internal | closed_costs
+    let kind = 'closed_costs';
+    if (car.category === 'warranty') kind = 'warranty';
+    else if (car.category === 'internal') kind = 'internal';
+    return {
+      zn_number: car.zn_number,
+      point_id: car.point_id,
+      kind,
+      amount: car.sum || 0,
+      customer: car.customer || null,
+      payer: car.payer || null,
+      car_model: car.model || null,
+      plate: car.plate || null,
+      vin: car.vin || null,
+      date_created: car.date_created ? isoDate(car.date_created) : null,
+      date_closed: car.date_shipped ? isoDate(car.date_shipped) : (car.date_created ? isoDate(car.date_created) : null),
+      status_1c: car.status_1c,
+      comment: buildComment1c(car),
+      source_file: sourceFile || null,
+      imported_by: currentManager?.id || null,
+    };
+  }
+
+  // Совместимость с диагностикой — она проверяет первую машину как «обычная для cars_in_work»
+  function buildCar1cPayload(car) {
+    // Для диагностики используем builder cars_in_work — это основной CHECK-целевой путь
+    return buildCarInWorkPayload(car);
   }
 
   // 🔬 Диагностика: пробует записать ПЕРВУЮ строку и показывает полную ошибку от Supabase.
@@ -2766,40 +2834,79 @@
     try {
       let carsImported = 0, carsUpdated = 0, daysAffected = 0;
 
-      // 1) Машины (закрытые + в работе + quality) → пишем в cars_in_work
-      const allCars = [...p.closed, ...p.inWork, ...p.quality];
+      const sourceFile = document.getElementById('import1c-file').files[0]?.name || null;
       const firstErrors = [];
-      for (const car of allCars) {
-        const payload = buildCar1cPayload(car);
+      let inWorkOk = 0, ordersOk = 0, qualityOk = 0;
+
+      // === 1) Машины в работе → cars_in_work (76 шт.) ===
+      for (const car of p.inWork) {
+        const payload = buildCarInWorkPayload(car);
         const { error } = await sb.from('cars_in_work').upsert(payload, { onConflict: 'zn_number' });
         if (error) {
-          if (firstErrors.length < 3) {
-            firstErrors.push({
-              zn: car.zn_number,
-              code: error.code,
-              message: error.message,
-              details: error.details,
-              hint: error.hint,
-            });
-          }
-          console.error('Car upsert error:', car.zn_number, error);
+          if (firstErrors.length < 5) firstErrors.push({ table: 'cars_in_work', zn: car.zn_number, code: error.code, message: error.message });
+          console.error('cars_in_work upsert error:', car.zn_number, error);
         } else {
-          carsImported++;
+          inWorkOk++;
         }
       }
 
-      // 2) daily_reports — ВРЕМЕННО ОТКЛЮЧЕНО до починки cars_in_work
-      // Прошлый импорт уже прибавил суммы к ручным записям (двойной счёт).
-      // Включу обратно после: (а) убеждаемся что cars_in_work работает,
-      // (б) добавляем отдельные поля _1c_* для безопасной агрегации.
-      // for (const key in p.byDayPoint) { ... }
-      daysAffected = 0;
+      // === 2) Закрытые ЗН → orders_history_1c (972 шт.) ===
+      for (const car of p.closed) {
+        const payload = buildOrderHistoryPayload(car, sourceFile);
+        const { error } = await sb.from('orders_history_1c').upsert(payload, { onConflict: 'zn_number' });
+        if (error) {
+          if (firstErrors.length < 5) firstErrors.push({ table: 'orders_history_1c', zn: car.zn_number, code: error.code, message: error.message });
+          console.error('orders_history_1c upsert error:', car.zn_number, error);
+        } else {
+          ordersOk++;
+        }
+      }
 
-      // 3) Запись в журнал импортов (для аудита)
+      // === 3) Гарантии/переделки/обслуживание → quality_events_1c (61 шт.) ===
+      for (const car of p.quality) {
+        const payload = buildQualityEventPayload(car, sourceFile);
+        const { error } = await sb.from('quality_events_1c').upsert(payload, { onConflict: 'zn_number' });
+        if (error) {
+          if (firstErrors.length < 5) firstErrors.push({ table: 'quality_events_1c', zn: car.zn_number, code: error.code, message: error.message });
+          console.error('quality_events_1c upsert error:', car.zn_number, error);
+        } else {
+          qualityOk++;
+        }
+      }
+
+      // === 4) Пересчёт daily_reports из orders_history_1c (по каждой точке отдельно) ===
+      // Определяем диапазон дат и точки из импортированных данных
+      const datesByPoint = {};
+      for (const car of p.closed) {
+        const d = car.close_iso;
+        if (!d) continue;
+        if (!datesByPoint[car.point_id]) datesByPoint[car.point_id] = { min: d, max: d };
+        const r = datesByPoint[car.point_id];
+        if (d < r.min) r.min = d;
+        if (d > r.max) r.max = d;
+      }
+      const recalcResults = [];
+      for (const pid in datesByPoint) {
+        const { min, max } = datesByPoint[pid];
+        const { data, error } = await sb.rpc('recalc_daily_reports_from_1c', {
+          p_point_id: pid, p_date_from: min, p_date_to: max,
+        });
+        if (error) {
+          if (firstErrors.length < 5) firstErrors.push({ table: 'recalc_daily_reports', point: pid, code: error.code, message: error.message });
+          console.error('recalc_daily_reports_from_1c error:', pid, error);
+        } else {
+          recalcResults.push({ point_id: pid, from: min, to: max, days: (data || []).length });
+          daysAffected += (data || []).length;
+        }
+      }
+
+      carsImported = inWorkOk + ordersOk + qualityOk;
+
+      // === 5) Запись в журнал импортов ===
       await sb.from('imports_1c').insert({
         imported_by: currentManager.id,
         point_id: currentPoint.id,
-        file_name: document.getElementById('import1c-file').files[0]?.name || null,
+        file_name: sourceFile,
         rows_total: p.totalRows,
         rows_imported: carsImported,
         rows_skipped: p.skipped.length,
@@ -2809,20 +2916,26 @@
           in_work: p.inWork.length,
           quality: p.quality.length,
           skipped: p.skipped.length,
+          in_work_ok: inWorkOk,
+          orders_ok: ordersOk,
+          quality_ok: qualityOk,
           days: daysAffected,
+          recalc: recalcResults,
           first_errors: firstErrors,
         },
       });
 
-      if (carsImported === 0 && allCars.length > 0) {
-        // Все упало — показываем первую ошибку
+      const totalExpected = p.inWork.length + p.closed.length + p.quality.length;
+      if (carsImported === 0 && totalExpected > 0) {
         const e0 = firstErrors[0];
-        toast(`❌ 0 из ${allCars.length}. ${e0?.code || ''}: ${e0?.message || 'нет связи'}`, 'err');
+        toast(`❌ 0 из ${totalExpected}. ${e0?.table || ''}: ${e0?.code || ''}: ${e0?.message || 'нет связи'}`, 'err');
+      } else if (firstErrors.length > 0) {
+        toast(`⚠ ${carsImported}/${totalExpected}: ${firstErrors[0].table}: ${firstErrors[0].message}`, 'err');
+        closeImport1c();
       } else {
-        toast(`☁ Импортировано: ${carsImported}/${allCars.length} машин (daily_reports отключён)`, 'ok');
+        toast(`☁ Импорт: ${inWorkOk} в работе · ${ordersOk} закрытых · ${qualityOk} качество · ${daysAffected} дней пересчитано`, 'ok');
         closeImport1c();
       }
-      // Перезагрузка вкладок
       loadCars();
       if (typeof loadDayForDate === 'function') loadDayForDate();
     } catch (e) {
