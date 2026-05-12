@@ -3659,6 +3659,103 @@ ${planLine}
   };
   const STATUS_GROUP_ORDER = ['in_work','ready','wait_payment','wait_docs','wait_pickup'];
 
+  // === 6 групп для отображения в аккордеоне ===
+  // Каждая группа: ключ, заголовок, иконка, цвет, порог зависания (дней), правило отнесения.
+  const CAR_GROUPS = [
+    {
+      key: 'now_at_posts',
+      title: 'Сейчас на постах',
+      icon: '🛠',
+      color: '#2196F3',
+      stuckDays: 3,
+      // 1С: В работе. Ручные: in_work / wait_payment / ready (готовые к выдаче ≈ ещё на территории).
+      match: (c) => c.source_1c
+        ? c.status_1c === 'В работе'
+        : ['in_work','ready','wait_payment'].includes(c.status),
+    },
+    {
+      key: 'booked_for_day',
+      title: 'Запись на день',
+      icon: '📅',
+      color: '#4CAF50',
+      stuckDays: null, // зависание считается особо: если дата записи прошла +1 день
+      match: (c) => c.source_1c
+        ? c.status_1c === 'Ожидание клиента'
+        : c.status === 'wait_pickup',
+    },
+    {
+      key: 'wait_glass',
+      title: 'Ждём стёкла',
+      icon: '🪟',
+      color: '#FF9800',
+      stuckDays: 21,
+      match: (c) => c.source_1c
+        ? c.status_1c === 'Заказ запчастей'
+        : c.status === 'wait_docs',
+    },
+    {
+      key: 'wait_ravt_booking',
+      title: 'Ждём записи РАВТ',
+      icon: '📋',
+      color: '#E8B84B',
+      stuckDays: 7,
+      match: (c) => c.source_1c && c.status_1c === 'Ожидание записи клиента',
+    },
+    {
+      key: 'wait_insurance',
+      title: 'Ждём решение СК',
+      icon: '🏥',
+      color: '#9C27B0',
+      stuckDays: 30,
+      match: (c) => c.source_1c && c.status_1c === 'Предварительный',
+    },
+    {
+      key: 'call_client',
+      title: 'Позвонить клиенту',
+      icon: '📞',
+      color: '#F44336',
+      stuckDays: 2,
+      match: (c) => c.source_1c && c.status_1c === 'Вызов клиента',
+    },
+  ];
+
+  // Состояние «свёрнуто/развёрнуто» по группам (по умолчанию все свёрнуты)
+  const expandedGroups = new Set();
+
+  function toggleCarGroup(key) {
+    if (expandedGroups.has(key)) expandedGroups.delete(key);
+    else expandedGroups.add(key);
+    renderCars();
+  }
+  window.toggleCarGroup = toggleCarGroup;
+
+  // Считает кол-во дней с заезда (для зависания)
+  function daysInWorkOf(c) {
+    if (!c.arrived_at) return 0;
+    const today = new Date(todayLocalISO());
+    const arrived = new Date(c.arrived_at);
+    return Math.max(0, Math.floor((today - arrived) / 86400000));
+  }
+
+  // Зависла ли машина с учётом порога её группы
+  function isCarStuck(c, group) {
+    const days = daysInWorkOf(c);
+    if (group.key === 'booked_for_day') {
+      // Особый случай: зависла если дата записи (expected_at) прошла +1 день
+      if (!c.expected_at) return false;
+      const exp = new Date(c.expected_at);
+      const today = new Date(todayLocalISO());
+      const diff = Math.floor((today - exp) / 86400000);
+      return diff > 0;
+    }
+    return group.stuckDays != null && days > group.stuckDays;
+  }
+
+  // Машины которые не попали ни в одну группу (резерв)
+  function uncategorized(cars) {
+    return cars.filter(c => !CAR_GROUPS.some(g => g.match(c)));
+  }
+
   async function loadCars() {
     if (!currentPoint) return;
     try {
@@ -3688,35 +3785,79 @@ ${planLine}
       return;
     }
 
-    // Сводка по статусам
-    const cntByStatus = {};
-    carsInWork.forEach(c => { cntByStatus[c.status] = (cntByStatus[c.status]||0) + 1; });
-    const cntParts = STATUS_GROUP_ORDER
-      .filter(s => cntByStatus[s])
-      .map(s => `${CAR_STATUSES[s].label.split(' ')[0]} ${cntByStatus[s]}`);
-    summaryEl.innerHTML = `Всего: <b style="color:var(--text);">${carsInWork.length}</b> · ${cntParts.join(' · ')}`;
+    // Считаем по группам
+    const stats = CAR_GROUPS.map(g => {
+      const cars = carsInWork.filter(g.match);
+      const stuck = cars.filter(c => isCarStuck(c, g));
+      return { group: g, cars, stuckCount: stuck.length };
+    });
+    const totalStuck = stats.reduce((s, x) => s + x.stuckCount, 0);
+    const totalShown = stats.reduce((s, x) => s + x.cars.length, 0);
+    const uncats = uncategorized(carsInWork);
 
-    // Группировка по статусу
+    // Сводка сверху
+    const stuckBadge = totalStuck > 0
+      ? ` · <span style="color:var(--red);font-weight:700;">⚠ ${totalStuck} зависших</span>`
+      : '';
+    summaryEl.innerHTML = `Всего: <b style="color:var(--text);">${carsInWork.length}</b>${stuckBadge}`;
+
+    // Рендер аккордеона
     let html = '';
-    STATUS_GROUP_ORDER.forEach(st => {
-      const group = carsInWork.filter(c => c.status === st);
-      if (!group.length) return;
-      // Сортировка внутри группы: машины с просроченной выдачей сверху, потом по дате заезда
-      group.sort((a,b) => {
-        const ad = a.expected_at || '9999-12-31';
-        const bd = b.expected_at || '9999-12-31';
-        if (ad !== bd) return ad.localeCompare(bd);
-        return (a.arrived_at||'').localeCompare(b.arrived_at||'');
-      });
-      html += `<div class="car-group">
-        <div class="car-group-head">${CAR_STATUSES[st].label} (${group.length})</div>`;
-      group.forEach(c => html += renderCarCard(c));
+    stats.forEach(({ group, cars, stuckCount }) => {
+      if (cars.length === 0) return;
+      const isOpen = expandedGroups.has(group.key);
+      const stuckLabel = stuckCount > 0
+        ? `<span style="margin-left:8px;color:var(--red);font-weight:600;font-size:11px;">⚠ ${stuckCount}</span>`
+        : '';
+      html += `<div class="car-acc-group" style="margin-bottom:10px;">
+        <div class="car-acc-head" onclick="toggleCarGroup('${group.key}')" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:#0e0e0e;border:1px solid var(--border);border-left:3px solid ${group.color};border-radius:8px;cursor:pointer;user-select:none;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span style="font-size:18px;">${group.icon}</span>
+            <span style="font-weight:700;color:var(--text);font-size:13px;">${group.title}</span>
+            <span style="background:#1a1a1a;color:var(--text);font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;">${cars.length}</span>
+            ${stuckLabel}
+          </div>
+          <div style="color:var(--muted);font-size:14px;transform:${isOpen?'rotate(90deg)':'rotate(0deg)'};transition:transform .15s;">▸</div>
+        </div>`;
+      if (isOpen) {
+        // Сортировка: зависшие сверху, потом по дате заезда
+        const sorted = [...cars].sort((a, b) => {
+          const stA = isCarStuck(a, group) ? 0 : 1;
+          const stB = isCarStuck(b, group) ? 0 : 1;
+          if (stA !== stB) return stA - stB;
+          return (a.arrived_at || '').localeCompare(b.arrived_at || '');
+        });
+        html += `<div style="padding:10px 4px 0;display:flex;flex-direction:column;gap:8px;">`;
+        sorted.forEach(c => html += renderCarCard(c, group));
+        html += `</div>`;
+      }
       html += `</div>`;
     });
+
+    // Резерв: ручные машины с непривычным статусом
+    if (uncats.length > 0) {
+      const isOpen = expandedGroups.has('_uncat');
+      html += `<div class="car-acc-group" style="margin-bottom:10px;">
+        <div class="car-acc-head" onclick="toggleCarGroup('_uncat')" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:#0e0e0e;border:1px solid var(--border);border-left:3px solid #555;border-radius:8px;cursor:pointer;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span style="font-size:18px;">❓</span>
+            <span style="font-weight:700;color:var(--muted);font-size:13px;">Прочие</span>
+            <span style="background:#1a1a1a;color:var(--muted);font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;">${uncats.length}</span>
+          </div>
+          <div style="color:var(--muted);font-size:14px;transform:${isOpen?'rotate(90deg)':'rotate(0deg)'};transition:transform .15s;">▸</div>
+        </div>`;
+      if (isOpen) {
+        html += `<div style="padding:10px 4px 0;display:flex;flex-direction:column;gap:8px;">`;
+        uncats.forEach(c => html += renderCarCard(c, null));
+        html += `</div>`;
+      }
+      html += `</div>`;
+    }
+
     groupsEl.innerHTML = html;
   }
 
-  function renderCarCard(c) {
+  function renderCarCard(c, group) {
     const today = todayLocalISO();
     const arrivedDate = c.arrived_at || '';
     const daysInWork = arrivedDate ? Math.floor((new Date(today) - new Date(arrivedDate)) / 86400000) + 1 : 0;
@@ -3737,10 +3878,13 @@ ${planLine}
     const desc = c.description ? `<div class="cc-desc">${escapeHtml(c.description)}</div>` : '';
     const todo = c.todo ? `<div class="cc-todo">📌 ${escapeHtml(c.todo)}</div>` : '';
     const amountText = c.amount > 0 ? `<span class="cc-amount">${fm(c.amount)} ₽</span>` : '';
-    return `<div class="car-card t-${c.service_type||'розн'}" onclick="openCarEdit('${c.id}')">
+    const stuck = group && isCarStuck(c, group);
+    const stuckBadge = stuck ? `<span style="background:rgba(244,67,54,.15);color:var(--red);font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;margin-left:6px;">⚠ зависла</span>` : '';
+    const stuckBorder = stuck ? 'border:1px solid var(--red);' : '';
+    return `<div class="car-card t-${c.service_type||'розн'}" style="${stuckBorder}" onclick="openCarEdit('${c.id}')">
       <div class="cc-line1">
         <div>
-          <div class="cc-plate">${escapeHtml(titleParts)}</div>
+          <div class="cc-plate">${escapeHtml(titleParts)}${stuckBadge}</div>
           ${clientLine}
         </div>
         <div class="cc-meta ${metaCls}">${metaText}</div>
