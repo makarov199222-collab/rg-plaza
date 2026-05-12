@@ -2315,6 +2315,8 @@
         zakazchik:  find('Заказчик'),
         manager:    find('Менеджер'),
         comment:    find('Комментарий'),
+        planStart:  find('Планируемая дата начала работ'),    // AA — дата+время записи клиента
+        planEnd:    find('Планируемая дата завершения'),       // AB — ожидаемое время выдачи
       };
       // Резерв для написания «Задолжность» (опечатка в шаблоне 1С Фреш)
       if (cols.debt === -1) cols.debt = find('Задолжность');
@@ -2389,6 +2391,8 @@
           comment: cols.comment >= 0 ? String(row[cols.comment] || '').trim() : '',
           date_created: parseDate(row[cols.date]),
           date_shipped: cols.shippedAt >= 0 ? parseDate(row[cols.shippedAt]) : null,
+          plan_start: cols.planStart >= 0 ? parseDate(row[cols.planStart]) : null,
+          plan_end:   cols.planEnd   >= 0 ? parseDate(row[cols.planEnd])   : null,
         };
 
         // Особые категории (гарантия/обслуживание своего) или закрыт на затраты → quality
@@ -2627,6 +2631,11 @@
     const carPlate = car.plate && car.plate !== 'Б/Н' ? car.plate : 'Б/Н';
     const infoStr = `${carPlate} · ${car.model || ''} · ${car.customer || car.payer || ''}`.trim();
     const arrivedDate = car.date_created ? isoDate(car.date_created) : null;
+    // AA «Планируемая дата начала работ» — дата+время записи клиента
+    const planDate = car.plan_start ? isoDate(car.plan_start) : null;
+    const planTime = car.plan_start
+      ? `${String(car.plan_start.getHours()).padStart(2,'0')}:${String(car.plan_start.getMinutes()).padStart(2,'0')}`
+      : null;
     return {
       point_id: car.point_id,
       info: infoStr,
@@ -2638,7 +2647,8 @@
       description: buildComment1c(car),
       amount: car.sum != null ? car.sum : 0,
       arrived_at: arrivedDate,
-      expected_at: null,
+      expected_at: planDate,
+      expected_time: planTime,
       zn_number: car.zn_number,
       source_1c: true,
       status_1c: car.status_1c,
@@ -3820,13 +3830,24 @@ ${planLine}
           <div style="color:var(--muted);font-size:14px;transform:${isOpen?'rotate(90deg)':'rotate(0deg)'};transition:transform .15s;">▸</div>
         </div>`;
       if (isOpen) {
-        // Сортировка: зависшие сверху, потом по дате заезда
-        const sorted = [...cars].sort((a, b) => {
-          const stA = isCarStuck(a, group) ? 0 : 1;
-          const stB = isCarStuck(b, group) ? 0 : 1;
-          if (stA !== stB) return stA - stB;
-          return (a.arrived_at || '').localeCompare(b.arrived_at || '');
-        });
+        // Сортировка: зависшие сверху, потом по дате заезда.
+        // Для группы «Запись на день» — по дате записи восходяще (ближайшая запись сверху).
+        let sorted;
+        if (group.key === 'booked_for_day') {
+          sorted = [...cars].sort((a, b) => {
+            const stA = isCarStuck(a, group) ? 0 : 1;
+            const stB = isCarStuck(b, group) ? 0 : 1;
+            if (stA !== stB) return stA - stB;
+            return (a.expected_at || '9999-12-31').localeCompare(b.expected_at || '9999-12-31');
+          });
+        } else {
+          sorted = [...cars].sort((a, b) => {
+            const stA = isCarStuck(a, group) ? 0 : 1;
+            const stB = isCarStuck(b, group) ? 0 : 1;
+            if (stA !== stB) return stA - stB;
+            return (a.arrived_at || '').localeCompare(b.arrived_at || '');
+          });
+        }
         html += `<div style="padding:10px 4px 0;display:flex;flex-direction:column;gap:8px;">`;
         sorted.forEach(c => html += renderCarCard(c, group));
         html += `</div>`;
@@ -3863,13 +3884,27 @@ ${planLine}
     const daysInWork = arrivedDate ? Math.floor((new Date(today) - new Date(arrivedDate)) / 86400000) + 1 : 0;
     let metaCls = '';
     let metaText = '';
+    // Для группы «Запись на день» — формулировки про запись на замену.
+    // Для остальных групп — стандарт про выдачу.
+    const isBookingGroup = group && group.key === 'booked_for_day';
     if (c.expected_at) {
       const exp = new Date(c.expected_at);
       const days = Math.floor((exp - new Date(today)) / 86400000);
-      if (days < 0) { metaCls = 'cc-meta-bad'; metaText = `просрочена ${-days}дн`; }
-      else if (days === 0) { metaCls = 'cc-meta-warn'; metaText = `выдача СЕГОДНЯ${c.expected_time ? ' ' + c.expected_time : ''}`; }
-      else if (days === 1) { metaCls = 'cc-meta-warn'; metaText = `выдача завтра${c.expected_time ? ' ' + c.expected_time : ''}`; }
-      else { metaText = `выдача через ${days}дн`; }
+      const timeStr = c.expected_time ? ' ' + c.expected_time : '';
+      if (isBookingGroup) {
+        // «запись 12.05 13:00» / «запись СЕГОДНЯ 13:00» / «запись завтра 13:00» / «не приехал N дн»
+        const day = String(exp.getDate()).padStart(2,'0');
+        const mon = String(exp.getMonth()+1).padStart(2,'0');
+        if (days < 0)      { metaCls = 'cc-meta-bad';  metaText = `не приехал ${-days}дн`; }
+        else if (days === 0) { metaCls = 'cc-meta-warn'; metaText = `запись СЕГОДНЯ${timeStr}`; }
+        else if (days === 1) { metaCls = 'cc-meta-warn'; metaText = `запись завтра${timeStr}`; }
+        else                 { metaText = `запись ${day}.${mon}${timeStr}`; }
+      } else {
+        if (days < 0)      { metaCls = 'cc-meta-bad';  metaText = `просрочена ${-days}дн`; }
+        else if (days === 0) { metaCls = 'cc-meta-warn'; metaText = `выдача СЕГОДНЯ${timeStr}`; }
+        else if (days === 1) { metaCls = 'cc-meta-warn'; metaText = `выдача завтра${timeStr}`; }
+        else                 { metaText = `выдача через ${days}дн`; }
+      }
     } else {
       metaText = `${daysInWork} дн в работе`;
     }
