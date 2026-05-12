@@ -895,9 +895,9 @@
 
       const [pointsRes, reportsRes, plansRes, yearRes, fotRes, expRes, taxRes, dirsRes, pnlRes] = await Promise.all([
         sb.from('points').select('*').order('id'),
-        sb.from('daily_reports').select('*').gte('date', range.start).lte('date', range.end).order('date'),
+        sb.from('daily_reports_unified').select('*').gte('date', range.start).lte('date', range.end).order('date'),
         sb.from('plans').select('*'),
-        sb.from('daily_reports').select('point_id,date,total_day,debt_total,debt_retail,debt_insurance,owe_total,owe_ravt,owe_other').gte('date', yearStart).lte('date', range.end),
+        sb.from('daily_reports_unified').select('point_id,date,total_day,debt_total,debt_retail,debt_insurance,owe_total,owe_ravt,owe_other').gte('date', yearStart).lte('date', range.end),
         sb.from('fot_summary').select('*').eq('period', period).maybeSingle(),
         sb.from('expenses_monthly').select('*').eq('period', period),
         sb.from('taxes_monthly').select('*').eq('period', period),
@@ -1525,7 +1525,7 @@
   async function fetchYearData(year) {
     const start = `${year}-01-01`;
     const end = `${year}-12-31`;
-    const { data, error } = await sb.from('daily_reports')
+    const { data, error } = await sb.from('daily_reports_unified')
       .select('point_id,date,total_day,retail_day,ins_day,phys_day,corp_day,detail_day,cars_detail')
       .gte('date', start).lte('date', end);
     if (error) throw error;
@@ -1552,7 +1552,7 @@
     let dayReports = {};
     let actualDates = {};   // фактическая дата отчёта по каждой точке (если fallback)
     try {
-      const { data: dr, error } = await sb.from('daily_reports').select('*').eq('date', date);
+      const { data: dr, error } = await sb.from('daily_reports_unified').select('*').eq('date', date);
       if (error) throw error;
       (dr || []).forEach(r => { dayReports[r.point_id] = r; actualDates[r.point_id] = date; });
     } catch (e) { console.error(e); }
@@ -1564,7 +1564,7 @@
     const missingPoints = data.points.filter(p => !dayReports[p.id]).map(p => p.id);
     if (missingPoints.length > 0) {
       try {
-        const { data: monthData, error } = await sb.from('daily_reports')
+        const { data: monthData, error } = await sb.from('daily_reports_unified')
           .select('*')
           .in('point_id', missingPoints)
           .gte('date', monthStart)
@@ -1585,7 +1585,7 @@
     const lastDebts = {};
     try {
       const since = new Date(new Date(date).getTime() - 90*24*60*60*1000).toISOString().substring(0,10);
-      const { data: debtData } = await sb.from('daily_reports')
+      const { data: debtData } = await sb.from('daily_reports_unified')
         .select('point_id,date,debt_total,debt_retail,debt_insurance,owe_total,owe_ravt,owe_other')
         .gte('date', since)
         .lte('date', date)
@@ -2839,11 +2839,11 @@ ${point.name} ${flow}`;
       const prevEnd = `${prevDate.getFullYear()}-${String(prevDate.getMonth()+1).padStart(2,'0')}-31`;
 
       const [prevRes, ovrItemsRes, cashRes, qualityRes] = await Promise.all([
-        sb.from('daily_reports')
+        sb.from('daily_reports_unified')
           .select('point_id,date,total_day,retail_day,ins_day,phys_day,corp_day,detail_day,cars_total,cars_retail,cars_ins,cars_corp,cars_detail')
           .gte('date', prevStart).lte('date', prevEnd),
         sb.from('monthly_ovr_items').select('*').eq('period', cachedData.period),
-        sb.from('daily_reports')
+        sb.from('daily_reports_unified')
           .select('point_id,date,total_day,bn_day,nal_day,kart_day,bs_day')
           .gte('date', range.start).lte('date', range.end),
         sb.from('cars_in_work')
