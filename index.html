@@ -2378,7 +2378,11 @@
         planStart:  find('Планируемая дата начала работ'),    // AA — дата+время записи клиента
         planEnd:    find('Планируемая дата завершения'),       // AB — ожидаемое время выдачи
         registry:   find('Комментарий к оценке'),              // AL — «N Реестр от DD.MM.YYYY ИП ...»
+        direction:  find('Направление на ремонт'),             // AE/31 — номер направления (РВ0У... = РАВТ, иначе СК)
       };
+      // Резерв: альтернативные написания заголовка
+      if (cols.direction === -1) cols.direction = find('Номер направления');
+      if (cols.direction === -1) cols.direction = find('Направление');
       // Резерв для написания «Задолжность» (опечатка в шаблоне 1С Фреш)
       if (cols.debt === -1) cols.debt = find('Задолжность');
       // Резерв: если "Статус ЗН расширенный" не найден — пробуем "Статус ЗН"
@@ -2456,6 +2460,7 @@
           plan_end:   cols.planEnd   >= 0 ? parseDate(row[cols.planEnd])   : null,
           registry_label: cols.registry >= 0 ? (String(row[cols.registry] || '').trim() || null) : null,
           registry_date:  cols.registry >= 0 ? extractRegistryDate(row[cols.registry]) : null,
+          direction_number: cols.direction >= 0 ? (String(row[cols.direction] || '').trim() || null) : null,
         };
 
         // Особые категории (гарантия/обслуживание своего) или закрыт на затраты → quality
@@ -2716,6 +2721,7 @@
       zn_number: car.zn_number,
       source_1c: true,
       status_1c: car.status_1c,
+      direction_number: car.direction_number || null,
       imported_at: new Date().toISOString(),
     };
   }
@@ -2739,6 +2745,7 @@
       comment: buildComment1c(car),
       registry_label: car.registry_label || null,
       registry_date: car.registry_date || null,
+      direction_number: car.direction_number || null,
       source_file: sourceFile || null,
       imported_by: currentManager?.id || null,
     };
