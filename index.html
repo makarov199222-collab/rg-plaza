@@ -3321,11 +3321,36 @@
         ['bk','ins','ret','phy','cop','det','mx','rv','fl'].forEach(k => { const el = document.getElementById(k+'-v'); if (el) el.textContent = C[k]; });
         document.getElementById('bn').value = data.cash_card || '';
         document.getElementById('nal').value = data.cash_money || '';
-        document.getElementById('dtotal').value = data.total_day || '';
-        document.getElementById('dins').value = data.ins_day || '';
-        document.getElementById('dret').value = data.retail_day || '';
-        document.getElementById('dphy').value = data.phys_day || '';
-        document.getElementById('dcop').value = data.corp_day || '';
+
+        // === Фолбэк из 1С: если менеджер ещё не вводил дневные суммы и счётчики,
+        // подставляем то что насчитала 1С. Условие: ВСЕ 4 ручных дневных суммы пустые/нулевые
+        // И в *_1c что-то есть. Если хоть одна ручная сумма уже введена — не трогаем.
+        const manualHasInput = (+data.total_day || 0) > 0 || (+data.retail_day || 0) > 0
+                            || (+data.ins_day   || 0) > 0 || (+data.corp_day   || 0) > 0;
+        const oneCHasData = (+data.total_1c  || 0) > 0 || (+data.retail_1c || 0) > 0
+                         || (+data.ins_1c    || 0) > 0 || (+data.corp_1c   || 0) > 0;
+        const useFrom1c = !manualHasInput && oneCHasData;
+        if (useFrom1c) {
+          // Суммы: ручные пусты → подставляем 1С-значения (как ручной ввод, чтобы при сохранении они улетели в *_day)
+          document.getElementById('dtotal').value = data.total_1c  || '';
+          document.getElementById('dins').value   = data.ins_1c    || '';
+          document.getElementById('dret').value   = (+data.retail_1c || 0) + (+data.corp_1c || 0) || '';
+          document.getElementById('dphy').value   = data.retail_1c || '';
+          document.getElementById('dcop').value   = data.corp_1c   || '';
+          // Счётчики машин: подставляем только если ручные тоже нули
+          if (C.ins === 0 && (+data.cars_ins_1c    || 0) > 0) { C.ins = data.cars_ins_1c    || 0; document.getElementById('ins-v').textContent = C.ins; }
+          if (C.phy === 0 && (+data.cars_retail_1c || 0) > 0) { C.phy = data.cars_retail_1c || 0; document.getElementById('phy-v').textContent = C.phy; }
+          if (C.cop === 0 && (+data.cars_corp_1c   || 0) > 0) { C.cop = data.cars_corp_1c   || 0; document.getElementById('cop-v').textContent = C.cop; }
+          C.ret = (C.phy || 0) + (C.cop || 0);
+          document.getElementById('ret-v').textContent = C.ret;
+          toast('☁ Поля заполнены из 1С — проверь и сохрани', 'ok');
+        } else {
+          document.getElementById('dtotal').value = data.total_day || '';
+          document.getElementById('dins').value = data.ins_day || '';
+          document.getElementById('dret').value = data.retail_day || '';
+          document.getElementById('dphy').value = data.phys_day || '';
+          document.getElementById('dcop').value = data.corp_day || '';
+        }
         const ddEl = document.getElementById('ddet');
         if (ddEl) ddEl.value = data.detail_day || '';
         document.getElementById('debt_total').value = data.debt_total || '';
@@ -3337,6 +3362,11 @@
         document.getElementById('owe_other').value = data.owe_other || '';
         (data.cars_list || []).forEach(c => addCar(c));
       }
+      // Фолбэк: если в `cars_list` пусто (менеджер ещё не вписывал машины руками),
+      // но в 1С за этот день уже отгружены ЗН — подтягиваем их в форму как подсказку.
+      if (document.querySelectorAll('.car-row').length === 0) {
+        await loadCarsFrom1cIfEmpty(date);
+      }
       if (document.querySelectorAll('.car-row').length === 0) addCar();
       updateCarsSummary();
       // Загружаем выданные машины из cars_in_work за выбранный день (для всех точек)
@@ -3347,6 +3377,44 @@
       await updateDebt1cHint(date);
       setSync('ok');
     } catch (e) { console.error(e); setSync('offline'); toast('Ошибка загрузки дня', 'err'); }
+  }
+
+  // === Подгрузка машин из 1С за день, если ручной список пуст ===
+  // Берёт закрытые ЗН (orders_history_1c) с date_shipped = выбранный день для текущей точки,
+  // конвертирует в формат cars_list и добавляет в форму. Менеджер видит их как подсказку,
+  // может править и сохранить — данные улетят в cars_list карточки дня.
+  async function loadCarsFrom1cIfEmpty(date) {
+    if (!currentPoint) return;
+    try {
+      const { data, error } = await sb.from('orders_history_1c')
+        .select('zn_number, customer, plate, car_model, amount, category, comment')
+        .eq('point_id', currentPoint.id)
+        .eq('date_shipped', date)
+        .order('zn_number');
+      if (error) throw error;
+      const rows = data || [];
+      if (rows.length === 0) return;
+      // Преобразуем категорию orders_history_1c → значение dropdown в форме
+      const mapCat = c => {
+        if (c === 'equity' || c === 'ins') return 'страх';
+        if (c === 'corp') return 'корп';
+        if (c === 'retail') return 'розн';
+        return 'страх';
+      };
+      // Текст: [категория] № гос. марка ФИО — вид работ
+      rows.forEach(o => {
+        const plateStr = o.plate && o.plate !== 'Б/Н' ? o.plate : '';
+        const parts = [plateStr, o.car_model, o.customer].filter(Boolean).join(' ');
+        addCar({
+          text: parts,
+          sum: +o.amount || 0,
+          type: mapCat(o.category),
+        });
+      });
+      toast(`☁ Загружено ${rows.length} машин из 1С — проверь и сохрани`, 'ok');
+    } catch (e) {
+      console.error('loadCarsFrom1cIfEmpty error:', e);
+    }
   }
 
   // === Подсказка «Записи на завтра по 1С» ===
