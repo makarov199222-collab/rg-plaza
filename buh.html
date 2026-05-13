@@ -937,7 +937,12 @@
           ${renderRegionBlock('izhevsk', 'ИЖЕВСК (Совхозная + Пойма)', '🏭')}
         </div>
 
-        <button onclick="openAddRavtModal()" style="width:100%;background:var(--accent);color:#000;border:none;border-radius:10px;padding:13px;font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1.5px;cursor:pointer;">➕ ДОБАВИТЬ АКТ ВЗАИМОЗАЧЁТА</button>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <button onclick="openAddRavtModal()" style="background:var(--accent);color:#000;border:none;border-radius:10px;padding:13px;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1.5px;cursor:pointer;">➕ ДОБАВИТЬ АКТ ВРУЧНУЮ</button>
+          <button onclick="document.getElementById('file-ravt-act').click()" style="background:#141414;border:1px solid var(--accent);color:var(--accent);border-radius:10px;padding:13px;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1.5px;cursor:pointer;">📎 ЗАГРУЗИТЬ ИЗ EXCEL</button>
+        </div>
+        <input type="file" id="file-ravt-act" accept=".xlsx" style="display:none" onchange="parseRavtActFile(this)">
+        <div id="ravt-act-status" style="margin-top:8px;font-size:12px;color:var(--muted);"></div>
       </div>
     `;
 
@@ -1041,6 +1046,156 @@
       if (error) throw error;
       closeModal();
       toast('Акт сохранён', 'ok');
+      renderRavt();
+    } catch (e) {
+      console.error(e);
+      toast('Ошибка: '+(e.message||e), 'err');
+    }
+  }
+
+  // === Парсер выгрузки «Взаиморасчёты с РАВТ» ===
+  // Excel из 1С с журналом операций (Приходные/Расходные накладные).
+  // Строка 2 (индекс 1) — итог по «Основному договору»: A=название, W(22)=Приход, AA(26)=Расход, AE(30)=Долг клиента.
+  //   "Долг клиента" положительный = РАВТ нам должен (мы отгрузили больше чем получили оплат)
+  //   "Долг клиента" отрицательный = мы должны РАВТу
+  async function parseRavtActFile(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const status = document.getElementById('ravt-act-status');
+    status.style.color = 'var(--orange)';
+    status.textContent = '⏳ Читаю файл...';
+
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+
+      // Строка 2 (индекс 1) — итог по «Основному договору»
+      let totalIn = 0, totalOut = 0, totalDebt = 0;
+      if (rows.length > 1) {
+        const r1 = rows[1] || [];
+        if (String(r1[0] || '').toLowerCase().includes('основной договор')) {
+          totalIn = parseFloat(r1[22]) || 0;
+          totalOut = parseFloat(r1[26]) || 0;
+          totalDebt = parseFloat(r1[30]) || 0;
+        }
+      }
+
+      // Сканируем по всем строкам — собираем диапазон дат и «Долги по заказам»
+      let minDate = null, maxDate = null;
+      let ordersDebt = 0;
+      const dateRe = /(\d{2})\.(\d{2})\.(\d{4})/;
+      for (let i = 2; i < rows.length; i++) {
+        const r = rows[i] || [];
+        const a = String(r[0] || '');
+        const m = a.match(dateRe);
+        if (m) {
+          const iso = `${m[3]}-${m[2]}-${m[1]}`;
+          if (!minDate || iso < minDate) minDate = iso;
+          if (!maxDate || iso > maxDate) maxDate = iso;
+        }
+        if (a.toLowerCase().includes('долги нам по регистру')) {
+          ordersDebt = parseFloat(r[30]) || 0;
+        }
+      }
+
+      if (totalDebt === 0 && totalIn === 0 && totalOut === 0) {
+        throw new Error('Не нашёл сводку «Основной договор» в строке 2. Это правильный файл выгрузки?');
+      }
+
+      const period = maxDate ? maxDate.substring(0, 7) : new Date().toISOString().substring(0,7);
+      const settlement_date = maxDate || new Date().toISOString().substring(0,10);
+
+      openRavtImportConfirm({
+        totalIn, totalOut, totalDebt, ordersDebt,
+        minDate, maxDate, settlement_date, period,
+        fileName: file.name,
+      });
+
+      status.textContent = `✓ Файл прочитан · сводка: ${totalDebt >= 0 ? 'РАВТ должен' : 'мы должны'} ${Math.abs(Math.round(totalDebt)).toLocaleString('ru-RU')} ₽ за ${minDate} — ${maxDate}`;
+      status.style.color = 'var(--ok)';
+    } catch (e) {
+      console.error('parseRavtActFile error:', e);
+      status.style.color = 'var(--red)';
+      status.textContent = `❌ Ошибка: ${e.message || e}`;
+    } finally {
+      input.value = '';
+    }
+  }
+
+  function openRavtImportConfirm(data) {
+    const fmRu = n => Math.round(+n || 0).toLocaleString('ru-RU');
+    const defaultRavtOwes = data.totalDebt > 0 ? data.totalDebt : 0;
+    const defaultWeOwe = data.totalDebt < 0 ? -data.totalDebt : 0;
+    document.getElementById('modal-title').textContent = '📎 Импорт выгрузки взаиморасчётов';
+    document.getElementById('modal-body').innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:11px;font-size:12px;">
+        <div style="background:#141414;border-radius:8px;padding:10px;color:var(--muted);line-height:1.6;">
+          📊 <b style="color:var(--text);">Из файла:</b><br>
+          Период: <span style="color:var(--text);">${data.minDate} — ${data.maxDate}</span><br>
+          Приход (РАВТ нам платил): <span style="color:var(--ok);">${fmRu(data.totalIn)} ₽</span><br>
+          Расход (наша работа отгружена): <span style="color:var(--crit);">${fmRu(data.totalOut)} ₽</span><br>
+          Финальный долг клиента: <span style="color:${data.totalDebt >= 0 ? 'var(--ok)' : 'var(--crit)'};">${data.totalDebt >= 0 ? '+' : ''}${fmRu(data.totalDebt)} ₽</span>
+          <span style="font-size:10px;">${data.totalDebt >= 0 ? '(РАВТ нам должен)' : '(мы должны РАВТу)'}</span>
+          ${data.ordersDebt ? `<br>Долги по заказам: <span style="color:var(--text);">${fmRu(data.ordersDebt)} ₽</span>` : ''}
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--accent);font-weight:600;display:block;margin-bottom:4px;">🌍 Регион</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <label style="background:#141414;border:1px solid var(--border);border-radius:8px;padding:11px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;">
+              <input type="radio" name="ravt-imp-region" value="moscow" checked>🏢 Москва
+            </label>
+            <label style="background:#141414;border:1px solid var(--border);border-radius:8px;padding:11px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;">
+              <input type="radio" name="ravt-imp-region" value="izhevsk">🏭 Ижевск
+            </label>
+          </div>
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px;">Дата акта</label>
+          <input type="date" id="ravt-imp-date" value="${data.settlement_date}" style="width:100%;background:#141414;border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:8px;font-size:13px;outline:none;">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px;">Период</label>
+          <input type="month" id="ravt-imp-period" value="${data.period}" style="width:100%;background:#141414;border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:8px;font-size:13px;outline:none;">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div>
+            <label style="font-size:11px;color:var(--ok);font-weight:600;display:block;margin-bottom:4px;">РАВТ должен нам ₽</label>
+            <input type="number" id="ravt-imp-owes-us" value="${Math.round(defaultRavtOwes)}" style="width:100%;background:#141414;border:1px solid var(--border);color:var(--ok);padding:9px 12px;border-radius:8px;font-family:'Bebas Neue',sans-serif;font-size:16px;outline:none;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--crit);font-weight:600;display:block;margin-bottom:4px;">Мы должны РАВТу ₽</label>
+            <input type="number" id="ravt-imp-we-owe" value="${Math.round(defaultWeOwe)}" style="width:100%;background:#141414;border:1px solid var(--border);color:var(--crit);padding:9px 12px;border-radius:8px;font-family:'Bebas Neue',sans-serif;font-size:16px;outline:none;">
+          </div>
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px;">Заметка</label>
+          <input type="text" id="ravt-imp-notes" value="Импорт из выгрузки. Период ${data.minDate} — ${data.maxDate}. Приход ${fmRu(data.totalIn)}, Расход ${fmRu(data.totalOut)}." style="width:100%;background:#141414;border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:8px;font-size:12px;outline:none;">
+        </div>
+      </div>`;
+    document.getElementById('modal-foot').innerHTML = `
+      <button onclick="closeModal()" style="background:#141414;border:1px solid var(--border);color:var(--text);padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">Отмена</button>
+      <button onclick="saveRavtImport()" style="background:var(--accent);color:#000;border:none;padding:10px 18px;border-radius:8px;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1px;cursor:pointer;">СОХРАНИТЬ АКТ</button>
+    `;
+    document.getElementById('modal').classList.add('show');
+  }
+
+  async function saveRavtImport() {
+    const region = document.querySelector('input[name="ravt-imp-region"]:checked')?.value || 'moscow';
+    const settlement_date = document.getElementById('ravt-imp-date').value;
+    const period = document.getElementById('ravt-imp-period').value;
+    const ravt_owes_us = +document.getElementById('ravt-imp-owes-us').value || 0;
+    const we_owe_ravt = +document.getElementById('ravt-imp-we-owe').value || 0;
+    const notes = document.getElementById('ravt-imp-notes').value.trim() || null;
+    if (!settlement_date || !period) { toast('Укажи дату и период', 'err'); return; }
+    try {
+      const { error } = await sb.from('ravt_settlements').insert({
+        settlement_date, period, region, ravt_owes_us, we_owe_ravt, notes
+      });
+      if (error) throw error;
+      closeModal();
+      toast('Акт импортирован', 'ok');
       renderRavt();
     } catch (e) {
       console.error(e);
