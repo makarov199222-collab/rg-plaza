@@ -871,6 +871,46 @@
   function fs(n) { if (!n) return '0'; if (n>=1000000) return (n/1000000).toFixed(1).replace('.',',')+' М'; if (n>=1000) return Math.round(n/1000)+' К'; return String(n); }
   function pdate(iso) { const [y,m,d]=iso.split('-'); return `${d}.${m}`; }
 
+  // Раскрытие списка ЗН без направления (вызывается из блока на обзоре)
+  window.toggleMissingDirList = function(kind) {
+    const box = document.getElementById('missing-dir-list');
+    if (!box || !window._missingDirData) return;
+    if (box.dataset.kind === kind && box.style.display !== 'none') {
+      box.style.display = 'none';
+      box.dataset.kind = '';
+      return;
+    }
+    const d = window._missingDirData;
+    const rows = kind === 'orders' ? d.orders : d.cars;
+    const isOrders = kind === 'orders';
+    // сортировка: по убыванию суммы (важные сверху)
+    const sorted = [...rows].sort((a,b) => (+b.amount||0) - (+a.amount||0));
+    const rowsHtml = sorted.map(r => {
+      const point = d.pointNameById[r.point_id] || r.point_id;
+      const date = isOrders ? (r.date_shipped ? pdate(r.date_shipped) : '—') : (r.arrived_at ? pdate(r.arrived_at) : '—');
+      const client = isOrders ? (r.customer || '—') : (r.info || '—');
+      const amount = +r.amount || 0;
+      const debt = +r.debt || 0;
+      const debtBadge = debt > 0 ? ` <span style="color:var(--red);font-weight:600;">долг ${fm(debt)}</span>` : '';
+      return `<div style="padding:8px 10px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;">
+        <div style="font-family:monospace;color:var(--accent);min-width:90px;">${r.zn_number || '—'}</div>
+        <div style="color:var(--muted);min-width:50px;">${date}</div>
+        <div style="color:var(--muted);min-width:90px;">${point}</div>
+        <div style="flex:1;min-width:200px;">${client}</div>
+        <div style="text-align:right;font-weight:600;">${fm(amount)} ₽${debtBadge}</div>
+      </div>`;
+    }).join('');
+    box.innerHTML = `
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+        <div style="padding:8px 12px;background:var(--surface2);font-family:'Bebas Neue',sans-serif;font-size:12px;letter-spacing:1.4px;color:var(--orange);">
+          ${isOrders ? 'ЗАКРЫТЫЕ ЗН БЕЗ НАПРАВЛЕНИЯ' : 'В РАБОТЕ БЕЗ НАПРАВЛЕНИЯ'} · ${sorted.length} шт
+        </div>
+        <div style="max-height:400px;overflow-y:auto;">${rowsHtml}</div>
+      </div>`;
+    box.style.display = 'block';
+    box.dataset.kind = kind;
+  };
+
   // Рабочие дни в месяце с учётом графика
   function workDaysInMonth(year, month1, work_days) {
     const wd = work_days || 7;
@@ -1343,24 +1383,30 @@
       const sumOrders = missingOrders.reduce((s,o) => s + (+o.amount || 0), 0);
       const sumCars   = missingCars.reduce((s,c) => s + (+c.amount || 0), 0);
       const sumTotal  = sumOrders + sumCars;
+      // Карта точек: id → name
+      const pointNameById = {};
+      (data.allPoints || data.points).forEach(p => pointNameById[p.id] = p.name || p.id);
+      // Сохраняем данные глобально для последующего рендера деталей
+      window._missingDirData = { orders: missingOrders, cars: missingCars, pointNameById };
       html += `
       <div class="ravt-block" style="border:1px solid var(--orange);">
         <div class="ravt-head">
           <div class="ravt-title" style="color:var(--orange);">⚠ ЗН без направления</div>
-          <div class="ravt-norm">страх-ЗН без указанного «Направление на ремонт» — проверить в 1С</div>
+          <div class="ravt-norm">страх-ЗН без указанного «Направление на ремонт» — кликни карту, чтобы увидеть список</div>
         </div>
         <div class="ravt-grid" style="grid-template-columns: repeat(2, 1fr);">
-          <div class="ravt-card o">
-            <div class="ravt-card-title">📤 Закрытые ЗН</div>
+          <div class="ravt-card o" style="cursor:pointer;" onclick="toggleMissingDirList('orders')">
+            <div class="ravt-card-title">📤 Закрытые ЗН ▾</div>
             <div class="ravt-card-val">${fm(sumOrders)} ₽</div>
             <div class="ravt-card-sub">${missingOrders.length} шт · отгружены без направления</div>
           </div>
-          <div class="ravt-card o">
-            <div class="ravt-card-title">🛠 В работе</div>
+          <div class="ravt-card o" style="cursor:pointer;" onclick="toggleMissingDirList('cars')">
+            <div class="ravt-card-title">🛠 В работе ▾</div>
             <div class="ravt-card-val">${fm(sumCars)} ₽</div>
             <div class="ravt-card-sub">${missingCars.length} шт · открытые</div>
           </div>
         </div>
+        <div id="missing-dir-list" style="margin-top:10px;display:none;"></div>
         <div class="ravt-total">
           <div class="ravt-total-label">Всего к проверке</div>
           <div class="ravt-total-val">${missingCount} ЗН · ${fm(sumTotal)} ₽</div>
