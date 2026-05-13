@@ -892,11 +892,20 @@
       const amount = +r.amount || 0;
       const debt = +r.debt || 0;
       const debtBadge = debt > 0 ? ` <span style="color:var(--red);font-weight:600;">долг ${fm(debt)}</span>` : '';
+      const flagLabel = {
+        dir: '🔢 нет направления',
+        payer: '💰 нет плательщика',
+        payer_eq_customer: '💰 плательщик = заказчик',
+        sk: '🏢 нет СК',
+      };
+      const flagsHtml = (r._flags || []).map(f =>
+        `<span style="display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;background:#3d2e0f;color:var(--orange);margin-right:4px;">${flagLabel[f] || f}</span>`
+      ).join('');
       return `<div style="padding:8px 10px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;">
         <div style="font-family:monospace;color:var(--accent);min-width:90px;">${r.zn_number || '—'}</div>
         <div style="color:var(--muted);min-width:50px;">${date}</div>
         <div style="color:var(--muted);min-width:90px;">${point}</div>
-        <div style="flex:1;min-width:200px;">${client}</div>
+        <div style="flex:1;min-width:200px;">${client}${flagsHtml ? '<div style="margin-top:4px;">'+flagsHtml+'</div>' : ''}</div>
         <div style="text-align:right;font-weight:600;">${fm(amount)} ₽${debtBadge}</div>
       </div>`;
     }).join('');
@@ -970,10 +979,10 @@
         safe(sb.from('point_pnl').select('*').or(`period.eq.${period},period.eq.${range.year}-YTD`)),
         // Долги РАВТ: только equity-ЗН с долгом (закрытые)
         safe(sb.from('orders_history_1c').select('point_id, debt, registry_date, registry_label, category').eq('category', 'equity').gt('debt', 0)),
-        // Брак заполнения: equity/ins-ЗН без direction_number (менеджер забыл проставить)
-        safe(sb.from('orders_history_1c').select('zn_number, point_id, amount, debt, customer, date_shipped, category').in('category', ['equity','ins']).is('direction_number', null).gte('date_shipped', yearStart)),
-        // То же по машинам в работе (открытые страх-ЗН без направления)
-        safe(sb.from('cars_in_work').select('zn_number, point_id, amount, debt, info, arrived_at').eq('source_1c', true).eq('service_type', 'страх').is('direction_number', null)),
+        // Брак заполнения: equity-ЗН с любой из 3 ошибок (без направления / без СК / плательщик=заказчик)
+        safe(sb.from('orders_history_1c').select('zn_number, point_id, amount, debt, customer, payer, insurance_company, date_shipped, direction_number, category').eq('category', 'equity').gte('date_shipped', yearStart)),
+        // То же по машинам в работе (открытые страх-ЗН)
+        safe(sb.from('cars_in_work').select('zn_number, point_id, amount, debt, info, arrived_at, direction_number, insurance_company').eq('source_1c', true).eq('service_type', 'страх')),
       ]);
       if (pointsRes.error) throw pointsRes.error;
       if (reportsRes.error) throw reportsRes.error;
@@ -1374,31 +1383,54 @@
       </div>`;
     }
 
-    // === Блок «ЗН без направления» (брак заполнения менеджером) ===
+    // === Блок «Страховые ЗН с ошибками заполнения» ===
+    // У страхового ЗН (equity) должны быть заполнены 3 поля:
+    //   • Направление на ремонт (direction_number)
+    //   • Плательщик ≠ Заказчик (платит СК, не клиент)
+    //   • Наименование СК (insurance_company)
+    // Любая из 3 проблем → подсвечиваем.
     const visiblePointIdsForDir = new Set(data.points.map(p => p.id));
-    const missingOrders = (data.missingDirOrders || []).filter(o => visiblePointIdsForDir.has(o.point_id));
-    const missingCars   = (data.missingDirCars   || []).filter(c => visiblePointIdsForDir.has(c.point_id));
-    const missingCount  = missingOrders.length + missingCars.length;
+    const flagOrder = o => {
+      const f = [];
+      if (!o.direction_number) f.push('dir');
+      if (!o.payer) f.push('payer');
+      else if (o.customer && o.payer.trim().toLowerCase() === o.customer.trim().toLowerCase()) f.push('payer_eq_customer');
+      if (!o.insurance_company) f.push('sk');
+      return f;
+    };
+    const flagCar = c => {
+      const f = [];
+      if (!c.direction_number) f.push('dir');
+      if (!c.insurance_company) f.push('sk');
+      return f;
+    };
+    const missingOrders = (data.missingDirOrders || [])
+      .filter(o => visiblePointIdsForDir.has(o.point_id))
+      .map(o => ({...o, _flags: flagOrder(o)}))
+      .filter(o => o._flags.length > 0);
+    const missingCars = (data.missingDirCars || [])
+      .filter(c => visiblePointIdsForDir.has(c.point_id))
+      .map(c => ({...c, _flags: flagCar(c)}))
+      .filter(c => c._flags.length > 0);
+    const missingCount = missingOrders.length + missingCars.length;
     if (missingCount > 0) {
       const sumOrders = missingOrders.reduce((s,o) => s + (+o.amount || 0), 0);
       const sumCars   = missingCars.reduce((s,c) => s + (+c.amount || 0), 0);
       const sumTotal  = sumOrders + sumCars;
-      // Карта точек: id → name
       const pointNameById = {};
       (data.allPoints || data.points).forEach(p => pointNameById[p.id] = p.name || p.id);
-      // Сохраняем данные глобально для последующего рендера деталей
       window._missingDirData = { orders: missingOrders, cars: missingCars, pointNameById };
       html += `
       <div class="ravt-block" style="border:1px solid var(--orange);">
         <div class="ravt-head">
-          <div class="ravt-title" style="color:var(--orange);">⚠ ЗН без направления</div>
-          <div class="ravt-norm">страх-ЗН без указанного «Направление на ремонт» — кликни карту, чтобы увидеть список</div>
+          <div class="ravt-title" style="color:var(--orange);">⚠ Страховые ЗН с ошибками</div>
+          <div class="ravt-norm">проверить в 1С: направление, плательщик ≠ заказчик, наименование СК</div>
         </div>
         <div class="ravt-grid" style="grid-template-columns: repeat(2, 1fr);">
           <div class="ravt-card o" style="cursor:pointer;" onclick="toggleMissingDirList('orders')">
             <div class="ravt-card-title">📤 Закрытые ЗН ▾</div>
             <div class="ravt-card-val">${fm(sumOrders)} ₽</div>
-            <div class="ravt-card-sub">${missingOrders.length} шт · отгружены без направления</div>
+            <div class="ravt-card-sub">${missingOrders.length} шт · отгружены с ошибками</div>
           </div>
           <div class="ravt-card o" style="cursor:pointer;" onclick="toggleMissingDirList('cars')">
             <div class="ravt-card-title">🛠 В работе ▾</div>
