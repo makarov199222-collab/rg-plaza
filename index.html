@@ -3350,8 +3350,7 @@
           document.getElementById('dret').value = data.retail_day || '';
           document.getElementById('dphy').value = data.phys_day || '';
           document.getElementById('dcop').value = data.corp_day || '';
-        }
-        const ddEl = document.getElementById('ddet');
+        }        const ddEl = document.getElementById('ddet');
         if (ddEl) ddEl.value = data.detail_day || '';
         document.getElementById('debt_total').value = data.debt_total || '';
         document.getElementById('debt_retail').value = data.debt_retail || '';
@@ -3375,6 +3374,8 @@
       await updateBookings1cHint(date);
       // Подсказка по дебиторке из 1С
       await updateDebt1cHint(date);
+      // Пересчитываем прогресс по плану по только что подставленным значениям (из БД или из 1С)
+      updatePlanProgress();
       setSync('ok');
     } catch (e) { console.error(e); setSync('offline'); toast('Ошибка загрузки дня', 'err'); }
   }
