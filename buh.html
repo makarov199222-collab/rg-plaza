@@ -865,6 +865,29 @@
 
     await loadRavtSettlements();
 
+    // Загружаем сводку из журнала операций РАВТ (по последнему импорту)
+    let journalSummary = [];
+    try {
+      const { data: js } = await sb.from('ravt_journal_summary').select('*');
+      journalSummary = js || [];
+    } catch (e) { console.error('journal_summary error:', e); }
+    const journalByRegion = {};
+    journalSummary.forEach(s => { journalByRegion[s.region] = s; });
+
+    // Долги по нашему учёту: equity-ЗН с debt>0 (закрытые), по точкам→регионам
+    const ourRavtDebt = { moscow: 0, izhevsk: 0 };
+    try {
+      const { data: oh } = await sb.from('orders_history_1c')
+        .select('point_id, debt')
+        .eq('category', 'equity')
+        .gt('debt', 0);
+      const regionMap2 = { kaluga: 'moscow', serpuhov: 'moscow', sovhoz: 'izhevsk', poyma: 'izhevsk' };
+      (oh || []).forEach(r => {
+        const reg = regionMap2[r.point_id];
+        if (reg) ourRavtDebt[reg] += +r.debt || 0;
+      });
+    } catch (e) { console.error('ourRavtDebt error:', e); }
+
     // Текущие долги РАВТу из daily_reports — по регионам
     const oweByRegion = { moscow: 0, izhevsk: 0 };
     try {
@@ -945,6 +968,55 @@
         <div id="ravt-act-status" style="margin-top:8px;font-size:12px;color:var(--muted);"></div>
       </div>
     `;
+
+    // === Блок сверки с журналом операций РАВТ ===
+    // Показывает: наш учёт (closed equity ЗН) vs выгрузка из 1С
+    const hasJournal = journalSummary.length > 0;
+    if (hasJournal || ourRavtDebt.moscow > 0 || ourRavtDebt.izhevsk > 0) {
+      const renderRecon = (regionKey, regionName, regionIcon) => {
+        const ours = ourRavtDebt[regionKey] || 0;
+        const j = journalByRegion[regionKey];
+        const fromJournal = j ? (+j.final_balance || 0) : null;
+        const hasJ = j != null;
+        const diff = hasJ ? (ours - fromJournal) : null;
+        const lastImp = hasJ ? new Date(j.last_imported) : null;
+        const imp = lastImp ? lastImp.toISOString().substring(0,10) : null;
+        const period = hasJ ? `${j.period_from} — ${j.period_to}` : null;
+        return `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;">
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;color:var(--accent);letter-spacing:1.5px;margin-bottom:10px;">${regionIcon} ${regionName}</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+              <div style="background:#141414;border-left:3px solid var(--ok);border-radius:7px;padding:9px 11px;">
+                <div style="font-size:8px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:3px;">Наш учёт</div>
+                <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--ok);">${fm(ours)} ₽</div>
+                <div style="font-size:9px;color:var(--muted);">закрытые equity-ЗН с долгом</div>
+              </div>
+              <div style="background:#141414;border-left:3px solid var(--accent);border-radius:7px;padding:9px 11px;">
+                <div style="font-size:8px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:3px;">По журналу 1С</div>
+                <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--accent);">${hasJ ? fm(fromJournal) : '—'} ₽</div>
+                <div style="font-size:9px;color:var(--muted);">${hasJ ? `${j.ops_count} опер · ${period}` : 'выгрузка не загружена'}</div>
+              </div>
+              <div style="background:#141414;border-left:3px solid ${hasJ ? (Math.abs(diff) < 1000 ? 'var(--ok)' : 'var(--warn)') : 'var(--border)'};border-radius:7px;padding:9px 11px;">
+                <div style="font-size:8px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:3px;">Расхождение</div>
+                <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:${hasJ ? (Math.abs(diff) < 1000 ? 'var(--ok)' : 'var(--warn)') : 'var(--muted)'};">${hasJ ? (diff >= 0 ? '+' : '') + fm(diff) : '—'} ₽</div>
+                <div style="font-size:9px;color:var(--muted);">${hasJ ? (Math.abs(diff) < 1000 ? '✓ сходится' : (diff > 0 ? 'у нас больше' : 'в 1С больше')) : ''}</div>
+              </div>
+            </div>
+            ${hasJ ? `<div style="font-size:10px;color:var(--muted);margin-top:7px;">Журнал импортирован ${imp}</div>` : ''}
+          </div>`;
+      };
+      html += `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px;">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--accent);letter-spacing:1.5px;margin-bottom:8px;">🔍 СВЕРКА: НАШИ ДОЛГИ ВS ВЫГРУЗКА РАВТ</div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:12px;">
+          «Наш учёт» — сумма долгов по закрытым equity-ЗН в наших данных. «По журналу 1С» — последняя строка «Долг клиента» из загруженной выгрузки. В идеале сходится с точностью до тысячи.
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          ${renderRecon('moscow', 'МОСКВА', '🏢')}
+          ${renderRecon('izhevsk', 'ИЖЕВСК', '🏭')}
+        </div>
+      </div>`;
+    }
 
     // История актов
     if (ravtSettlements.length > 0) {
@@ -1053,11 +1125,10 @@
     }
   }
 
-  // === Парсер выгрузки «Взаиморасчёты с РАВТ» ===
-  // Excel из 1С с журналом операций (Приходные/Расходные накладные).
-  // Строка 2 (индекс 1) — итог по «Основному договору»: A=название, W(22)=Приход, AA(26)=Расход, AE(30)=Долг клиента.
-  //   "Долг клиента" положительный = РАВТ нам должен (мы отгрузили больше чем получили оплат)
-  //   "Долг клиента" отрицательный = мы должны РАВТу
+  // === Парсер выгрузки «Взаиморасчёты с РАВТ» (журнал операций) ===
+  // Каждая строка файла → запись в ravt_journal (operations log).
+  // Дашборд потом сверяет «по выгрузке» vs «по нашему учёту равт-долгов».
+  // Это НЕ акт — это сверочный документ.
   async function parseRavtActFile(input) {
     const file = input.files[0];
     if (!file) return;
@@ -1071,49 +1142,82 @@
       const sheet = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
 
-      // Строка 2 (индекс 1) — итог по «Основному договору»
-      let totalIn = 0, totalOut = 0, totalDebt = 0;
-      if (rows.length > 1) {
-        const r1 = rows[1] || [];
-        if (String(r1[0] || '').toLowerCase().includes('основной договор')) {
-          totalIn = parseFloat(r1[22]) || 0;
-          totalOut = parseFloat(r1[26]) || 0;
-          totalDebt = parseFloat(r1[30]) || 0;
-        }
-      }
-
-      // Сканируем по всем строкам — собираем диапазон дат и «Долги по заказам»
-      let minDate = null, maxDate = null;
-      let ordersDebt = 0;
+      // Парсинг каждой строки: ищем "Тип документа N от DD.MM.YYYY ..."
+      const opRe = /^(Приходная накладная|Расходная накладная|Приход денег|Расход денег)\s+(\S+)\s+от\s+(\d{2})\.(\d{2})\.(\d{4})/i;
       const dateRe = /(\d{2})\.(\d{2})\.(\d{4})/;
-      for (let i = 2; i < rows.length; i++) {
+      const znRe = /Заказ\s*наряд\s+(\d+)/i;
+      const TYPE_MAP = {
+        'приходная накладная': 'income_inv',
+        'расходная накладная': 'expense_inv',
+        'приход денег': 'income_cash',
+        'расход денег': 'expense_cash',
+      };
+
+      const operations = [];
+      let totalDebt = 0, ordersDebt = 0;
+      let minDate = null, maxDate = null;
+
+      for (let i = 0; i < rows.length; i++) {
         const r = rows[i] || [];
-        const a = String(r[0] || '');
-        const m = a.match(dateRe);
-        if (m) {
-          const iso = `${m[3]}-${m[2]}-${m[1]}`;
-          if (!minDate || iso < minDate) minDate = iso;
-          if (!maxDate || iso > maxDate) maxDate = iso;
+        const a = String(r[0] || '').trim();
+        if (!a) continue;
+
+        // Итог по основному договору (для отладки)
+        if (a.toLowerCase() === 'основной договор' && i < 5) {
+          totalDebt = parseFloat(r[30]) || 0;
+          continue;
         }
+        // Долги по заказам в конце файла
         if (a.toLowerCase().includes('долги нам по регистру')) {
           ordersDebt = parseFloat(r[30]) || 0;
+          continue;
         }
+
+        // Распознаём строку операции
+        const m = a.match(opRe);
+        if (!m) continue;
+
+        const docType = TYPE_MAP[m[1].toLowerCase()] || 'other';
+        const docNumber = m[2];
+        const docDate = `${m[5]}-${m[4]}-${m[3]}`;
+        const basis = r[12] ? String(r[12]).trim() : null;
+        const znMatch = basis && basis.match(znRe);
+        const znNumber = znMatch ? znMatch[1] : null;
+        const amountIn = parseFloat(r[22]) || null;
+        const amountOut = parseFloat(r[26]) || null;
+        const balance = parseFloat(r[30]) || null;
+
+        if (!minDate || docDate < minDate) minDate = docDate;
+        if (!maxDate || docDate > maxDate) maxDate = docDate;
+
+        operations.push({
+          op_type: docType,
+          doc_number: docNumber,
+          doc_date: docDate,
+          basis,
+          zn_number: znNumber,
+          amount_in: amountIn,
+          amount_out: amountOut,
+          balance_running: balance,
+          source_row: a.substring(0, 200),
+          source_file: file.name,
+        });
       }
 
-      if (totalDebt === 0 && totalIn === 0 && totalOut === 0) {
-        throw new Error('Не нашёл сводку «Основной договор» в строке 2. Это правильный файл выгрузки?');
+      if (operations.length === 0) {
+        throw new Error('В файле не найдено ни одной операции. Это правильный файл выгрузки?');
       }
 
-      const period = maxDate ? maxDate.substring(0, 7) : new Date().toISOString().substring(0,7);
-      const settlement_date = maxDate || new Date().toISOString().substring(0,10);
-
-      openRavtImportConfirm({
-        totalIn, totalOut, totalDebt, ordersDebt,
-        minDate, maxDate, settlement_date, period,
+      // Спрашиваем регион перед загрузкой
+      openRavtJournalConfirm({
+        operations,
+        opsCount: operations.length,
+        minDate, maxDate,
+        totalDebt, ordersDebt,
         fileName: file.name,
       });
 
-      status.textContent = `✓ Файл прочитан · сводка: ${totalDebt >= 0 ? 'РАВТ должен' : 'мы должны'} ${Math.abs(Math.round(totalDebt)).toLocaleString('ru-RU')} ₽ за ${minDate} — ${maxDate}`;
+      status.textContent = `✓ Файл прочитан · ${operations.length} операций за ${minDate} — ${maxDate}`;
       status.style.color = 'var(--ok)';
     } catch (e) {
       console.error('parseRavtActFile error:', e);
@@ -1124,81 +1228,74 @@
     }
   }
 
-  function openRavtImportConfirm(data) {
+  function openRavtJournalConfirm(data) {
     const fmRu = n => Math.round(+n || 0).toLocaleString('ru-RU');
-    const defaultRavtOwes = data.totalDebt > 0 ? data.totalDebt : 0;
-    const defaultWeOwe = data.totalDebt < 0 ? -data.totalDebt : 0;
-    document.getElementById('modal-title').textContent = '📎 Импорт выгрузки взаиморасчётов';
+    document.getElementById('modal-title').textContent = '📎 Импорт журнала операций РАВТ';
     document.getElementById('modal-body').innerHTML = `
       <div style="display:flex;flex-direction:column;gap:11px;font-size:12px;">
         <div style="background:#141414;border-radius:8px;padding:10px;color:var(--muted);line-height:1.6;">
-          📊 <b style="color:var(--text);">Из файла:</b><br>
+          📊 <b style="color:var(--text);">Из файла «${data.fileName}»:</b><br>
+          Операций: <span style="color:var(--text);">${data.opsCount}</span><br>
           Период: <span style="color:var(--text);">${data.minDate} — ${data.maxDate}</span><br>
-          Приход (РАВТ нам платил): <span style="color:var(--ok);">${fmRu(data.totalIn)} ₽</span><br>
-          Расход (наша работа отгружена): <span style="color:var(--crit);">${fmRu(data.totalOut)} ₽</span><br>
-          Финальный долг клиента: <span style="color:${data.totalDebt >= 0 ? 'var(--ok)' : 'var(--crit)'};">${data.totalDebt >= 0 ? '+' : ''}${fmRu(data.totalDebt)} ₽</span>
-          <span style="font-size:10px;">${data.totalDebt >= 0 ? '(РАВТ нам должен)' : '(мы должны РАВТу)'}</span>
+          Финальный долг клиента (из выгрузки): <span style="color:${data.totalDebt >= 0 ? 'var(--ok)' : 'var(--crit)'};">${data.totalDebt >= 0 ? '+' : ''}${fmRu(data.totalDebt)} ₽</span>
           ${data.ordersDebt ? `<br>Долги по заказам: <span style="color:var(--text);">${fmRu(data.ordersDebt)} ₽</span>` : ''}
         </div>
+        <div style="background:#141414;border-radius:8px;padding:10px;color:var(--muted);line-height:1.5;font-size:11px;">
+          ℹ Журнал операций <b style="color:var(--text);">не подменяет</b> наши данные по долгам.
+          Используется для <b style="color:var(--text);">сверки</b>: дашборд покажет расхождение
+          между «РАВТ должен по нашим закрытым ЗН» и «РАВТ должен по этой выгрузке».
+        </div>
         <div>
-          <label style="font-size:11px;color:var(--accent);font-weight:600;display:block;margin-bottom:4px;">🌍 Регион</label>
+          <label style="font-size:11px;color:var(--accent);font-weight:600;display:block;margin-bottom:4px;">🌍 Регион (для какой группы точек этот журнал)</label>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
             <label style="background:#141414;border:1px solid var(--border);border-radius:8px;padding:11px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;">
-              <input type="radio" name="ravt-imp-region" value="moscow" checked>🏢 Москва
+              <input type="radio" name="ravt-jrn-region" value="moscow" checked>🏢 Москва
             </label>
             <label style="background:#141414;border:1px solid var(--border);border-radius:8px;padding:11px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;">
-              <input type="radio" name="ravt-imp-region" value="izhevsk">🏭 Ижевск
+              <input type="radio" name="ravt-jrn-region" value="izhevsk">🏭 Ижевск
             </label>
           </div>
         </div>
-        <div>
-          <label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px;">Дата акта</label>
-          <input type="date" id="ravt-imp-date" value="${data.settlement_date}" style="width:100%;background:#141414;border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:8px;font-size:13px;outline:none;">
-        </div>
-        <div>
-          <label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px;">Период</label>
-          <input type="month" id="ravt-imp-period" value="${data.period}" style="width:100%;background:#141414;border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:8px;font-size:13px;outline:none;">
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-          <div>
-            <label style="font-size:11px;color:var(--ok);font-weight:600;display:block;margin-bottom:4px;">РАВТ должен нам ₽</label>
-            <input type="number" id="ravt-imp-owes-us" value="${Math.round(defaultRavtOwes)}" style="width:100%;background:#141414;border:1px solid var(--border);color:var(--ok);padding:9px 12px;border-radius:8px;font-family:'Bebas Neue',sans-serif;font-size:16px;outline:none;">
-          </div>
-          <div>
-            <label style="font-size:11px;color:var(--crit);font-weight:600;display:block;margin-bottom:4px;">Мы должны РАВТу ₽</label>
-            <input type="number" id="ravt-imp-we-owe" value="${Math.round(defaultWeOwe)}" style="width:100%;background:#141414;border:1px solid var(--border);color:var(--crit);padding:9px 12px;border-radius:8px;font-family:'Bebas Neue',sans-serif;font-size:16px;outline:none;">
-          </div>
-        </div>
-        <div>
-          <label style="font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px;">Заметка</label>
-          <input type="text" id="ravt-imp-notes" value="Импорт из выгрузки. Период ${data.minDate} — ${data.maxDate}. Приход ${fmRu(data.totalIn)}, Расход ${fmRu(data.totalOut)}." style="width:100%;background:#141414;border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:8px;font-size:12px;outline:none;">
+        <div style="background:#1a1408;border:1px solid var(--warn);border-radius:8px;padding:10px;color:#d4a35c;line-height:1.5;font-size:11px;">
+          ⚠ При импорте старые операции этого региона будут <b>заменены</b> на новые (журнал перезаписывается полностью свежей выгрузкой).
         </div>
       </div>`;
     document.getElementById('modal-foot').innerHTML = `
       <button onclick="closeModal()" style="background:#141414;border:1px solid var(--border);color:var(--text);padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">Отмена</button>
-      <button onclick="saveRavtImport()" style="background:var(--accent);color:#000;border:none;padding:10px 18px;border-radius:8px;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1px;cursor:pointer;">СОХРАНИТЬ АКТ</button>
+      <button onclick='saveRavtJournal(${JSON.stringify(data.operations).replace(/'/g, "\\'")})' style="background:var(--accent);color:#000;border:none;padding:10px 18px;border-radius:8px;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1px;cursor:pointer;">ИМПОРТИРОВАТЬ</button>
     `;
     document.getElementById('modal').classList.add('show');
   }
 
-  async function saveRavtImport() {
-    const region = document.querySelector('input[name="ravt-imp-region"]:checked')?.value || 'moscow';
-    const settlement_date = document.getElementById('ravt-imp-date').value;
-    const period = document.getElementById('ravt-imp-period').value;
-    const ravt_owes_us = +document.getElementById('ravt-imp-owes-us').value || 0;
-    const we_owe_ravt = +document.getElementById('ravt-imp-we-owe').value || 0;
-    const notes = document.getElementById('ravt-imp-notes').value.trim() || null;
-    if (!settlement_date || !period) { toast('Укажи дату и период', 'err'); return; }
+  async function saveRavtJournal(operations) {
+    const region = document.querySelector('input[name="ravt-jrn-region"]:checked')?.value || 'moscow';
+    const status = document.getElementById('ravt-act-status');
+    status.style.color = 'var(--orange)';
+    status.textContent = '⏳ Сохраняю...';
     try {
-      const { error } = await sb.from('ravt_settlements').insert({
-        settlement_date, period, region, ravt_owes_us, we_owe_ravt, notes
-      });
-      if (error) throw error;
+      // Удаляем старые операции этого региона
+      const { error: delErr } = await sb.from('ravt_journal').delete().eq('region', region);
+      if (delErr) throw delErr;
+      // Грузим новые батчами
+      const BATCH = 200;
+      const withRegion = operations.map(o => ({...o, region}));
+      let imported = 0;
+      for (let i = 0; i < withRegion.length; i += BATCH) {
+        const chunk = withRegion.slice(i, i + BATCH);
+        const { error } = await sb.from('ravt_journal').insert(chunk);
+        if (error) throw error;
+        imported += chunk.length;
+        status.textContent = `⏳ ${imported}/${withRegion.length}...`;
+      }
       closeModal();
-      toast('Акт импортирован', 'ok');
+      status.style.color = 'var(--ok)';
+      status.textContent = `✅ Импортировано ${imported} операций по региону ${region === 'moscow' ? 'Москва' : 'Ижевск'}`;
+      toast('Журнал импортирован', 'ok');
       renderRavt();
     } catch (e) {
       console.error(e);
+      status.style.color = 'var(--red)';
+      status.textContent = `❌ Ошибка: ${e.message || e}`;
       toast('Ошибка: '+(e.message||e), 'err');
     }
   }
