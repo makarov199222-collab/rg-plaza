@@ -1071,11 +1071,29 @@
       if (!lastDebtsByPoint[r.point_id] || r.date > lastDebtsByPoint[r.point_id].date) lastDebtsByPoint[r.point_id] = r;
     });
     let totalDebt=0, totalOwe=0, totalOweRavt=0, totalOweOther=0;
+    // Долги клиентов (debt_*) — суммируются по точкам (это разные клиенты в каждой точке).
+    // Долги юрлица (owe_*) — НЕ суммируются между точками одного региона: юрлицо одно,
+    // менеджеры могли продублировать число. Берём МАКСИМУМ по региону.
+    const regionMap = { kaluga: 'moscow', serpuhov: 'moscow', sovhoz: 'izhevsk', poyma: 'izhevsk' };
+    const oweByRegion = { moscow: { total: 0, ravt: 0, other: 0, from: null }, izhevsk: { total: 0, ravt: 0, other: 0, from: null } };
     Object.values(lastDebtsByPoint).forEach(r => {
       totalDebt += +r.debt_total || 0;
-      totalOwe += +r.owe_total || 0;
-      totalOweRavt += +r.owe_ravt || 0;
-      totalOweOther += +r.owe_other || 0;
+      // По региону берём максимум каждого owe_* поля (защита от дублирования)
+      const reg = regionMap[r.point_id];
+      if (reg && oweByRegion[reg]) {
+        const oTotal = +r.owe_total || 0;
+        const oRavt = +r.owe_ravt || 0;
+        const oOther = +r.owe_other || 0;
+        if (oTotal > oweByRegion[reg].total) { oweByRegion[reg].total = oTotal; oweByRegion[reg].from = r; }
+        if (oRavt  > oweByRegion[reg].ravt)  { oweByRegion[reg].ravt  = oRavt; }
+        if (oOther > oweByRegion[reg].other) { oweByRegion[reg].other = oOther; }
+      }
+    });
+    // Сводим максимумы регионов в общие итоги
+    ['moscow','izhevsk'].forEach(reg => {
+      totalOwe      += oweByRegion[reg].total;
+      totalOweRavt  += oweByRegion[reg].ravt;
+      totalOweOther += oweByRegion[reg].other;
     });
 
     // === Долги по РАВТ (только закрытые orders_history_1c с category='equity') ===
