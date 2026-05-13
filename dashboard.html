@@ -918,7 +918,7 @@
         } catch (e) { console.warn('Soft error:', e.message); return { data: [] }; }
       };
 
-      const [pointsRes, reportsRes, plansRes, yearRes, fotRes, expRes, taxRes, dirsRes, pnlRes, ordersRes] = await Promise.all([
+      const [pointsRes, reportsRes, plansRes, yearRes, fotRes, expRes, taxRes, dirsRes, pnlRes, ordersRes, missingDirRes, missingDirCarsRes] = await Promise.all([
         sb.from('points').select('*').order('id'),
         sb.from('daily_reports_unified').select('*').gte('date', range.start).lte('date', range.end).order('date'),
         sb.from('plans').select('*'),
@@ -930,6 +930,10 @@
         safe(sb.from('point_pnl').select('*').or(`period.eq.${period},period.eq.${range.year}-YTD`)),
         // Долги РАВТ: только equity-ЗН с долгом (закрытые)
         safe(sb.from('orders_history_1c').select('point_id, debt, registry_date, registry_label, category').eq('category', 'equity').gt('debt', 0)),
+        // Брак заполнения: equity/ins-ЗН без direction_number (менеджер забыл проставить)
+        safe(sb.from('orders_history_1c').select('zn_number, point_id, amount, debt, customer, date_shipped, category').in('category', ['equity','ins']).is('direction_number', null).gte('date_shipped', yearStart)),
+        // То же по машинам в работе (открытые страх-ЗН без направления)
+        safe(sb.from('cars_in_work').select('zn_number, point_id, amount, debt, info, arrived_at').eq('source_1c', true).eq('service_type', 'страх').is('direction_number', null)),
       ]);
       if (pointsRes.error) throw pointsRes.error;
       if (reportsRes.error) throw reportsRes.error;
@@ -950,6 +954,8 @@
         directions: dirsRes.data || [],
         pnl: pnlRes.data || [],
         ravtOrders: ordersRes.data || [],
+        missingDirOrders: missingDirRes.data || [],
+        missingDirCars: missingDirCarsRes.data || [],
         range, period
       };
       renderOverview(cachedData);
@@ -1324,6 +1330,40 @@
         <div class="ravt-total">
           <div class="ravt-total-label">Итого ждём от РАВТ</div>
           <div class="ravt-total-val">${fm(ravtTotal)} ₽</div>
+        </div>
+      </div>`;
+    }
+
+    // === Блок «ЗН без направления» (брак заполнения менеджером) ===
+    const visiblePointIdsForDir = new Set(data.points.map(p => p.id));
+    const missingOrders = (data.missingDirOrders || []).filter(o => visiblePointIdsForDir.has(o.point_id));
+    const missingCars   = (data.missingDirCars   || []).filter(c => visiblePointIdsForDir.has(c.point_id));
+    const missingCount  = missingOrders.length + missingCars.length;
+    if (missingCount > 0) {
+      const sumOrders = missingOrders.reduce((s,o) => s + (+o.amount || 0), 0);
+      const sumCars   = missingCars.reduce((s,c) => s + (+c.amount || 0), 0);
+      const sumTotal  = sumOrders + sumCars;
+      html += `
+      <div class="ravt-block" style="border:1px solid var(--orange);">
+        <div class="ravt-head">
+          <div class="ravt-title" style="color:var(--orange);">⚠ ЗН без направления</div>
+          <div class="ravt-norm">страх-ЗН без указанного «Направление на ремонт» — проверить в 1С</div>
+        </div>
+        <div class="ravt-grid" style="grid-template-columns: repeat(2, 1fr);">
+          <div class="ravt-card o">
+            <div class="ravt-card-title">📤 Закрытые ЗН</div>
+            <div class="ravt-card-val">${fm(sumOrders)} ₽</div>
+            <div class="ravt-card-sub">${missingOrders.length} шт · отгружены без направления</div>
+          </div>
+          <div class="ravt-card o">
+            <div class="ravt-card-title">🛠 В работе</div>
+            <div class="ravt-card-val">${fm(sumCars)} ₽</div>
+            <div class="ravt-card-sub">${missingCars.length} шт · открытые</div>
+          </div>
+        </div>
+        <div class="ravt-total">
+          <div class="ravt-total-label">Всего к проверке</div>
+          <div class="ravt-total-val">${missingCount} ЗН · ${fm(sumTotal)} ₽</div>
         </div>
       </div>`;
     }
