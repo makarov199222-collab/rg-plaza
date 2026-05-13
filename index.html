@@ -2710,7 +2710,7 @@
     const days = Object.values(p.byDayPoint).sort((a,b) => a.date.localeCompare(b.date));
     const points = Array.from(new Set(p.closed.map(c => c.point_id).concat(p.inWork.map(c => c.point_id))));
 
-    const CAT_LABELS = { retail: 'Розничные', corp: 'Корп', equity: 'РАВТ-розница', ins: 'Страх' };
+    const CAT_LABELS = { retail: 'Розничные', corp: 'Корп', equity: 'Страховые', ins: 'СК напрямую' };
     const POINT_LBL = { kaluga: 'Калужская', serpuhov: 'Серпуховская', sovhoz: 'Совхозная', poyma: 'Пойма' };
 
     // Если точка отличается от currentPoint — предупреждение
