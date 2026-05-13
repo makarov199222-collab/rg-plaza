@@ -2505,7 +2505,16 @@
       if (rows.length < 2) throw new Error('Файл пустой или нет данных');
       // Первая строка — заголовки. Ищем колонки по их именам.
       const headers = (rows[0] || []).map(h => String(h || '').trim());
+      // Точное совпадение (после нормализации регистра)
       const find = (name) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
+      // Устойчивый поиск: убирает невидимые символы и пробелы, ищет подстроку.
+      // Используется как fallback когда find() не нашёл из-за невидимых символов в заголовке Excel.
+      const normalize = s => String(s || '').toLowerCase()
+        .replace(/[\s\u00A0\u202F\u2007\u200B]/g, '');  // все пробелы и невидимые
+      const findFuzzy = (substr) => {
+        const n = normalize(substr);
+        return headers.findIndex(h => normalize(h).includes(n));
+      };
       const cols = {
         type:       find('Тип'),
         date:       find('Дата'),
@@ -2532,10 +2541,27 @@
       // Резерв: альтернативные написания заголовка направления
       if (cols.direction === -1) cols.direction = find('Номер направления');
       if (cols.direction === -1) cols.direction = find('Направление');
+      // Если всё ещё не нашли — пытаемся по подстроке (на случай невидимых символов в заголовке)
+      if (cols.direction === -1) cols.direction = findFuzzy('направлениенаремонт');
+      if (cols.direction === -1) cols.direction = findFuzzy('направление');
       // Резерв: альтернативные написания «Вид Заказ-наряда»
       if (cols.sk === -1) cols.sk = find('Вид Заказа');
       if (cols.sk === -1) cols.sk = find('Вид ЗН');
       if (cols.sk === -1) cols.sk = find('Наименование СК');
+      // Fuzzy поиск (невидимые символы / дефисы / тире)
+      if (cols.sk === -1) cols.sk = findFuzzy('видзаказнаряда');
+      if (cols.sk === -1) cols.sk = findFuzzy('видзн');
+      if (cols.sk === -1) cols.sk = findFuzzy('наименованиеск');
+
+      // Диагностика: лог в консоль чтобы видеть какие заголовки нашлись
+      console.log('[Import 1C] Found columns:', {
+        type: cols.type >= 0 ? `${cols.type}: "${headers[cols.type]}"` : 'НЕ НАЙДЕНО',
+        payer: cols.payer >= 0 ? `${cols.payer}: "${headers[cols.payer]}"` : 'НЕ НАЙДЕНО',
+        direction: cols.direction >= 0 ? `${cols.direction}: "${headers[cols.direction]}"` : 'НЕ НАЙДЕНО',
+        sk: cols.sk >= 0 ? `${cols.sk}: "${headers[cols.sk]}"` : 'НЕ НАЙДЕНО',
+        registry: cols.registry >= 0 ? `${cols.registry}: "${headers[cols.registry]}"` : 'НЕ НАЙДЕНО',
+      });
+      console.log('[Import 1C] All headers:', headers.map((h,i) => `${i}: "${h}"`));
       // Резерв для написания «Задолжность» (опечатка в шаблоне 1С Фреш)
       if (cols.debt === -1) cols.debt = find('Задолжность');
       // Резерв: если "Статус ЗН расширенный" не найден — пробуем "Статус ЗН"
