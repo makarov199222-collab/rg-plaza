@@ -4095,12 +4095,30 @@
 
     let cars = '';
     let carsTotal = 0, carsCount = 0;
+    // Удаляет ФИО клиента из строки машины для Telegram-отчёта.
+    // Юриков (ООО/ИП/ПАО/АО или CAPSLOCK 3+ символов) оставляем как есть.
+    // Физлица: отрезаем подряд 2-3 кириллических слова с заглавной буквы в конце.
+    function stripClientName(s) {
+      if (!s) return s;
+      // Юрик: содержит маркер «ООО/ИП/ПАО/ОАО/ЗАО/АО/НКО/ЛЛС» как отдельное слово.
+      // \b не работает с кириллицей, поэтому проверяем границы вручную.
+      const orgRe = /(^|[\s.])(ООО|ИП|ПАО|ОАО|ЗАО|АО|НКО|ЛЛС)([\s.]|$)/;
+      if (orgRe.test(s.toUpperCase())) return s;
+      // Отрезаем ФИО (2-3 слова с заглавной буквы в конце).
+      // Поддерживаем Title Case (Иванов Иван Иванович) и CAPSLOCK (МОРДАНЬ ДАЯНА).
+      return s.replace(/\s+[А-ЯЁ][А-Яа-яёЁ]{2,}(?:\s+[А-ЯЁ][А-Яа-яёЁ]{2,}){1,3}\s*$/, '').trim();
+    }
     document.querySelectorAll('.car-row').forEach(row => {
       const txt = row.querySelector('input.car-inp').value.trim();
       const sumVal = +row.querySelector('.car-sum').value || 0;
       const t = row.querySelector('select').value;
       const lbl = t==='страх'?'[страх]':t==='корп'?'[корп]':'[розн]';
-      if (txt) { const sumPart = (showCarSums && sumVal > 0) ? ` — ${fm(sumVal)}р` : ''; cars += `\n${lbl} ${txt}${sumPart}`; if (sumVal > 0) { carsTotal += sumVal; carsCount++; } }
+      if (txt) {
+        const cleaned = stripClientName(txt);
+        const sumPart = (showCarSums && sumVal > 0) ? ` — ${fm(sumVal)}р` : '';
+        cars += `\n${lbl} ${cleaned}${sumPart}`;
+        if (sumVal > 0) { carsTotal += sumVal; carsCount++; }
+      }
     });
     if (showCarSums && carsCount > 0) cars += `\n———\nИтого по машинам: ${fm(carsTotal)}р (${carsCount} ЗН, ср. чек ${fm(Math.round(carsTotal/carsCount))}р)`;
 
