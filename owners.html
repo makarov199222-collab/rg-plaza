@@ -480,8 +480,10 @@
     };
     const useRetail = r => {
       const hasManual = (+r.total_day || 0) > 0 || (+r.retail_day || 0) > 0 || (+r.phys_day || 0) > 0 || (+r.corp_day || 0) > 0;
-      if (hasManual) return +r.retail_day || 0;
-      // Из 1С: retail = физик (retail_1c) + юрик-розница (corp_1c) считаем как «розница без страх»
+      // «Розница» по бизнес-логике = физик + корпоратив (общее «не страх»).
+      // В БД retail_day = только физик, поэтому добавляем corp_day.
+      if (hasManual) return (+r.retail_day || 0) + (+r.corp_day || 0);
+      // Из 1С: retail_1c (физик) + corp_1c (юрик-розница)
       return (+r.retail_1c || 0) + (+r.corp_1c || 0);
     };
     const usePhys = r => {
