@@ -715,11 +715,12 @@
         </div>
 
         <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;text-transform:uppercase;margin-bottom:6px;margin-top:14px;">Мы должны (₽)</div>
-        <div class="agrid" style="margin-bottom:10px;">
+        <div class="agrid" style="margin-bottom:6px;">
           <div class="ablock full"><div class="albl t">Общая</div><input class="ainp" type="number" id="owe_total" placeholder="0" oninput="autoCalcTriad('owe','total')"></div>
           <div class="ablock"><div class="albl" style="color:var(--orange)">РАВТ</div><input class="ainp" type="number" id="owe_ravt" placeholder="0" oninput="autoCalcTriad('owe','ravt')"></div>
           <div class="ablock"><div class="albl" style="color:var(--muted)">Остальные</div><input class="ainp" type="number" id="owe_other" placeholder="0" oninput="autoCalcTriad('owe','other')"></div>
         </div>
+        <div id="owe-region-hint" style="font-size:11px;color:#d4a35c;line-height:1.4;padding:7px 9px;background:#1f1808;border:1px solid #3d2e0f;border-radius:6px;margin-bottom:10px;display:none;"></div>
 
         <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;text-transform:uppercase;margin-bottom:6px;margin-top:14px;">Поток направлений</div>
         <div class="cblock" style="max-width:200px;margin:0 auto;">
@@ -3374,6 +3375,8 @@
       await updateBookings1cHint(date);
       // Подсказка по дебиторке из 1С
       await updateDebt1cHint(date);
+      // Подсказка «Мы должны» по региону (защита от двойного учёта одного и того же долга)
+      await updateOweRegionHint();
       // Пересчитываем прогресс по плану по только что подставленным значениям (из БД или из 1С)
       updatePlanProgress();
       setSync('ok');
@@ -3591,6 +3594,44 @@
     document.getElementById('debt_corp').value      = debt1cCache.corp || '';
     document.getElementById('debt_total').value     = debt1cCache.total || '';
     toast(`📋 Дебиторка взята из 1С: ${fm(debt1cCache.total)} ₽`, 'ok');
+  }
+
+  // === Подсказка «Мы должны» по региону ===
+  // Поле «Мы должны РАВТу» = долг ЮРЛИЦА (одно на регион Москва=Калужская+Серпуховская,
+  // Ижевск=Совхозная+Пойма). Если другая точка этого региона уже ввела значение —
+  // показываем менеджеру, чтобы он не дублировал.
+  async function updateOweRegionHint() {
+    const hint = document.getElementById('owe-region-hint');
+    if (!hint || !currentPoint) return;
+    const regionMap = { kaluga: 'moscow', serpuhov: 'moscow', sovhoz: 'izhevsk', poyma: 'izhevsk' };
+    const region = regionMap[currentPoint.id];
+    if (!region) { hint.style.display = 'none'; return; }
+    const sameRegionPoints = Object.entries(regionMap)
+      .filter(([pid, reg]) => reg === region && pid !== currentPoint.id)
+      .map(([pid]) => pid);
+    if (sameRegionPoints.length === 0) { hint.style.display = 'none'; return; }
+    try {
+      const { data } = await sb.from('daily_reports_unified')
+        .select('point_id, date, owe_total, owe_ravt, owe_other, points(name)')
+        .in('point_id', sameRegionPoints)
+        .gt('owe_total', 0)
+        .order('date', { ascending: false })
+        .limit(5);
+      if (!data || data.length === 0) { hint.style.display = 'none'; return; }
+      // Берём самый свежий
+      const latest = data[0];
+      const total = +latest.owe_total || 0;
+      const ravt = +latest.owe_ravt || 0;
+      const other = +latest.owe_other || 0;
+      const pointName = latest.points?.name || latest.point_id;
+      const dateRu = latest.date.substring(8,10)+'.'+latest.date.substring(5,7);
+      const fm = n => Math.round(+n||0).toLocaleString('ru-RU');
+      hint.innerHTML = `ℹ <b>На регионе ${region === 'moscow' ? 'Москва' : 'Ижевск'}</b> (юрлицо одно): ${pointName} ввела ${dateRu} → общая ${fm(total)} ₽ (РАВТ ${fm(ravt)} / прочие ${fm(other)}). Если у тебя те же цифры — не дублируй, оставь пустым. Если у тебя свои долги — введи их.`;
+      hint.style.display = 'block';
+    } catch (e) {
+      console.error('updateOweRegionHint error:', e);
+      hint.style.display = 'none';
+    }
   }
   window.applyDebt1c = applyDebt1c;
 
