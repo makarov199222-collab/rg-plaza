@@ -2113,8 +2113,199 @@
     const file = input.files[0];
     if (!file) return;
     const status = document.getElementById('status-'+type);
+    if (type === 'fot') {
+      parseSalaryFile(file, status);
+    } else {
+      status.style.color = 'var(--orange)';
+      status.textContent = '⏳ Файл получен: '+file.name+' · '+(file.size/1024).toFixed(1)+' KB. Парсер в разработке — отправьте файл в чат для импорта.';
+    }
+  }
+
+  // === Парсер «Начисление зарплаты» ===
+  // Excel-файл со множеством листов «январь 26», «февраль 26» и т.д.
+  // На каждом листе:
+  //   - строки 19+ : сотрудники, col 2 ∈ {Совхозная, Москва, Пойма, Детейлинг}
+  //   - строки с col 2 ∈ {стекло, алименты, царапины...} : удержания (привязываем к ФИО)
+  // Маппинг точек:
+  //   Совхозная → sovhoz, Детейлинг → sovhoz (детейлинг при ней)
+  //   Пойма → poyma
+  //   Москва: Пешкина Диана → serpuhov, остальные → kaluga
+  const SALARY_MONTHS = {
+    'январь':1,'февраль':2,'март':3,'апрель':4,'май':5,'июнь':6,
+    'июль':7,'август':8,'сентябрь':9,'октябрь':10,'ноябрь':11,'декабрь':12,
+  };
+  const VALID_SALARY_POINTS = new Set(['Совхозная','Москва','Пойма','Детейлинг']);
+
+  function parseSheetNameToPeriod(name) {
+    const n = String(name).trim().toLowerCase();
+    // ищем "<месяц> NN" (год двухзначный) или "<месяц> NNNN" (год полный)
+    const m = n.match(/(январь|февраль|март|апрель|май|июнь|июль|август|сентябрь|октябрь|ноябрь|декабрь)\s+(\d{2,4})/);
+    if (!m) return null;
+    const monthNum = SALARY_MONTHS[m[1]];
+    let year = parseInt(m[2], 10);
+    if (year < 100) year += 2000;
+    return `${year}-${String(monthNum).padStart(2,'0')}`;
+  }
+
+  function mapSalaryPoint(pointRaw, fio) {
+    const p = String(pointRaw || '').trim();
+    if (p === 'Совхозная' || p === 'Детейлинг') return 'sovhoz';
+    if (p === 'Пойма') return 'poyma';
+    if (p === 'Москва') {
+      const f = String(fio || '').toLowerCase();
+      if (f.includes('пешкина')) return 'serpuhov';
+      return 'kaluga';
+    }
+    return null;
+  }
+
+  function num(v) {
+    if (v === null || v === undefined || v === '') return null;
+    const n = parseFloat(String(v).replace(',', '.'));
+    return isFinite(n) ? n : null;
+  }
+
+  async function parseSalaryFile(file, status) {
     status.style.color = 'var(--orange)';
-    status.textContent = '⏳ Файл получен: '+file.name+' · '+(file.size/1024).toFixed(1)+' KB. Парсер в разработке — отправьте файл в чат для импорта.';
+    status.textContent = '⏳ Читаю Excel...';
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const entries = [];     // основные строки сотрудников
+      const deductions = {};  // ключ "period|fio" → массив extras
+      let skippedSheets = [];
+
+      for (const sheetName of wb.SheetNames) {
+        const period = parseSheetNameToPeriod(sheetName);
+        if (!period) { skippedSheets.push(sheetName); continue; }
+        const sheet = wb.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+
+        // Идём по строкам начиная с индекса 19 (стандартная позиция первой строки сотрудников)
+        // Стоп: встретили "Итого" в col 1, или "УДЕРЖАНИЯ" в col 0
+        let phase = 'main';
+        for (let i = 19; i < rows.length; i++) {
+          const r = rows[i] || [];
+          const c0 = r[0], c1 = r[1], c2 = r[2];
+          const c0s = String(c0 || '').trim();
+          const c1s = String(c1 || '').trim();
+          const c2s = String(c2 || '').trim();
+
+          // Маркеры фаз
+          if (c0s === 'УДЕРЖАНИЯ' || c0s.toLowerCase().includes('удержания')) { phase = 'deductions'; continue; }
+          if (/^итого/i.test(c1s)) { phase = 'after_main'; continue; }
+          // Пустая строка
+          if (!c1s) continue;
+
+          // Если это сотрудник (валидная точка)
+          if (VALID_SALARY_POINTS.has(c2s) && phase === 'main') {
+            const point_id = mapSalaryPoint(c2s, c1s);
+            entries.push({
+              period,
+              point_id,
+              point_raw: c2s,
+              emp_num: parseInt(c0, 10) || null,
+              employee: c1s,
+              status: String(r[3] || '').trim() || null,
+              prev_balance: num(r[4]),
+              base_rate: num(r[5]),
+              personal_bonus: num(r[6]),
+              plan_days: parseInt(r[7], 10) || null,
+              fact_time: num(r[8]),
+              accr_time: num(r[9]),
+              accr_personal: num(r[10]),
+              vacation_sick: num(r[11]),
+              ural_coef: num(r[12]),
+              total_accrued: num(r[13]),
+              ndfl: num(r[14]),
+              accrued_net: num(r[15]),
+              drycleaning: num(r[16]),
+              percent_val: num(r[17]),
+              total_acc_all: num(r[18]),
+              deduction_corr: num(r[19]),
+              to_pay: num(r[20]),
+              paid_25_bank: num(r[21]),
+              paid_25_cash: num(r[22]),
+              paid_10_bank: num(r[23]),
+              paid_10_cash: num(r[24]),
+              unpaid_balance: num(r[25]),
+              extras: [],
+              source_file: file.name,
+            });
+            continue;
+          }
+
+          // Если это удержание (col 2 — не валидная точка, но что-то есть)
+          // Не привязано к конкретной фазе — может быть «Химчистка» в середине или после «УДЕРЖАНИЯ»
+          if (c2s && !VALID_SALARY_POINTS.has(c2s)) {
+            const amount = num(r[5]);
+            if (amount && amount !== 0) {
+              const key = `${period}|${c1s.toLowerCase()}`;
+              if (!deductions[key]) deductions[key] = [];
+              deductions[key].push({ type: c2s, amount });
+            }
+          }
+        }
+      }
+
+      // Привязываем удержания к сотрудникам.
+      // ФИО в удержаниях часто короче (без отчества), поэтому матчим по «фамилия+имя»
+      // (первые 2 слова), а не по полному совпадению.
+      const empKey = fio => {
+        const parts = String(fio || '').toLowerCase().split(/\s+/).filter(Boolean);
+        return parts.slice(0, 2).join(' ');
+      };
+      // строим индекс period|key → entry для быстрого поиска
+      const entryIdx = {};
+      for (const e of entries) {
+        entryIdx[`${e.period}|${empKey(e.employee)}`] = e;
+      }
+      let attachedCount = 0, orphanCount = 0;
+      const orphans = [];
+      // ключи в deductions сейчас полное-fio.lower() — перестроим в short-key
+      const dedShort = {};
+      for (const [k, list] of Object.entries(deductions)) {
+        const [period, fioFull] = k.split('|');
+        const short = `${period}|${empKey(fioFull)}`;
+        if (!dedShort[short]) dedShort[short] = [];
+        dedShort[short].push(...list);
+      }
+      for (const [k, list] of Object.entries(dedShort)) {
+        const e = entryIdx[k];
+        if (e) {
+          e.extras.push(...list);
+          attachedCount += list.length;
+        } else {
+          orphans.push({ key: k, items: list });
+          orphanCount += list.length;
+        }
+      }
+      if (orphans.length) console.warn('Удержания без сотрудника:', orphans);
+
+      status.textContent = `⏳ Загружаю ${entries.length} строк в БД...`;
+
+      // Грузим в БД через upsert (по уникальному ключу period+point_raw+employee)
+      const BATCH = 100;
+      let imported = 0;
+      for (let i = 0; i < entries.length; i += BATCH) {
+        const chunk = entries.slice(i, i + BATCH);
+        const { error } = await sb.from('salary_entries')
+          .upsert(chunk, { onConflict: 'period,point_raw,employee' });
+        if (error) throw error;
+        imported += chunk.length;
+        status.textContent = `⏳ Загружено ${imported}/${entries.length}...`;
+      }
+
+      status.style.color = 'var(--green)';
+      let summary = `✅ ${imported} строк загружено · ${attachedCount} удержаний прикреплено`;
+      if (orphanCount > 0) summary += ` · ⚠ ${orphanCount} удержаний без сотрудника`;
+      if (skippedSheets.length) summary += ` · пропущено листов: ${skippedSheets.join(', ')}`;
+      status.textContent = summary;
+    } catch (e) {
+      console.error('Salary parse error:', e);
+      status.style.color = 'var(--red)';
+      status.textContent = `❌ Ошибка: ${e.message || e}`;
+    }
   }
 
   // === МОДАЛЫ ===
