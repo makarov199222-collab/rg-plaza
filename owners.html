@@ -471,13 +471,35 @@
     const monthName = MP_MONTHS_FULL[data.range.month-1];
     destroyCharts();
 
+    // Хелперы: при отсутствии ручного ввода менеджера берём данные из 1С-импорта.
+    // total_day = ручной ввод суммы дня (приоритет), total_1c = посчитанная из orders_history_1c
+    const useTotal  = r => (+r.total_day  || 0) > 0 ? (+r.total_day  || 0) : (+r.total_1c  || 0);
+    const useIns    = r => {
+      const hasManual = (+r.total_day || 0) > 0 || (+r.ins_day || 0) > 0;
+      return hasManual ? (+r.ins_day || 0) : (+r.ins_1c || 0);
+    };
+    const useRetail = r => {
+      const hasManual = (+r.total_day || 0) > 0 || (+r.retail_day || 0) > 0 || (+r.phys_day || 0) > 0 || (+r.corp_day || 0) > 0;
+      if (hasManual) return +r.retail_day || 0;
+      // Из 1С: retail = физик (retail_1c) + юрик-розница (corp_1c) считаем как «розница без страх»
+      return (+r.retail_1c || 0) + (+r.corp_1c || 0);
+    };
+    const usePhys = r => {
+      const hasManual = (+r.total_day || 0) > 0 || (+r.phys_day || 0) > 0 || (+r.corp_day || 0) > 0;
+      return hasManual ? (+r.phys_day || 0) : (+r.retail_1c || 0);
+    };
+    const useCorp = r => {
+      const hasManual = (+r.total_day || 0) > 0 || (+r.corp_day || 0) > 0 || (+r.phys_day || 0) > 0;
+      return hasManual ? (+r.corp_day || 0) : (+r.corp_1c || 0);
+    };
+
     let monthTotal=0, monthIns=0, monthRetail=0, monthPhys=0, monthCorp=0, monthBookings=0;
     data.current.forEach(r => {
-      monthTotal += +r.total_day || 0;
-      monthIns += +r.ins_day || 0;
-      monthRetail += +r.retail_day || 0;
-      monthPhys += +r.phys_day || 0;
-      monthCorp += +r.corp_day || 0;
+      monthTotal += useTotal(r);
+      monthIns += useIns(r);
+      monthRetail += useRetail(r);
+      monthPhys += usePhys(r);
+      monthCorp += useCorp(r);
       monthBookings += +r.bookings || 0;
     });
     // Последний отчёт по каждой точке — для долгов берём последний отчёт ГДЕ ДОЛГИ УКАЗАНЫ
@@ -499,11 +521,24 @@
       }
     });
     let monthDebtTotal=0, monthOweTotal=0, monthOweRavt=0, monthOweOther=0;
+    // Долги клиентов (debt_*) — суммируются по точкам (разные клиенты в каждой точке).
+    // Долги юрлица (owe_*) — НЕ суммируются между точками одного региона: юрлицо одно,
+    // менеджеры могли продублировать. Берём МАКСИМУМ по региону.
+    const regionMapO = { kaluga: 'moscow', serpuhov: 'moscow', sovhoz: 'izhevsk', poyma: 'izhevsk' };
+    const oweMaxByReg = { moscow: { total:0, ravt:0, other:0 }, izhevsk: { total:0, ravt:0, other:0 } };
     Object.values(lastDebtsByPoint).forEach(r => {
       monthDebtTotal += +r.debt_total || 0;
-      monthOweTotal += +r.owe_total || 0;
-      monthOweRavt += +r.owe_ravt || 0;
-      monthOweOther += +r.owe_other || 0;
+      const reg = regionMapO[r.point_id];
+      if (reg && oweMaxByReg[reg]) {
+        if ((+r.owe_total || 0) > oweMaxByReg[reg].total) oweMaxByReg[reg].total = +r.owe_total || 0;
+        if ((+r.owe_ravt  || 0) > oweMaxByReg[reg].ravt)  oweMaxByReg[reg].ravt  = +r.owe_ravt  || 0;
+        if ((+r.owe_other || 0) > oweMaxByReg[reg].other) oweMaxByReg[reg].other = +r.owe_other || 0;
+      }
+    });
+    ['moscow','izhevsk'].forEach(reg => {
+      monthOweTotal += oweMaxByReg[reg].total;
+      monthOweRavt  += oweMaxByReg[reg].ravt;
+      monthOweOther += oweMaxByReg[reg].other;
     });
 
     // Долги в прошлом месяце — для сравнения динамики
@@ -526,14 +561,14 @@
     const oweDelta = prevOweTotal > 0 ? Math.round((monthOweTotal - prevOweTotal) / prevOweTotal * 100) : null;
 
     let prevTotal = 0;
-    data.prev.forEach(r => prevTotal += +r.total_day || 0);
+    data.prev.forEach(r => prevTotal += useTotal(r));
     const monthDelta = prevTotal ? Math.round((monthTotal - prevTotal) / prevTotal * 100) : null;
 
     let yearTotal=0, yearRetail=0, yearIns=0;
     data.year.forEach(r => {
-      yearTotal += +r.total_day || 0;
-      yearRetail += +r.retail_day || 0;
-      yearIns += +r.ins_day || 0;
+      yearTotal += useTotal(r);
+      yearRetail += useRetail(r);
+      yearIns += useIns(r);
     });
     data.points.forEach(p => {
       yearTotal += +p.year_start_total || 0;
@@ -549,11 +584,13 @@
     data.current.forEach(r => {
       const s = pointStats[r.point_id];
       if (!s) return;
-      s.total += +r.total_day || 0;
-      s.ins += +r.ins_day || 0;
-      s.retail += +r.retail_day || 0;
-      s.phys += +r.phys_day || 0;
-      s.corp += +r.corp_day || 0;
+      const t = useTotal(r);
+      if (t === 0) return;
+      s.total  += t;
+      s.ins    += useIns(r);
+      s.retail += useRetail(r);
+      s.phys   += usePhys(r);
+      s.corp   += useCorp(r);
       s.bookings += +r.bookings || 0;
       s.days.add(r.date);
     });
@@ -934,7 +971,8 @@
       const cityLabel = p.format === 'moscow' ? 'Москва' : 'Ижевск';
       const planMonth = +s.plan.plan_phys_month || 0;
       const planCorp = +s.plan.plan_corp_month || 0;
-      const planTotal = planMonth + planCorp;
+      const planIns  = +s.plan.plan_ins_month  || 0;
+      const planTotal = planMonth + planCorp + planIns;
       const planPct = planTotal > 0 ? Math.round(s.total / planTotal * 100) : 0;
       const planColor = planPct >= 80 ? 'var(--green)' : planPct >= 50 ? 'var(--orange)' : 'var(--red)';
       // Алерт точки только по долгу прочим (РАВТ — это взаимозачёт, не считаем)
@@ -972,6 +1010,7 @@
               ${s.owe > 0 ? `<div class="expand-item"><span>🔴 Мы должны</span><span class="v r">${fm(s.owe)} ₽</span></div>` : ''}
               ${planMonth > 0 ? `<div class="expand-item"><span>План физлица</span><span class="v g">${fm(s.phys || s.retail)} / ${fm(planMonth)} ₽</span></div>` : ''}
               ${planCorp > 0 ? `<div class="expand-item"><span>План корпоратив</span><span class="v" style="color:var(--purple);">${fm(s.corp)} / ${fm(planCorp)} ₽</span></div>` : ''}
+              ${planIns > 0 ? `<div class="expand-item"><span>План страховые</span><span class="v b">${fm(s.ins)} / ${fm(planIns)} ₽</span></div>` : ''}
             </div>
           </div>
         </div>
