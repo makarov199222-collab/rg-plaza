@@ -3722,7 +3722,9 @@
     const { start, end } = getMonthRange(getDateValue());
     setSync('syncing');
     try {
-      const { data, error } = await sb.from('daily_reports').select('date,total_day,ins_day,retail_day,corp_day,phys_day,detail_day,cars_detail').eq('point_id', currentPoint.id).gte('date', start).lte('date', end).order('date');
+      const { data, error } = await sb.from('daily_reports')
+        .select('date,total_day,ins_day,retail_day,corp_day,phys_day,detail_day,cars_detail,total_1c,ins_1c,retail_1c,corp_1c,detail_1c')
+        .eq('point_id', currentPoint.id).gte('date', start).lte('date', end).order('date');
       if (error) throw error;
       monthData.days = data || [];
       renderStats();
@@ -3751,12 +3753,25 @@
   function renderStats() {
     let t=0,i=0,r=0,c=0,p=0,det=0;
     monthData.days.forEach(d => {
-      t+=+d.total_day||0;
-      i+=+d.ins_day||0;
-      r+=+d.retail_day||0;
-      c+=+d.corp_day||0;
-      p+=+d.phys_day||0;
-      det+=+d.detail_day||0;
+      // Фолбэк на 1С: если менеджер не вводил суммы вручную, берём из импорта 1С
+      const hasManual = (+d.total_day || 0) > 0 || (+d.ins_day || 0) > 0 || (+d.retail_day || 0) > 0
+                     || (+d.phys_day || 0) > 0 || (+d.corp_day || 0) > 0 || (+d.detail_day || 0) > 0;
+      if (hasManual) {
+        t   += +d.total_day  || 0;
+        i   += +d.ins_day    || 0;
+        r   += +d.retail_day || 0;
+        c   += +d.corp_day   || 0;
+        p   += +d.phys_day   || 0;
+        det += +d.detail_day || 0;
+      } else {
+        // Из 1С: retail_1c = физик, corp_1c = корп, detail_1c = детейл
+        t   += +d.total_1c   || 0;
+        i   += +d.ins_1c     || 0;
+        r   += +d.retail_1c  || 0;
+        c   += +d.corp_1c    || 0;
+        p   += +d.retail_1c  || 0;   // 1С-retail = физик в нашей терминологии
+        det += +d.detail_1c  || 0;
+      }
     });
     document.getElementById('mt').textContent = fs(t);
     document.getElementById('mi').textContent = fs(i);
@@ -3767,7 +3782,11 @@
     if (mdEl) mdEl.textContent = fs(det);
     const pn = document.getElementById('hpanel');
     if (!monthData.days.length) { pn.innerHTML='<div style="color:var(--muted);font-size:12px;text-align:center;padding:8px">Нет данных</div>'; return; }
-    pn.innerHTML = monthData.days.slice().reverse().map(d => `<div class="hrow"><span class="hdate">${pdate(d.date)}</span><span class="hamount">${fm(d.total_day)} ₽</span><button class="hdel" onclick="delDay('${d.date}')">×</button></div>`).join('');
+    // В истории дней показываем эффективную сумму (ручная или из 1С)
+    pn.innerHTML = monthData.days.slice().reverse().map(d => {
+      const effTotal = (+d.total_day || 0) > 0 ? (+d.total_day || 0) : (+d.total_1c || 0);
+      return `<div class="hrow"><span class="hdate">${pdate(d.date)}</span><span class="hamount">${fm(effTotal)} ₽</span><button class="hdel" onclick="delDay('${d.date}')">×</button></div>`;
+    }).join('');
   }
 
   async function saveDayToCloud() {
@@ -3850,10 +3869,23 @@
     const physDayWithDetail = physDayActual + detDayActual;
     let physMonth = 0, corpMonth = 0, insMonth = 0;
     monthData.days.forEach(d => {
-      const phy = +d.phys_day || 0;
-      const cop = +d.corp_day || 0;
-      const det = +d.detail_day || 0;
-      const ret = +d.retail_day || 0;
+      // Фолбэк на 1С если менеджер не вводил руками
+      const hasManual = (+d.total_day || 0) > 0 || (+d.phys_day || 0) > 0 || (+d.corp_day || 0) > 0
+                     || (+d.retail_day || 0) > 0 || (+d.ins_day || 0) > 0 || (+d.detail_day || 0) > 0;
+      let phy, cop, det, ret, ins;
+      if (hasManual) {
+        phy = +d.phys_day || 0;
+        cop = +d.corp_day || 0;
+        det = +d.detail_day || 0;
+        ret = +d.retail_day || 0;
+        ins = +d.ins_day || 0;
+      } else {
+        phy = +d.retail_1c || 0;   // 1С retail = физик
+        cop = +d.corp_1c || 0;
+        det = +d.detail_1c || 0;
+        ret = +d.retail_1c || 0;
+        ins = +d.ins_1c || 0;
+      }
       // Для старых отчётов (где разбивки на физ/корп ещё не было), вся розница идёт как физлица
       if (phy + cop === 0 && ret > 0) {
         physMonth += ret; // ret уже включает detail после фикса
@@ -3861,7 +3893,7 @@
         physMonth += phy + det; // детейл — это тоже физлица
         corpMonth += cop;
       }
-      insMonth += +d.ins_day || 0;
+      insMonth += ins;
     });
     const wrap = document.getElementById('plan-progress');
     const hasAnyPlan = planData.plan_phys_day || planData.plan_phys_month
