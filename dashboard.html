@@ -1046,12 +1046,26 @@
     const dateSet = new Set();
     Object.values(byPoint).forEach(({reports, plan}) => {
       reports.forEach(r => {
-        allTotal += +r.total_day || 0;
-        allInsur += +r.ins_day || 0;
-        allPhys += (+r.phys_day || 0) + (+r.detail_day || 0); // детейл — часть физлиц
-        allCorp += +r.corp_day || 0;
-        // «Розница» = физик + корпоратив (в БД retail_day = только физик).
-        allRetail += (+r.retail_day || 0) + (+r.corp_day || 0);
+        // Фолбэк на 1С: если менеджер не вводил ручные суммы — берём из импорта 1С
+        const hasManual = (+r.total_day || 0) > 0 || (+r.ins_day || 0) > 0 || (+r.retail_day || 0) > 0 || (+r.phys_day || 0) > 0 || (+r.corp_day || 0) > 0;
+        if (hasManual) {
+          allTotal += +r.total_day || 0;
+          allInsur += +r.ins_day || 0;
+          // Детейл — это продажа того же менеджера, входит в «Физлица»
+          allPhys  += (+r.phys_day || 0) + (+r.detail_day || 0);
+          allCorp  += +r.corp_day || 0;
+          // «Розница» = физик + корп + детейл (детейл-цех продаётся менеджером)
+          allRetail += (+r.retail_day || 0) + (+r.corp_day || 0) + (+r.detail_day || 0);
+        } else if ((+r.total_1c || 0) > 0) {
+          allTotal += +r.total_1c || 0;
+          allInsur += +r.ins_1c || 0;
+          // Из 1С: retail_1c (физик-стёкла) + detail_1c (детейл-цех) = «Физлица»
+          allPhys  += (+r.retail_1c || 0) + (+r.detail_1c || 0);
+          allCorp  += +r.corp_1c || 0;
+          allRetail += (+r.retail_1c || 0) + (+r.corp_1c || 0) + (+r.detail_1c || 0);
+        } else {
+          return;
+        }
         dateSet.add(r.date);
       });
       allPlanPhysM += +plan.plan_phys_month || 0;
@@ -1518,6 +1532,7 @@
       const insOneC    = +d.ins_1c    || 0;
       const retailOneC = +d.retail_1c || 0;
       const corpOneC   = +d.corp_1c   || 0;
+      const detailOneC = +d.detail_1c || 0;
       // День «есть» если в любом из источников есть данные
       const hasManual = totalDay > 0 || retailDay > 0 || physDay > 0 || corpDay > 0 || insDay > 0;
       const hasOneC = totalOneC > 0;
@@ -1531,12 +1546,13 @@
         det  += detailDay;
         detCnt += +d.cars_detail || 0;
       } else {
-        // Только 1С: 1С разделяет на retail_1c (физик) и corp_1c (юрик), сложим
+        // Только 1С: разделяем по категориям
         t    += totalOneC;
         i    += insOneC;
-        phys += retailOneC;  // 1С-retail = физик в нашей терминологии
+        phys += retailOneC;    // 1С-retail = физик
         c    += corpOneC;
-        // детейл из 1С не выделяется — оставляем 0
+        det  += detailOneC;    // ← теперь детейл из 1С тоже учитывается
+        detCnt += +d.cars_detail_1c || 0;
       }
     });
 
@@ -1580,7 +1596,7 @@
             <div class="pc-stat"><div class="pc-stat-lbl">Страховые</div><div class="pc-stat-val b">${fm(i)} ₽</div></div>
             <div class="pc-stat"><div class="pc-stat-lbl">Физлица</div><div class="pc-stat-val g">${fm(phys + det)} ₽</div></div>
             <div class="pc-stat"><div class="pc-stat-lbl">Корпоратив</div><div class="pc-stat-val p">${fm(c)} ₽</div></div>
-            ${det > 0 ? `<div class="pc-stat" style="opacity:.75;"><div class="pc-stat-lbl">🛠 Детейлинг ${detCnt ? `(${detCnt})` : ''} <span style="font-size:8px;color:var(--muted);font-weight:400;">в физлицах</span></div><div class="pc-stat-val" style="color:var(--accent);">${fm(det)} ₽</div></div>` : ''}
+            ${det > 0 ? `<div class="pc-stat" style="opacity:.85;"><div class="pc-stat-lbl">✨ Из них детейл ${detCnt ? `(${detCnt})` : ''}</div><div class="pc-stat-val" style="color:var(--accent);">${fm(det)} ₽</div></div>` : ''}
           </div>
           ${(pointDebt > 0 || pointOwe > 0) ? `
           <div style="display:flex;gap:8px;margin-top:8px;font-size:11px;">
@@ -1887,13 +1903,11 @@
     const r = dayReport || {};
     const range = data.range;
 
-    // Накопленное за год (по этой точке).
-    // ВАЖНО: «розница» по бизнес-логике = физик + корпоратив. В БД retail_day = только физик.
-    // Поэтому к retail добавляем corp_day.
+    // Накопленное за год. «Розница» = физик + корп + детейл (всё «не страх»).
     let ytdTotal=0, ytdRetail=0, ytdIns=0;
     yearData.filter(d => d.point_id === point.id).forEach(d => {
       ytdTotal += +d.total_day || 0;
-      ytdRetail += (+d.retail_day || 0) + (+d.corp_day || 0);
+      ytdRetail += (+d.retail_day || 0) + (+d.corp_day || 0) + (+d.detail_day || 0);
       ytdIns += +d.ins_day || 0;
     });
     const yearTotal = (+point.year_start_total || 0) + ytdTotal;
@@ -1905,7 +1919,7 @@
     let mTotal=0, mRetail=0, mIns=0;
     monthReports.forEach(d => {
       mTotal += +d.total_day || 0;
-      mRetail += (+d.retail_day || 0) + (+d.corp_day || 0);
+      mRetail += (+d.retail_day || 0) + (+d.corp_day || 0) + (+d.detail_day || 0);
       mIns += +d.ins_day || 0;
     });
 
@@ -1922,9 +1936,9 @@
       return `${String(dt.getDate()).padStart(2,'0')}.${String(dt.getMonth()+1).padStart(2,'0')}`;
     })();
 
-    // Дневные суммы. «Розница» = физик + корп.
+    // Дневные суммы. «Розница» = физик + корп + детейл (всё кроме страховых).
     const dTotal = +r.total_day || 0;
-    const dRetail = (+r.retail_day || 0) + (+r.corp_day || 0);
+    const dRetail = (+r.retail_day || 0) + (+r.corp_day || 0) + (+r.detail_day || 0);
     const dIns = +r.ins_day || 0;
 
     // Долги — берём из lastDebt (последний отчёт с долгами > 0) если в текущем отчёте их нет
