@@ -144,6 +144,41 @@
   .ravt-total{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);}
   .ravt-total-label{font-size:12px;color:var(--muted);}
   .ravt-total-val{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:.5px;color:var(--text);}
+  /* Аккордеон по точкам */
+  .ravt-details{margin:0;}
+  .ravt-details > summary{list-style:none;cursor:pointer;}
+  .ravt-details > summary::-webkit-details-marker{display:none;}
+  .ravt-summary{outline:none;}
+  .ravt-expand-hint{font-size:11px;color:var(--muted);text-align:center;margin-top:8px;letter-spacing:.5px;transition:color .15s;}
+  .ravt-details[open] .ravt-expand-hint{color:var(--accent);visibility:hidden;height:0;margin-top:0;}
+  .ravt-pt-wrap{margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);}
+  .ravt-pt-head,.ravt-pt-row{display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr 1fr;gap:8px;align-items:center;padding:8px 4px;}
+  .ravt-pt-head{font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:4px;}
+  .ravt-pt-h.r{color:#ff7a7a;}
+  .ravt-pt-h.o{color:#ffa64d;}
+  .ravt-pt-h.p{color:#a78bfa;}
+  .ravt-pt-row{border-bottom:1px solid rgba(255,255,255,.04);}
+  .ravt-pt-row:last-child{border-bottom:none;}
+  .ravt-pt-name{font-size:13px;color:var(--text);font-weight:500;}
+  .ravt-pt-cell{display:flex;flex-direction:column;gap:2px;font-family:'Bebas Neue',sans-serif;}
+  .ravt-pt-cell.r .ravt-pt-val{color:var(--red);}
+  .ravt-pt-cell.o .ravt-pt-val{color:var(--orange);}
+  .ravt-pt-cell.p .ravt-pt-val{color:#a78bfa;}
+  .ravt-pt-cell.sum .ravt-pt-val{color:var(--text);}
+  .ravt-pt-val{font-size:14px;letter-spacing:.3px;line-height:1.1;}
+  .ravt-pt-sub{font-family:'Inter',sans-serif;font-size:10px;color:var(--muted);letter-spacing:.3px;}
+  .ravt-pt-dash{color:var(--muted);font-family:'Inter',sans-serif;font-size:13px;}
+  .ravt-pt-empty{padding:12px;text-align:center;color:var(--muted);font-size:12px;}
+  @media (max-width:700px){
+    .ravt-pt-head{display:none;}
+    .ravt-pt-row{grid-template-columns:1fr 1fr;gap:6px;padding:10px 4px;}
+    .ravt-pt-name{grid-column:1/-1;font-size:13px;color:var(--accent);margin-bottom:4px;}
+    .ravt-pt-cell::before{font-family:'Inter',sans-serif;font-size:9px;color:var(--muted);letter-spacing:.8px;text-transform:uppercase;margin-bottom:1px;}
+    .ravt-pt-cell.r::before{content:'Не отправлены';}
+    .ravt-pt-cell.o::before{content:'В пути';}
+    .ravt-pt-cell.p::before{content:'Просрочено';}
+    .ravt-pt-cell.sum::before{content:'Итого';}
+  }
 
   .refresh-btn:hover{border-color:var(--accent);}
 
@@ -1123,19 +1158,32 @@
     let ravtNotSent = 0,   ravtNotSentCnt = 0;
     let ravtInTransit = 0, ravtInTransitCnt = 0;
     let ravtOverdue = 0,   ravtOverdueCnt = 0;
+    // Разбивка по точкам: { point_id: { notSent, notSentCnt, inTransit, inTransitCnt, overdue, overdueCnt } }
+    const ravtByPoint = {};
+    const ravtBucket = pid => {
+      if (!ravtByPoint[pid]) ravtByPoint[pid] = { notSent:0, notSentCnt:0, inTransit:0, inTransitCnt:0, overdue:0, overdueCnt:0 };
+      return ravtByPoint[pid];
+    };
     const todayMs = Date.now();
     (data.ravtOrders || []).forEach(o => {
       if (!visiblePointIds.has(o.point_id)) return;
       if (o.category !== 'equity') return;        // только РАВТ-долги
       const debt = +o.debt || 0;
       if (debt <= 0) return;
+      const b = ravtBucket(o.point_id);
       if (!o.registry_date) {
         ravtNotSent += debt; ravtNotSentCnt++;
+        b.notSent += debt; b.notSentCnt++;
         return;
       }
       const days = Math.floor((todayMs - new Date(o.registry_date).getTime()) / 86400000);
-      if (days > RAVT_NORM_DAYS) { ravtOverdue += debt; ravtOverdueCnt++; }
-      else { ravtInTransit += debt; ravtInTransitCnt++; }
+      if (days > RAVT_NORM_DAYS) {
+        ravtOverdue += debt; ravtOverdueCnt++;
+        b.overdue += debt; b.overdueCnt++;
+      } else {
+        ravtInTransit += debt; ravtInTransitCnt++;
+        b.inTransit += debt; b.inTransitCnt++;
+      }
     });
     const ravtTotal = ravtNotSent + ravtInTransit + ravtOverdue;
 
@@ -1386,29 +1434,69 @@
 
     // === Блок «Долги по РАВТ» (только если есть данные из 1С) ===
     if (ravtTotal > 0) {
+      // Строим строки по точкам — только те, где есть хоть какой-то долг
+      const ravtPointRows = data.points
+        .map(p => ({ p, b: ravtByPoint[p.id] }))
+        .filter(x => x.b && (x.b.notSent + x.b.inTransit + x.b.overdue) > 0)
+        .map(({p, b}) => {
+          const tot = b.notSent + b.inTransit + b.overdue;
+          const totCnt = b.notSentCnt + b.inTransitCnt + b.overdueCnt;
+          return `
+            <div class="ravt-pt-row">
+              <div class="ravt-pt-name">${p.name}</div>
+              <div class="ravt-pt-cell r" title="Доки не отправлены">
+                ${b.notSent > 0 ? `<span class="ravt-pt-val">${fm(b.notSent)} ₽</span><span class="ravt-pt-sub">${b.notSentCnt} ЗН</span>` : '<span class="ravt-pt-dash">—</span>'}
+              </div>
+              <div class="ravt-pt-cell o" title="В пути">
+                ${b.inTransit > 0 ? `<span class="ravt-pt-val">${fm(b.inTransit)} ₽</span><span class="ravt-pt-sub">${b.inTransitCnt} ЗН</span>` : '<span class="ravt-pt-dash">—</span>'}
+              </div>
+              <div class="ravt-pt-cell p" title="Просрочено">
+                ${b.overdue > 0 ? `<span class="ravt-pt-val">${fm(b.overdue)} ₽</span><span class="ravt-pt-sub">${b.overdueCnt} ЗН</span>` : '<span class="ravt-pt-dash">—</span>'}
+              </div>
+              <div class="ravt-pt-cell sum">
+                <span class="ravt-pt-val">${fm(tot)} ₽</span><span class="ravt-pt-sub">${totCnt} ЗН</span>
+              </div>
+            </div>`;
+        }).join('');
+
       html += `
       <div class="ravt-block">
         <div class="ravt-head">
           <div class="ravt-title">📋 Долги по РАВТ</div>
           <div class="ravt-norm">только equity · норматив 30 дн реестр + 7 дн дорога = 37 дн</div>
         </div>
-        <div class="ravt-grid">
-          <div class="ravt-card r">
-            <div class="ravt-card-title">📤 Доки не отправлены</div>
-            <div class="ravt-card-val">${fm(ravtNotSent)} ₽</div>
-            <div class="ravt-card-sub">${ravtNotSentCnt} ЗН${ravtNotSentCnt ? ' · подать в реестр' : ''}</div>
+        <details class="ravt-details">
+          <summary class="ravt-summary">
+            <div class="ravt-grid">
+              <div class="ravt-card r">
+                <div class="ravt-card-title">📤 Доки не отправлены</div>
+                <div class="ravt-card-val">${fm(ravtNotSent)} ₽</div>
+                <div class="ravt-card-sub">${ravtNotSentCnt} ЗН${ravtNotSentCnt ? ' · подать в реестр' : ''}</div>
+              </div>
+              <div class="ravt-card o">
+                <div class="ravt-card-title">🕓 В пути</div>
+                <div class="ravt-card-val">${fm(ravtInTransit)} ₽</div>
+                <div class="ravt-card-sub">${ravtInTransitCnt} ЗН · отправлено ≤37 дн назад</div>
+              </div>
+              <div class="ravt-card p">
+                <div class="ravt-card-title">⚠ Просрочено</div>
+                <div class="ravt-card-val">${fm(ravtOverdue)} ₽</div>
+                <div class="ravt-card-sub">${ravtOverdueCnt} ЗН · &gt;37 дн${ravtOverdueCnt ? ' · звонить РАВТу' : ''}</div>
+              </div>
+            </div>
+            <div class="ravt-expand-hint">▾ Развернуть по точкам</div>
+          </summary>
+          <div class="ravt-pt-wrap">
+            <div class="ravt-pt-head">
+              <div></div>
+              <div class="ravt-pt-h r">Не отправлены</div>
+              <div class="ravt-pt-h o">В пути</div>
+              <div class="ravt-pt-h p">Просрочено</div>
+              <div class="ravt-pt-h">Итого</div>
+            </div>
+            ${ravtPointRows || '<div class="ravt-pt-empty">Нет долгов по точкам</div>'}
           </div>
-          <div class="ravt-card o">
-            <div class="ravt-card-title">🕓 В пути</div>
-            <div class="ravt-card-val">${fm(ravtInTransit)} ₽</div>
-            <div class="ravt-card-sub">${ravtInTransitCnt} ЗН · отправлено ≤37 дн назад</div>
-          </div>
-          <div class="ravt-card p">
-            <div class="ravt-card-title">⚠ Просрочено</div>
-            <div class="ravt-card-val">${fm(ravtOverdue)} ₽</div>
-            <div class="ravt-card-sub">${ravtOverdueCnt} ЗН · &gt;37 дн${ravtOverdueCnt ? ' · звонить РАВТу' : ''}</div>
-          </div>
-        </div>
+        </details>
         <div class="ravt-total">
           <div class="ravt-total-label">Итого ждём от РАВТ</div>
           <div class="ravt-total-val">${fm(ravtTotal)} ₽</div>
