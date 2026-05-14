@@ -2404,6 +2404,20 @@
     'совхозная': 'sovhoz',
     'пойма': 'poyma',
   };
+  // Резолвер территории с поддержкой суффиксов «Совхозная 127», «Калужская 5», и т.д.
+  // Также если территория пустая или неизвестная — fallback на текущую точку (currentPoint).
+  function resolvePointFromTerritory(territoryRaw) {
+    const t = String(territoryRaw || '').trim().toLowerCase();
+    if (!t) return currentPoint ? currentPoint.id : null;
+    // Точное совпадение
+    if (ONEC_TERRITORY_MAP[t]) return ONEC_TERRITORY_MAP[t];
+    // По префиксу: «Совхозная 127» → начинается с «совхозная»
+    for (const [key, pid] of Object.entries(ONEC_TERRITORY_MAP)) {
+      if (t.startsWith(key)) return pid;
+    }
+    // Не нашли — fallback на текущую точку (лучше чем потерять строку)
+    return currentPoint ? currentPoint.id : null;
+  }
 
   // Маркеры страховых компаний для авто-определения по заказчику
   const INSURANCE_MARKERS = [
@@ -2630,8 +2644,8 @@
           continue;
         }
 
-        const territory = cols.territory >= 0 ? String(row[cols.territory] || '').trim().toLowerCase() : '';
-        const point_id = ONEC_TERRITORY_MAP[territory] || null;
+        const territory = cols.territory >= 0 ? row[cols.territory] : '';
+        const point_id = resolvePointFromTerritory(territory);
         if (!point_id) { parsed.unknownPoint++; continue; }
 
         const item = {
