@@ -3544,14 +3544,6 @@
     const hint = document.getElementById('debt-1c-hint');
     if (!hint || !currentPoint) return;
     try {
-      const { data: dr, error: drErr } = await sb.from('daily_reports')
-        .select('source_1c_at')
-        .eq('point_id', currentPoint.id).eq('date', reportDate).maybeSingle();
-      if (drErr) throw drErr;
-      if (!dr || !dr.source_1c_at) {
-        hint.style.display = 'none';
-        return;
-      }
       // 1. Долги по закрытым ЗН
       const closedQ = sb.from('orders_history_1c')
         .select('category, debt')
