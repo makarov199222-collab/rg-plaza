@@ -2029,8 +2029,8 @@
     const dRetail = (+r.retail_day || 0) + (+r.corp_day || 0) + (+r.detail_day || 0);
     const dIns = +r.ins_day || 0;
 
-    // Долги — берём из lastDebt (последний отчёт с долгами > 0) если в текущем отчёте их нет
-    // Это решает проблему «менеджер забыл указать долги в новом отчёте»
+    // Долги — берём из lastDebt (последний отчёт с долгами > 0) если в текущем отчёте их нет.
+    // Это решает проблему «менеджер забыл указать долги в новом отчёте».
     const debtSource = (function() {
       const cur = dayReport || {};
       const curHasDebts = (+cur.debt_total > 0) || (+cur.owe_total > 0);
@@ -2038,12 +2038,28 @@
       if (lastDebt) return lastDebt;
       return cur;
     })();
+    // ⚠ Долги юрлица (owe_*) — общие на регион. Если у этой точки своих owe_* нет,
+    // подтягиваем из соседней точки того же региона (Москва: kaluga+serpuhov; Ижевск: sovhoz+poyma).
+    // Чтобы владелец в каждом отчёте точки видел реальный долг юрлица, а не нули.
+    const regionMap = { kaluga: 'moscow', serpuhov: 'moscow', sovhoz: 'izhevsk', poyma: 'izhevsk' };
+    const myReg = regionMap[point.id];
+    let neighborOwe = null;
+    if (myReg && (!debtSource.owe_total || +debtSource.owe_total === 0) && lastDebtsByPoint) {
+      // Ищем точку того же региона у которой owe_total > 0 — берём её цифры
+      for (const [pid, rec] of Object.entries(lastDebtsByPoint)) {
+        if (pid === point.id) continue;
+        if (regionMap[pid] !== myReg) continue;
+        if ((+rec.owe_total || 0) > 0) { neighborOwe = rec; break; }
+      }
+    }
     const debtTotal = +debtSource.debt_total || 0;
     const debtRetail = +debtSource.debt_retail || 0;
     const debtIns = +debtSource.debt_insurance || 0;
-    const oweTotal = +debtSource.owe_total || 0;
-    const oweRavt = +debtSource.owe_ravt || 0;
-    const oweOther = +debtSource.owe_other || 0;
+    const oweSource = neighborOwe || debtSource;
+    const oweTotal = +oweSource.owe_total || 0;
+    const oweRavt = +oweSource.owe_ravt || 0;
+    const oweOther = +oweSource.owe_other || 0;
+    const oweFromNeighbor = !!neighborOwe;
     // Дата актуальных долгов (если отличается от dateStr — добавим в бейдж)
     const debtsFromOtherDate = lastDebt && debtSource === lastDebt && lastDebt.date !== useDate;
 
@@ -2083,7 +2099,7 @@ ${fm(debtTotal)}
 ${fm(debtRetail)} (розница) 
 ${fm(debtIns)} (страховые) 
 
-7)Мы должны:
+7)Мы должны:${oweFromNeighbor ? ' (данные из соседней точки региона — юрлицо одно)' : (oweTotal > 0 ? ' (по юрлицу)' : '')}
 ${fm(oweTotal)}
 ${fm(oweRavt)} (РАВТ) 
 ${fm(oweOther)} (Остальные) 
