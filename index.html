@@ -2453,13 +2453,15 @@
   // (категория 'ins' больше не используется — все страховые в equity)
   function mapOnecType(typeRaw, customer, payer) {
     const t = String(typeRaw || '').trim().toLowerCase();
-    if (t.includes('гарант'))    return 'warranty';
-    if (t.includes('детейл'))    return 'detail';     // ← новый тип ЗН (Совхозная)
+    if (t.includes('гарант'))    return 'warranty';     // Гарантийный, Гарантия по косякам, Расширенная гарантия
+    if (t.includes('детейл'))    return 'detail';
     if (t.includes('detailing')) return 'detail';
-    if (t.includes('обслужив'))  return 'internal';
-    if (t === 'корпоративный')   return 'corp';
-    if (t === 'страховой')       return 'equity';
-    if (t === 'розничный')       return 'retail';
+    if (t.includes('обслужив'))  return 'internal';     // Обслуживание своего
+    if (t.includes('комплимент')) return 'internal';    // Комплимент/бонус
+    if (t.includes('бонус'))     return 'internal';
+    if (t.startsWith('корпор'))  return 'corp';         // Корпоративный, Корпоративный П
+    if (t.startsWith('страх'))   return 'equity';       // Страховой, Страховой П
+    if (t.startsWith('рознич'))  return 'retail';       // Розничный, Розничный П
     return 'retail';
   }
 
