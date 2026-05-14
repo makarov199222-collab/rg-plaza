@@ -479,20 +479,28 @@
       return hasManual ? (+r.ins_day || 0) : (+r.ins_1c || 0);
     };
     const useRetail = r => {
-      const hasManual = (+r.total_day || 0) > 0 || (+r.retail_day || 0) > 0 || (+r.phys_day || 0) > 0 || (+r.corp_day || 0) > 0;
-      // «Розница» по бизнес-логике = физик + корпоратив (общее «не страх»).
-      // В БД retail_day = только физик, поэтому добавляем corp_day.
-      if (hasManual) return (+r.retail_day || 0) + (+r.corp_day || 0);
-      // Из 1С: retail_1c (физик) + corp_1c (юрик-розница)
-      return (+r.retail_1c || 0) + (+r.corp_1c || 0);
+      const hasManual = (+r.total_day || 0) > 0 || (+r.retail_day || 0) > 0 || (+r.phys_day || 0) > 0 || (+r.corp_day || 0) > 0 || (+r.detail_day || 0) > 0;
+      // «Розница» = физик + корпоратив + детейлинг (всё кроме страховых).
+      // Менеджеры продают всё это, детейл-цех — внутренний исполнитель.
+      if (hasManual) return (+r.retail_day || 0) + (+r.corp_day || 0) + (+r.detail_day || 0);
+      // Из 1С: retail_1c (физик) + corp_1c + detail_1c
+      return (+r.retail_1c || 0) + (+r.corp_1c || 0) + (+r.detail_1c || 0);
     };
     const usePhys = r => {
-      const hasManual = (+r.total_day || 0) > 0 || (+r.phys_day || 0) > 0 || (+r.corp_day || 0) > 0;
-      return hasManual ? (+r.phys_day || 0) : (+r.retail_1c || 0);
+      const hasManual = (+r.total_day || 0) > 0 || (+r.phys_day || 0) > 0 || (+r.corp_day || 0) > 0 || (+r.detail_day || 0) > 0;
+      // Физлица включают детейл (один менеджер продаёт)
+      if (hasManual) return (+r.phys_day || 0) + (+r.detail_day || 0);
+      return (+r.retail_1c || 0) + (+r.detail_1c || 0);
     };
     const useCorp = r => {
       const hasManual = (+r.total_day || 0) > 0 || (+r.corp_day || 0) > 0 || (+r.phys_day || 0) > 0;
       return hasManual ? (+r.corp_day || 0) : (+r.corp_1c || 0);
+    };
+    // Детейлинг (только Совхозная): отдельная категория ЗН в 1С.
+    // detail_day — ручной ввод менеджера, detail_1c — из импорта 1С.
+    const useDetail = r => {
+      const manual = +r.detail_day || 0;
+      return manual > 0 ? manual : (+r.detail_1c || 0);
     };
 
     let monthTotal=0, monthIns=0, monthRetail=0, monthPhys=0, monthCorp=0, monthBookings=0;
@@ -580,7 +588,7 @@
 
     const pointStats = {};
     data.points.forEach(p => {
-      pointStats[p.id] = { total:0, ins:0, retail:0, phys:0, corp:0, debt:0, owe:0, bookings:0, days:new Set(),
+      pointStats[p.id] = { total:0, ins:0, retail:0, phys:0, corp:0, detail:0, debt:0, owe:0, bookings:0, days:new Set(),
         plan: data.plans.find(pl => pl.point_id === p.id) || {} };
     });
     data.current.forEach(r => {
@@ -593,6 +601,7 @@
       s.retail += useRetail(r);
       s.phys   += usePhys(r);
       s.corp   += useCorp(r);
+      s.detail += useDetail(r);
       s.bookings += +r.bookings || 0;
       s.days.add(r.date);
     });
@@ -1013,6 +1022,7 @@
               ${planMonth > 0 ? `<div class="expand-item"><span>План физлица</span><span class="v g">${fm(s.phys || s.retail)} / ${fm(planMonth)} ₽</span></div>` : ''}
               ${planCorp > 0 ? `<div class="expand-item"><span>План корпоратив</span><span class="v" style="color:var(--purple);">${fm(s.corp)} / ${fm(planCorp)} ₽</span></div>` : ''}
               ${planIns > 0 ? `<div class="expand-item"><span>План страховые</span><span class="v b">${fm(s.ins)} / ${fm(planIns)} ₽</span></div>` : ''}
+              ${s.detail > 0 ? `<div class="expand-item"><span>✨ Из них детейл</span><span class="v" style="color:#e8b84b;">${fm(s.detail)} ₽</span></div>` : ''}
             </div>
           </div>
         </div>
