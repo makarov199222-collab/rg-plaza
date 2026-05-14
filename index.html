@@ -2454,11 +2454,13 @@
   function mapOnecType(typeRaw, customer, payer) {
     const t = String(typeRaw || '').trim().toLowerCase();
     if (t.includes('гарант'))    return 'warranty';
+    if (t.includes('детейл'))    return 'detail';     // ← новый тип ЗН (Совхозная)
+    if (t.includes('detailing')) return 'detail';
     if (t.includes('обслужив'))  return 'internal';
     if (t === 'корпоративный')   return 'corp';
-    if (t === 'страховой')       return 'equity';   // всё страховое (РАВТ + СК напрямую)
+    if (t === 'страховой')       return 'equity';
     if (t === 'розничный')       return 'retail';
-    return 'retail';  // неизвестный тип → розница (с осторожностью)
+    return 'retail';
   }
 
   function parseDate(val) {
@@ -2678,8 +2680,8 @@
           if (!parsed.byDayPoint[key]) {
             parsed.byDayPoint[key] = {
               date: item.close_iso, point_id: item.point_id,
-              retail: 0, corp: 0, equity: 0, ins: 0,
-              cars_retail: 0, cars_corp: 0, cars_equity: 0, cars_ins: 0,
+              retail: 0, corp: 0, equity: 0, ins: 0, detail: 0,
+              cars_retail: 0, cars_corp: 0, cars_equity: 0, cars_ins: 0, cars_detail: 0,
             };
           }
           const agg = parsed.byDayPoint[key];
@@ -2710,10 +2712,13 @@
     const totalPaid = p.closed.reduce((s,c) => s + c.sum - (c.debt || 0), 0);
     const totalDebt = p.closed.reduce((s,c) => s + Math.max(c.debt || 0, 0), 0);
     const totalOverpay = p.closed.reduce((s,c) => s + Math.min(c.debt || 0, 0), 0); // отрицательная сумма
-    const byCat = { retail: 0, corp: 0, equity: 0, ins: 0 };
-    const byCatDebt = { retail: 0, corp: 0, equity: 0, ins: 0 };
-    const carsByCat = { retail: 0, corp: 0, equity: 0, ins: 0 };
+    const byCat = { retail: 0, corp: 0, equity: 0, ins: 0, detail: 0 };
+    const byCatDebt = { retail: 0, corp: 0, equity: 0, ins: 0, detail: 0 };
+    const carsByCat = { retail: 0, corp: 0, equity: 0, ins: 0, detail: 0 };
     for (const c of p.closed) {
+      if (byCat[c.category] === undefined) byCat[c.category] = 0;
+      if (byCatDebt[c.category] === undefined) byCatDebt[c.category] = 0;
+      if (carsByCat[c.category] === undefined) carsByCat[c.category] = 0;
       byCat[c.category] += c.sum;
       byCatDebt[c.category] += Math.max(c.debt || 0, 0);
       carsByCat[c.category]++;
@@ -2721,7 +2726,7 @@
     const days = Object.values(p.byDayPoint).sort((a,b) => a.date.localeCompare(b.date));
     const points = Array.from(new Set(p.closed.map(c => c.point_id).concat(p.inWork.map(c => c.point_id))));
 
-    const CAT_LABELS = { retail: 'Розничные', corp: 'Корп', equity: 'Страховые', ins: 'СК напрямую' };
+    const CAT_LABELS = { retail: 'Розничные', corp: 'Корп', equity: 'Страховые', ins: 'СК напрямую', detail: 'Детейлинг' };
     const POINT_LBL = { kaluga: 'Калужская', serpuhov: 'Серпуховская', sovhoz: 'Совхозная', poyma: 'Пойма' };
 
     // Если точка отличается от currentPoint — предупреждение
