@@ -3324,6 +3324,8 @@
   // Если total пустой — total = ravt + other (как сумма).
   function autoCalcOwe(changed) {
     const get = id => { const v = document.getElementById(id).value; return v === '' ? null : (+v || 0); };
+    // Округление до 2 знаков для избавления от float-погрешностей JS
+    const r2 = n => Math.round(n * 100) / 100;
     const tot = get('owe_total');
     const rav = get('owe_ravt');
     const oth = get('owe_other');
@@ -3331,9 +3333,9 @@
     if (changed === 'total') {
       // Поменяли Общую — пытаемся досчитать пустое поле
       if (tot !== null && rav !== null && oth === null) {
-        document.getElementById('owe_other').value = Math.max(0, tot - rav);
+        document.getElementById('owe_other').value = r2(Math.max(0, tot - rav));
       } else if (tot !== null && oth !== null && rav === null) {
-        document.getElementById('owe_ravt').value = Math.max(0, tot - oth);
+        document.getElementById('owe_ravt').value = r2(Math.max(0, tot - oth));
       }
       return;
     }
@@ -3342,11 +3344,11 @@
       // Поменяли РАВТ
       if (tot !== null) {
         // Total ведущий — пересчитываем Остальные как разницу
-        document.getElementById('owe_other').value = Math.max(0, tot - (rav || 0));
+        document.getElementById('owe_other').value = r2(Math.max(0, tot - (rav || 0)));
       } else {
         // Total пустой — считаем total = ravt + other(если задан)
         if (rav !== null) {
-          document.getElementById('owe_total').value = rav + (oth || 0);
+          document.getElementById('owe_total').value = r2(rav + (oth || 0));
         }
       }
       return;
@@ -3355,10 +3357,10 @@
     // changed === 'other'
     if (tot !== null) {
       // Total ведущий — пересчитываем РАВТ как разницу
-      document.getElementById('owe_ravt').value = Math.max(0, tot - (oth || 0));
+      document.getElementById('owe_ravt').value = r2(Math.max(0, tot - (oth || 0)));
     } else {
       if (oth !== null) {
-        document.getElementById('owe_total').value = oth + (rav || 0);
+        document.getElementById('owe_total').value = r2(oth + (rav || 0));
       }
     }
   }
@@ -3368,42 +3370,35 @@
   // Если total пустой — total = сумма заполненных частей.
   function autoCalcDebt(changed) {
     const get = id => { const v = document.getElementById(id).value; return v === '' ? null : (+v || 0); };
+    const r2 = n => Math.round(n * 100) / 100;
     const tot = get('debt_total');
     const ret = get('debt_retail');
     const ins = get('debt_insurance');
     const cor = get('debt_corp');
 
     if (changed === 'total') {
-      // Поменяли total — если 2 части заполнены, досчитываем третью
       const parts = { retail: ret, insurance: ins, corp: cor };
       const filled = Object.entries(parts).filter(([k,v]) => v !== null);
       const empty = Object.entries(parts).filter(([k,v]) => v === null);
       if (tot !== null && filled.length === 2 && empty.length === 1) {
         const filledSum = filled.reduce((s,[k,v]) => s + v, 0);
-        document.getElementById('debt_' + empty[0][0]).value = Math.max(0, tot - filledSum);
+        document.getElementById('debt_' + empty[0][0]).value = r2(Math.max(0, tot - filledSum));
       }
       return;
     }
 
-    // Поменяли одну из частей
     if (tot !== null) {
-      // Total ведущий — пересчитываем оставшееся пустое поле как (total - все заполненные части)
       const parts = { retail: ret, insurance: ins, corp: cor };
-      // Исключаем то поле что меняем (его значение свежее)
       const others = Object.entries(parts).filter(([k]) => k !== changed);
       const otherEmpty = others.filter(([k,v]) => v === null);
       if (otherEmpty.length === 1) {
-        // Одно поле пустое — досчитываем его
         const filledSum = others.filter(([k,v]) => v !== null).reduce((s,[k,v]) => s + v, 0) + (parts[changed] || 0);
-        document.getElementById('debt_' + otherEmpty[0][0]).value = Math.max(0, tot - filledSum);
+        document.getElementById('debt_' + otherEmpty[0][0]).value = r2(Math.max(0, tot - filledSum));
       }
-      // Если все 3 части заполнены — не трогаем total (юзер видит несоответствие сам)
-      // Если 2+ пусты — ничего не пересчитываем
     } else {
-      // Total пустой — total = сумма заполненных частей
       const filled = [ret, ins, cor].filter(x => x !== null);
       if (filled.length > 0) {
-        document.getElementById('debt_total').value = filled.reduce((s,x) => s + x, 0);
+        document.getElementById('debt_total').value = r2(filled.reduce((s,x) => s + x, 0));
       }
     }
   }
