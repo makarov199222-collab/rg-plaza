@@ -3186,6 +3186,32 @@
         }
       }
 
+      // === 3.5) Закрываем cars_in_work для ЗН которые в новом импорте отгружены или ушли в quality ===
+      // Менеджер отгрузил машину в 1С → в импорте она в p.closed или p.quality (не в p.inWork).
+      // А в cars_in_work запись осталась с closed_at=NULL — показывается как «в работе».
+      // Помечаем её закрытой по дате отгрузки из 1С (или сегодня для quality).
+      let carsClosed = 0;
+      const closedNumbers = (p.closed || []).map(c => c.zn_number).filter(Boolean);
+      const qualityNumbers = (p.quality || []).map(c => c.zn_number).filter(Boolean);
+      const allClosedNumbers = [...closedNumbers, ...qualityNumbers];
+      if (allClosedNumbers.length > 0) {
+        // Закрываем порциями по 200 ЗН (in() в Supabase имеет лимит по URL)
+        const nowIso = new Date().toISOString();
+        for (let i = 0; i < allClosedNumbers.length; i += 200) {
+          const chunk = allClosedNumbers.slice(i, i + 200);
+          const { count, error } = await sb.from('cars_in_work')
+            .update({ closed_at: nowIso, status: 'closed' }, { count: 'exact' })
+            .in('zn_number', chunk)
+            .is('closed_at', null);
+          if (error) {
+            if (firstErrors.length < 5) firstErrors.push({ table: 'cars_in_work_close', code: error.code, message: error.message });
+            console.error('cars_in_work close error:', error);
+          } else if (typeof count === 'number') {
+            carsClosed += count;
+          }
+        }
+      }
+
       // === 4) Пересчёт daily_reports из orders_history_1c (по каждой точке отдельно) ===
       // Определяем диапазон дат и точки из импортированных данных
       const datesByPoint = {};
@@ -3245,7 +3271,7 @@
         toast(`⚠ ${carsImported}/${totalExpected}: ${firstErrors[0].table}: ${firstErrors[0].message}`, 'err');
         closeImport1c();
       } else {
-        toast(`☁ Импорт: ${inWorkOk} в работе · ${ordersOk} закрытых · ${qualityOk} качество · ${daysAffected} дней пересчитано`, 'ok');
+        toast(`☁ Импорт: ${inWorkOk} в работе · ${ordersOk} закрытых · ${qualityOk} качество · ${carsClosed} отгружено из работы · ${daysAffected} дней пересчитано`, 'ok');
         closeImport1c();
       }
       loadCars();
