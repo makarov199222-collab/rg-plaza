@@ -3697,7 +3697,22 @@
         .lte('closed_at', dayEnd)
         .order('closed_at');
       if (error) throw error;
-      const issued = data || [];
+      let issued = data || [];
+
+      // Исключаем quality-ЗН (гарантия, закрыт-на-затраты, обслуживание своих).
+      // Они есть в quality_events_1c и не должны попадать в "выручку дня".
+      if (issued.length > 0) {
+        const znNumbers = issued.map(c => c.zn_number).filter(Boolean);
+        if (znNumbers.length > 0) {
+          const { data: qualityZns } = await sb.from('quality_events_1c')
+            .select('zn_number')
+            .in('zn_number', znNumbers);
+          const qualitySet = new Set((qualityZns || []).map(q => q.zn_number));
+          issued = issued.filter(c => !qualitySet.has(c.zn_number));
+        }
+        // Также убираем явные quality-маркеры если ЗН не в orders_history_1c
+        issued = issued.filter(c => +c.amount > 0 || (c.service_type && c.service_type !== 'гарантия'));
+      }
       // Сохраняем в глобальную для пересчёта счётчиков/вала
       dayIssuedCars = issued;
       if (issued.length === 0) {
