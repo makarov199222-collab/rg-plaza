@@ -3433,11 +3433,12 @@
         document.getElementById('owe_other').value = data.owe_other || '';
         (data.cars_list || []).forEach(c => addCar(c));
       }
-      // Фолбэк: если в `cars_list` пусто (менеджер ещё не вписывал машины руками),
-      // но в 1С за этот день уже отгружены ЗН — подтягиваем их в форму как подсказку.
-      if (document.querySelectorAll('.car-row').length === 0) {
-        await loadCarsFrom1cIfEmpty(date);
-      }
+      // Фолбэк: раньше при пустом cars_list автоматически тянулись машины из 1С
+      // (orders_history_1c.date_shipped=date). Но они уже видны в "Архиве за день"
+      // через loadDayIssuedCars → получался двойной учёт. Отключено.
+      // if (document.querySelectorAll('.car-row').length === 0) {
+      //   await loadCarsFrom1cIfEmpty(date);
+      // }
       if (document.querySelectorAll('.car-row').length === 0) addCar();
       updateCarsSummary();
       // Загружаем выданные машины из cars_in_work за выбранный день (для всех точек)
