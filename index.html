@@ -3436,16 +3436,20 @@
         document.getElementById('owe_other').value = data.owe_other || '';
         (data.cars_list || []).forEach(c => addCar(c));
       }
-      // Фолбэк: раньше при пустом cars_list автоматически тянулись машины из 1С
-      // (orders_history_1c.date_shipped=date). Но они уже видны в "Архиве за день"
-      // через loadDayIssuedCars → получался двойной учёт. Отключено.
-      // if (document.querySelectorAll('.car-row').length === 0) {
-      //   await loadCarsFrom1cIfEmpty(date);
-      // }
+      // Подтягиваем машины дня из 1С (orders_history_1c) как редактируемые car-row.
+      // Менеджер может добавить к ним доп-услуги (антидождь, тонировка, химчистка).
+      // Если в cars_list уже что-то ручное — НЕ подтягиваем (приоритет у ручного).
+      if (document.querySelectorAll('.car-row').length === 0) {
+        await loadCarsFrom1cIfEmpty(date);
+      }
       if (document.querySelectorAll('.car-row').length === 0) addCar();
       updateCarsSummary();
       // Загружаем выданные машины из cars_in_work за выбранный день (для всех точек)
-      await loadDayIssuedCars(date);
+      // ОТКЛЮЧЕНО: теперь машины из 1С подгружаются как car-row через loadCarsFrom1cIfEmpty
+      // чтобы менеджер мог редактировать (доп-услуги). Read-only архив больше не нужен.
+      // await loadDayIssuedCars(date);
+      const issuedBlock = document.getElementById('day-issued-block');
+      if (issuedBlock) issuedBlock.style.display = 'none';
       // Подсказка по броням на завтра из 1С
       await updateBookings1cHint(date);
       // Подсказка по дебиторке из 1С
