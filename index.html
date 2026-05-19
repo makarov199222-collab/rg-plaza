@@ -3308,26 +3308,55 @@
 
   // Авторасчёт в группе долгов/обязательств.
   // 'debt' (Долги по ЗН): total = retail + insurance + corp (4 поля)
-  // 'owe' (Мы должны): total = ravt + other (3 поля как было)
+  // 'owe' (Мы должны): total = ravt + other (3 поля)
+  // Правило: при изменении total — пересчитываем недостающую часть.
+  // При изменении части — пересчитываем total как сумму частей.
   function autoCalcTriad(group, changed) {
     if (group === 'debt') {
       return autoCalcDebt(changed);
     }
-    // 'owe' — старая логика
-    const fields = { total: 'owe_total', a: 'owe_ravt', b: 'owe_other' };
+    return autoCalcOwe(changed);
+  }
+
+  // Логика для "Мы должны":
+  // Сценарий А: total пустой → меняешь части → total = ravt + other
+  // Сценарий Б: total ввели, потом ravt (или other) → вторая часть = total - первая
+  // Сценарий В: всё заполнено → редактируешь — total = ravt + other (пересчёт)
+  function autoCalcOwe(changed) {
     const get = id => { const v = document.getElementById(id).value; return v === '' ? null : (+v || 0); };
-    const tot = get(fields.total);
-    const a   = get(fields.a);
-    const b   = get(fields.b);
+    const tot = get('owe_total');
+    const rav = get('owe_ravt');
+    const oth = get('owe_other');
     if (changed === 'total') {
-      if (a !== null && b === null && tot !== null) document.getElementById(fields.b).value = Math.max(0, tot - a);
-      else if (b !== null && a === null && tot !== null) document.getElementById(fields.a).value = Math.max(0, tot - b);
+      // Меняем общую: если одна часть заполнена — досчитываем другую
+      if (tot !== null && rav !== null && oth === null) {
+        document.getElementById('owe_other').value = Math.max(0, tot - rav);
+      } else if (tot !== null && oth !== null && rav === null) {
+        document.getElementById('owe_ravt').value = Math.max(0, tot - oth);
+      }
     } else if (changed === 'ravt') {
-      if (a !== null && b !== null) document.getElementById(fields.total).value = a + b;
-      else if (a !== null && tot !== null && b === null) document.getElementById(fields.b).value = Math.max(0, tot - a);
+      // Меняем РАВТ:
+      // Если total ввели и other пустой → other = total - ravt
+      if (tot !== null && rav !== null && oth === null) {
+        document.getElementById('owe_other').value = Math.max(0, tot - rav);
+      }
+      // Если total пустой → total = ravt + other(или 0)
+      else if (tot === null && rav !== null) {
+        document.getElementById('owe_total').value = rav + (oth || 0);
+      }
+      // Если total и обе части заполнены → пересчитываем total
+      else if (tot !== null && rav !== null && oth !== null) {
+        document.getElementById('owe_total').value = rav + oth;
+      }
     } else { // 'other'
-      if (a !== null && b !== null) document.getElementById(fields.total).value = a + b;
-      else if (b !== null && tot !== null && a === null) document.getElementById(fields.a).value = Math.max(0, tot - b);
+      // Меняем Остальные — зеркально к РАВТ
+      if (tot !== null && oth !== null && rav === null) {
+        document.getElementById('owe_ravt').value = Math.max(0, tot - oth);
+      } else if (tot === null && oth !== null) {
+        document.getElementById('owe_total').value = oth + (rav || 0);
+      } else if (tot !== null && rav !== null && oth !== null) {
+        document.getElementById('owe_total').value = rav + oth;
+      }
     }
   }
 
