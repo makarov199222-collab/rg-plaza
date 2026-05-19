@@ -3189,18 +3189,32 @@
       // === 3.5) Закрываем cars_in_work для ЗН которые в новом импорте отгружены или ушли в quality ===
       // Менеджер отгрузил машину в 1С → в импорте она в p.closed или p.quality (не в p.inWork).
       // А в cars_in_work запись осталась с closed_at=NULL — показывается как «в работе».
-      // Помечаем её закрытой по дате отгрузки из 1С (или сегодня для quality).
+      // Помечаем её закрытой по реальной дате отгрузки из 1С.
       let carsClosed = 0;
-      const closedNumbers = (p.closed || []).map(c => c.zn_number).filter(Boolean);
-      const qualityNumbers = (p.quality || []).map(c => c.zn_number).filter(Boolean);
-      const allClosedNumbers = [...closedNumbers, ...qualityNumbers];
-      if (allClosedNumbers.length > 0) {
-        // Закрываем порциями по 200 ЗН (in() в Supabase имеет лимит по URL)
-        const nowIso = new Date().toISOString();
-        for (let i = 0; i < allClosedNumbers.length; i += 200) {
-          const chunk = allClosedNumbers.slice(i, i + 200);
+      // Группируем закрытые ЗН по дате отгрузки — обновляем чанками по дате
+      // (нельзя одним UPDATE т.к. дата у каждой ЗН своя)
+      const closingByDate = {};  // { 'YYYY-MM-DDTHH:MM:SS': [zn1, zn2, ...] }
+      for (const car of (p.closed || [])) {
+        if (!car.zn_number) continue;
+        // close_iso — это дата отгрузки из 1С; добавляем полдень для TZ-безопасности
+        const closedAt = car.close_iso 
+          ? new Date(car.close_iso + 'T12:00:00').toISOString()
+          : new Date().toISOString();
+        if (!closingByDate[closedAt]) closingByDate[closedAt] = [];
+        closingByDate[closedAt].push(car.zn_number);
+      }
+      // Quality ЗН — закрываем сегодняшней датой (у них нет date_shipped)
+      const todayIso = new Date().toISOString();
+      for (const car of (p.quality || [])) {
+        if (!car.zn_number) continue;
+        if (!closingByDate[todayIso]) closingByDate[todayIso] = [];
+        closingByDate[todayIso].push(car.zn_number);
+      }
+      for (const [closedAt, znList] of Object.entries(closingByDate)) {
+        for (let i = 0; i < znList.length; i += 200) {
+          const chunk = znList.slice(i, i + 200);
           const { count, error } = await sb.from('cars_in_work')
-            .update({ closed_at: nowIso, status: 'closed' }, { count: 'exact' })
+            .update({ closed_at: closedAt, status: 'closed' }, { count: 'exact' })
             .in('zn_number', chunk)
             .is('closed_at', null);
           if (error) {
