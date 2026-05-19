@@ -3318,65 +3318,94 @@
     return autoCalcOwe(changed);
   }
 
-  // Логика для "Мы должны":
-  // Сценарий А: total пустой → меняешь части → total = ravt + other
-  // Сценарий Б: total ввели, потом ravt (или other) → вторая часть = total - первая
-  // Сценарий В: всё заполнено → редактируешь — total = ravt + other (пересчёт)
+  // Логика для "Мы должны" (надёжная, без слипания):
+  // Если total введён вручную (не пустой) — он "ведущий", и при изменении РАВТ или Остальные
+  //   досчитываем ВТОРОЕ поле как (total - изменённое поле). Total НЕ перетираем.
+  // Если total пустой — total = ravt + other (как сумма).
   function autoCalcOwe(changed) {
     const get = id => { const v = document.getElementById(id).value; return v === '' ? null : (+v || 0); };
     const tot = get('owe_total');
     const rav = get('owe_ravt');
     const oth = get('owe_other');
+
     if (changed === 'total') {
-      // Меняем общую: если одна часть заполнена — досчитываем другую
+      // Поменяли Общую — пытаемся досчитать пустое поле
       if (tot !== null && rav !== null && oth === null) {
         document.getElementById('owe_other').value = Math.max(0, tot - rav);
       } else if (tot !== null && oth !== null && rav === null) {
         document.getElementById('owe_ravt').value = Math.max(0, tot - oth);
       }
-    } else if (changed === 'ravt') {
-      // Меняем РАВТ:
-      // Если total ввели и other пустой → other = total - ravt
-      if (tot !== null && rav !== null && oth === null) {
-        document.getElementById('owe_other').value = Math.max(0, tot - rav);
+      return;
+    }
+
+    if (changed === 'ravt') {
+      // Поменяли РАВТ
+      if (tot !== null) {
+        // Total ведущий — пересчитываем Остальные как разницу
+        document.getElementById('owe_other').value = Math.max(0, tot - (rav || 0));
+      } else {
+        // Total пустой — считаем total = ravt + other(если задан)
+        if (rav !== null) {
+          document.getElementById('owe_total').value = rav + (oth || 0);
+        }
       }
-      // Если total пустой → total = ravt + other(или 0)
-      else if (tot === null && rav !== null) {
-        document.getElementById('owe_total').value = rav + (oth || 0);
-      }
-      // Если total и обе части заполнены → пересчитываем total
-      else if (tot !== null && rav !== null && oth !== null) {
-        document.getElementById('owe_total').value = rav + oth;
-      }
-    } else { // 'other'
-      // Меняем Остальные — зеркально к РАВТ
-      if (tot !== null && oth !== null && rav === null) {
-        document.getElementById('owe_ravt').value = Math.max(0, tot - oth);
-      } else if (tot === null && oth !== null) {
+      return;
+    }
+
+    // changed === 'other'
+    if (tot !== null) {
+      // Total ведущий — пересчитываем РАВТ как разницу
+      document.getElementById('owe_ravt').value = Math.max(0, tot - (oth || 0));
+    } else {
+      if (oth !== null) {
         document.getElementById('owe_total').value = oth + (rav || 0);
-      } else if (tot !== null && rav !== null && oth !== null) {
-        document.getElementById('owe_total').value = rav + oth;
       }
     }
   }
 
-  // Логика для долгов: total = retail + insurance + corp.
-  // Если менеджер вводит total — не перезаписываем (он сам выбрал).
-  // Если меняется любая из частей — пересчитываем total как сумму всех 3 частей.
+  // Логика для долгов (4 поля): total = retail + insurance + corp.
+  // Если total ведущий (заполнен) — при изменении одной из частей пересчитываем ОДНО оставшееся пустое.
+  // Если total пустой — total = сумма заполненных частей.
   function autoCalcDebt(changed) {
     const get = id => { const v = document.getElementById(id).value; return v === '' ? null : (+v || 0); };
+    const tot = get('debt_total');
     const ret = get('debt_retail');
     const ins = get('debt_insurance');
     const cor = get('debt_corp');
-    if (changed !== 'total') {
-      // Любая часть изменилась → пересчитываем total как сумму существующих частей
-      const parts = [ret, ins, cor].filter(x => x !== null);
-      if (parts.length > 0) {
-        const sum = parts.reduce((s, x) => s + x, 0);
-        document.getElementById('debt_total').value = sum;
+
+    if (changed === 'total') {
+      // Поменяли total — если 2 части заполнены, досчитываем третью
+      const parts = { retail: ret, insurance: ins, corp: cor };
+      const filled = Object.entries(parts).filter(([k,v]) => v !== null);
+      const empty = Object.entries(parts).filter(([k,v]) => v === null);
+      if (tot !== null && filled.length === 2 && empty.length === 1) {
+        const filledSum = filled.reduce((s,[k,v]) => s + v, 0);
+        document.getElementById('debt_' + empty[0][0]).value = Math.max(0, tot - filledSum);
+      }
+      return;
+    }
+
+    // Поменяли одну из частей
+    if (tot !== null) {
+      // Total ведущий — пересчитываем оставшееся пустое поле как (total - все заполненные части)
+      const parts = { retail: ret, insurance: ins, corp: cor };
+      // Исключаем то поле что меняем (его значение свежее)
+      const others = Object.entries(parts).filter(([k]) => k !== changed);
+      const otherEmpty = others.filter(([k,v]) => v === null);
+      if (otherEmpty.length === 1) {
+        // Одно поле пустое — досчитываем его
+        const filledSum = others.filter(([k,v]) => v !== null).reduce((s,[k,v]) => s + v, 0) + (parts[changed] || 0);
+        document.getElementById('debt_' + otherEmpty[0][0]).value = Math.max(0, tot - filledSum);
+      }
+      // Если все 3 части заполнены — не трогаем total (юзер видит несоответствие сам)
+      // Если 2+ пусты — ничего не пересчитываем
+    } else {
+      // Total пустой — total = сумма заполненных частей
+      const filled = [ret, ins, cor].filter(x => x !== null);
+      if (filled.length > 0) {
+        document.getElementById('debt_total').value = filled.reduce((s,x) => s + x, 0);
       }
     }
-    // Если total изменили вручную — не трогаем части (менеджер знает что делает)
   }
 
 
