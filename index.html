@@ -684,6 +684,9 @@
         <div class="cars-only" id="day-issued-block" style="display:none;margin-bottom:14px;padding:10px;background:#141414;border-radius:8px;border-left:3px solid var(--green);">
           <div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">📦 Выданы из «🚗 Машины» <span id="issued-summary" style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;"></span></div>
           <div id="issued-list" style="font-size:12px;color:var(--text);line-height:1.6;"></div>
+          <div id="day-issued-hint" style="display:none;margin-top:8px;padding:6px 8px;background:rgba(255,193,7,.08);border:1px solid rgba(255,193,7,.3);border-radius:6px;font-size:11px;color:var(--muted);line-height:1.4;">
+            ⚠ Список из последнего импорта 1С. Если отгружали ЗН позже — обнови импорт во вкладке «🚗 Машины» → «☁ Импорт 1С»
+          </div>
         </div>
         <div class="cars-only" id="day-oneoff-label" style="display:none;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">➕ Разовые (без вкладки):</div>
         <div class="cars-list" id="cars"></div>
@@ -3687,32 +3690,26 @@
     const summaryEl = document.getElementById('issued-summary');
     if (!block || !listEl) return;
     try {
-      // closed_at — timestamptz. Фильтруем диапазоном суток.
-      const dayStart = `${date}T00:00:00`;
-      const dayEnd   = `${date}T23:59:59`;
-      const { data, error } = await sb.from('cars_in_work')
-        .select('*')
+      // Источник истины для "выручка дня" — orders_history_1c.date_shipped.
+      // cars_in_work.closed_at — это про машины которые БЫЛИ в работе. Но новые ЗН созданные сразу
+      // отгруженными (не проходили через "в работе") туда не попадают. Поэтому берём orders_history_1c.
+      const { data, error } = await sb.from('orders_history_1c')
+        .select('zn_number, plate, customer, car_model, amount, category, status_1c')
         .eq('point_id', currentPoint.id)
-        .gte('closed_at', dayStart)
-        .lte('closed_at', dayEnd)
-        .order('closed_at');
+        .eq('date_shipped', date)
+        .order('zn_number');
       if (error) throw error;
-      let issued = data || [];
+      let issued = (data || []).map(o => ({
+        zn_number: o.zn_number,
+        plate: o.plate,
+        info: `${o.plate || ''} · ${o.car_model || ''} · ${o.customer || ''}`.trim(),
+        amount: o.amount,
+        // category из 1С → service_type для UI
+        service_type: (o.category === 'corp') ? 'корп'
+                    : (o.category === 'ins' || o.category === 'equity') ? 'страх'
+                    : 'розн',
+      })).filter(o => +o.amount > 0); // гарантия с 0 рублей не нужна в архиве
 
-      // Исключаем quality-ЗН (гарантия, закрыт-на-затраты, обслуживание своих).
-      // Они есть в quality_events_1c и не должны попадать в "выручку дня".
-      if (issued.length > 0) {
-        const znNumbers = issued.map(c => c.zn_number).filter(Boolean);
-        if (znNumbers.length > 0) {
-          const { data: qualityZns } = await sb.from('quality_events_1c')
-            .select('zn_number')
-            .in('zn_number', znNumbers);
-          const qualitySet = new Set((qualityZns || []).map(q => q.zn_number));
-          issued = issued.filter(c => !qualitySet.has(c.zn_number));
-        }
-        // Также убираем явные quality-маркеры если ЗН не в orders_history_1c
-        issued = issued.filter(c => +c.amount > 0 || (c.service_type && c.service_type !== 'гарантия'));
-      }
       // Сохраняем в глобальную для пересчёта счётчиков/вала
       dayIssuedCars = issued;
       if (issued.length === 0) {
@@ -3737,6 +3734,12 @@
       listEl.innerHTML = html;
       // После загрузки выданных — пересчитать вал/счётчики (они учитывают оба источника)
       updateCountersFromCars();
+      // Подсказка «обнови импорт» — только если смотрим сегодняшний день
+      const hintEl = document.getElementById('day-issued-hint');
+      if (hintEl) {
+        const today = new Date().toISOString().substring(0,10);
+        hintEl.style.display = (date === today) ? '' : 'none';
+      }
     } catch (e) {
       console.error('loadDayIssuedCars error:', e);
       dayIssuedCars = [];
