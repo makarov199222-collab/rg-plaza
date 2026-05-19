@@ -3491,10 +3491,8 @@
       }
       // Подтягиваем машины дня из 1С (orders_history_1c) как редактируемые car-row.
       // Менеджер может добавить к ним доп-услуги (антидождь, тонировка, химчистка).
-      // Если в cars_list уже что-то ручное — НЕ подтягиваем (приоритет у ручного).
-      if (document.querySelectorAll('.car-row').length === 0) {
-        await loadCarsFrom1cIfEmpty(date);
-      }
+      // ВСЕГДА вызываем — функция сама не дублирует то что уже есть в форме (проверка по plate).
+      await loadCarsFrom1cIfEmpty(date);
       if (document.querySelectorAll('.car-row').length === 0) addCar();
       updateCarsSummary();
       // Загружаем выданные машины из cars_in_work за выбранный день (для всех точек)
@@ -3530,24 +3528,36 @@
       if (error) throw error;
       const rows = data || [];
       if (rows.length === 0) return;
-      // Преобразуем категорию orders_history_1c → значение dropdown в форме
       const mapCat = c => {
         if (c === 'equity' || c === 'ins') return 'страх';
         if (c === 'corp') return 'корп';
         if (c === 'retail') return 'розн';
         return 'страх';
       };
-      // Текст: [категория] № гос. марка ФИО — вид работ
+      // Собираем plate уже существующих car-row, чтобы не дублировать
+      const existingPlates = new Set();
+      document.querySelectorAll('.car-row').forEach(row => {
+        const text = row.querySelector('.car-text')?.value || '';
+        // Plate обычно первое слово в строке
+        const plate = text.trim().split(/\s+/)[0];
+        if (plate) existingPlates.add(plate.toUpperCase());
+      });
+      let added = 0;
       rows.forEach(o => {
         const plateStr = o.plate && o.plate !== 'Б/Н' ? o.plate : '';
+        // Пропускаем если такой plate уже добавлен вручную
+        if (plateStr && existingPlates.has(plateStr.toUpperCase())) return;
         const parts = [plateStr, o.car_model, o.customer].filter(Boolean).join(' ');
         addCar({
           text: parts,
           sum: +o.amount || 0,
           type: mapCat(o.category),
         });
+        added++;
       });
-      toast(`☁ Загружено ${rows.length} машин из 1С — проверь и сохрани`, 'ok');
+      if (added > 0) {
+        toast(`☁ Загружено ${added} машин из 1С — проверь и сохрани`, 'ok');
+      }
     } catch (e) {
       console.error('loadCarsFrom1cIfEmpty error:', e);
     }
