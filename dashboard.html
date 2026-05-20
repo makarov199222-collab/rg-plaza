@@ -1005,11 +1005,11 @@
         } catch (e) { console.warn('Soft error:', e.message); return { data: [] }; }
       };
 
-      const [pointsRes, reportsRes, plansRes, yearRes, fotRes, expRes, taxRes, dirsRes, pnlRes, ordersRes, missingDirRes, missingDirCarsRes] = await Promise.all([
+      const [pointsRes, reportsRes, plansRes, yearRes, fotRes, expRes, taxRes, dirsRes, pnlRes, ordersRes, missingDirRes, missingDirCarsRes, fcDoneRes, fcBookedRes] = await Promise.all([
         sb.from('points').select('*').order('id'),
         sb.from('daily_reports_unified').select('*').gte('date', range.start).lte('date', range.end).order('date'),
         sb.from('plans').select('*'),
-        sb.from('daily_reports_unified').select('point_id,date,total_day,debt_total,debt_retail,debt_insurance,owe_total,owe_ravt,owe_other').gte('date', yearStart).lte('date', range.end),
+        sb.from('daily_reports_unified').select('point_id,date,total_day,debt_total,debt_retail,debt_insurance,debt_corp,owe_total,owe_ravt,owe_other').gte('date', yearStart).lte('date', range.end),
         sb.from('fot_summary').select('*').eq('period', period).maybeSingle(),
         sb.from('expenses_monthly').select('*').eq('period', period),
         sb.from('taxes_monthly').select('*').eq('period', period),
@@ -1021,6 +1021,10 @@
         safe(sb.from('orders_history_1c').select('zn_number, point_id, amount, debt, customer, payer, insurance_company, date_shipped, direction_number, category').eq('category', 'equity').gte('date_shipped', yearStart)),
         // То же по машинам в работе (открытые страх-ЗН)
         safe(sb.from('cars_in_work').select('zn_number, point_id, amount, debt, info, arrived_at, direction_number, insurance_company').eq('source_1c', true).eq('service_type', 'страх')),
+        // Прогноз: отгрузки текущего месяца (Сделано)
+        safe(sb.from('orders_history_1c').select('point_id, amount, date_shipped').gte('date_shipped', range.start).lte('date_shipped', range.end)),
+        // Прогноз: машины в работе с датой записи (Записано на остаток)
+        safe(sb.from('cars_in_work').select('point_id, amount, expected_at').is('closed_at', null).not('expected_at', 'is', null)),
       ]);
       if (pointsRes.error) throw pointsRes.error;
       if (reportsRes.error) throw reportsRes.error;
@@ -1043,6 +1047,8 @@
         ravtOrders: ordersRes.data || [],
         missingDirOrders: missingDirRes.data || [],
         missingDirCars: missingDirCarsRes.data || [],
+        fcDone: fcDoneRes.data || [],
+        fcBooked: fcBookedRes.data || [],
         range, period
       };
       renderOverview(cachedData);
@@ -1313,6 +1319,98 @@
 
     // === HTML ===
     let html = '';
+
+    // === ПРОГНОЗ МЕСЯЦА ===
+    // Сделано (по точкам) — из fcDone (отгрузки текущего месяца)
+    const fcDoneByPoint = {};
+    (data.fcDone || []).forEach(o => {
+      fcDoneByPoint[o.point_id] = (fcDoneByPoint[o.point_id] || 0) + (+o.amount || 0);
+    });
+    // Записано на остаток (по точкам) — из fcBooked где expected_at от сегодня до конца месяца
+    const fcTodayStr = new Date().toISOString().substring(0,10);
+    const fcMonthEnd = data.range.end;
+    const fcBookedByPoint = {};
+    (data.fcBooked || []).forEach(c => {
+      if (!c.expected_at) return;
+      if (c.expected_at >= fcTodayStr && c.expected_at <= fcMonthEnd) {
+        fcBookedByPoint[c.point_id] = (fcBookedByPoint[c.point_id] || 0) + (+c.amount || 0);
+      }
+    });
+    // План месяца по точке (сумма 3 категорий)
+    const fcPlanByPoint = {};
+    data.points.forEach(p => {
+      const plan = (data.plans || []).find(pl => pl.point_id === p.id) || {};
+      fcPlanByPoint[p.id] = (+plan.plan_phys_month || 0) + (+plan.plan_corp_month || 0) + (+plan.plan_ins_month || 0);
+    });
+    // Общие суммы
+    let fcDoneTotal = 0, fcBookedTotal = 0, fcPlanTotal = 0;
+    data.points.forEach(p => {
+      fcDoneTotal += fcDoneByPoint[p.id] || 0;
+      fcBookedTotal += fcBookedByPoint[p.id] || 0;
+      fcPlanTotal += fcPlanByPoint[p.id] || 0;
+    });
+    const fcForecastTotal = fcDoneTotal + fcBookedTotal;
+    const fcPlanPct = fcPlanTotal > 0 ? Math.round(fcForecastTotal / fcPlanTotal * 100) : null;
+
+    // Блок прогноза (свод + разбивка по точкам)
+    const fcPointRow = (p) => {
+      const done = Math.round(fcDoneByPoint[p.id] || 0);
+      const booked = Math.round(fcBookedByPoint[p.id] || 0);
+      const forecast = done + booked;
+      const plan = Math.round(fcPlanByPoint[p.id] || 0);
+      const pct = plan > 0 ? Math.round(forecast / plan * 100) : null;
+      const pctColor = pct === null ? 'var(--muted)' : pct >= 90 ? 'var(--green)' : pct >= 70 ? 'var(--accent)' : 'var(--red)';
+      return `<tr style="border-top:1px solid var(--border);">
+        <td style="padding:8px 6px;font-weight:600;">${p.name}</td>
+        <td style="padding:8px 6px;text-align:right;color:var(--green);">${fm(done)}</td>
+        <td style="padding:8px 6px;text-align:right;color:var(--blue);">${fm(booked)}</td>
+        <td style="padding:8px 6px;text-align:right;font-weight:700;color:var(--accent);">${fm(forecast)}</td>
+        <td style="padding:8px 6px;text-align:right;color:var(--muted);">${plan ? fm(plan) : '—'}</td>
+        <td style="padding:8px 6px;text-align:right;font-weight:700;color:${pctColor};">${pct === null ? '—' : pct + '%'}</td>
+      </tr>`;
+    };
+    html += `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:16px;">
+        <div style="font-size:15px;font-weight:700;margin-bottom:12px;">📈 Прогноз месяца — ${monthName}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:14px;">
+          <div style="background:var(--surface2);border-radius:8px;padding:12px;text-align:center;">
+            <div style="font-size:10px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">✅ Сделано</div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--green);line-height:1;">${fm(Math.round(fcDoneTotal))}</div>
+          </div>
+          <div style="background:var(--surface2);border-radius:8px;padding:12px;text-align:center;">
+            <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">📅 Записано</div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--blue);line-height:1;">${fm(Math.round(fcBookedTotal))}</div>
+          </div>
+          <div style="background:rgba(255,193,7,.08);border:1px solid var(--accent);border-radius:8px;padding:12px;text-align:center;">
+            <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">📈 Прогноз</div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--accent);line-height:1;">${fm(Math.round(fcForecastTotal))}</div>
+          </div>
+          <div style="background:var(--surface2);border-radius:8px;padding:12px;text-align:center;">
+            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">🎯 vs План</div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:${fcPlanPct === null ? 'var(--muted)' : fcPlanPct >= 90 ? 'var(--green)' : fcPlanPct >= 70 ? 'var(--accent)' : 'var(--red)'};line-height:1;">${fcPlanPct === null ? '—' : fcPlanPct + '%'}</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:4px;">${fcPlanTotal ? 'план ' + fm(Math.round(fcPlanTotal)) : 'план не задан'}</div>
+          </div>
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead>
+            <tr style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px;">
+              <td style="padding:4px 6px;">Точка</td>
+              <td style="padding:4px 6px;text-align:right;">Сделано</td>
+              <td style="padding:4px 6px;text-align:right;">Записано</td>
+              <td style="padding:4px 6px;text-align:right;">Прогноз</td>
+              <td style="padding:4px 6px;text-align:right;">План</td>
+              <td style="padding:4px 6px;text-align:right;">%</td>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.points.map(p => fcPointRow(p)).join('')}
+          </tbody>
+        </table>
+        <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5;">
+          Прогноз = отгружено + записанные машины с датой до конца месяца. Реальная цифра может быть ниже, если кто-то не приедет.
+        </div>
+      </div>
+    `;
 
     // Алерты сверху
     if (alerts.length) {
@@ -1944,7 +2042,7 @@
       try {
         const since = new Date(new Date(date).getTime() - 90*24*60*60*1000).toISOString().substring(0,10);
         const { data: debtData } = await sb.from('daily_reports_unified')
-          .select('point_id,date,debt_total,debt_retail,debt_insurance,owe_total,owe_ravt,owe_other')
+          .select('point_id,date,debt_total,debt_retail,debt_insurance,debt_corp,owe_total,owe_ravt,owe_other')
           .gte('date', since)
           .lte('date', date)
           .order('date', { ascending: false });
@@ -2072,6 +2170,7 @@
     const debtTotal = +debtSource.debt_total || 0;
     const debtRetail = +debtSource.debt_retail || 0;
     const debtIns = +debtSource.debt_insurance || 0;
+    const debtCorp = +debtSource.debt_corp || 0;
     const oweSource = neighborOwe || debtSource;
     const oweTotal = +oweSource.owe_total || 0;
     const oweRavt = +oweSource.owe_ravt || 0;
@@ -2111,10 +2210,11 @@ ${maxSubs}
 5) запись на ${nextDate} общая:
 ${bookings}
 
-6) долги по заказ нарядам , общая сумма не погашенных заказ нарядов:
+6) долги по заказ нарядам (только этой точки):
 ${fm(debtTotal)}
 ${fm(debtRetail)} (розница) 
-${fm(debtIns)} (страховые) 
+${fm(debtIns)} (СК+РАВТ) 
+${fm(debtCorp)} (корп) 
 
 7)Мы должны:${oweFromNeighbor ? ' (данные из соседней точки региона — юрлицо одно)' : (oweTotal > 0 ? ' (по юрлицу)' : '')}
 ${fm(oweTotal)}
@@ -3745,10 +3845,90 @@ ${point.name} ${flow}`;
             </div>
           </div>
 
+          <!-- Прогноз месяца по точкам (заполняется async) -->
+          <div class="pulse-card full" id="forecast-block" style="margin-top:14px;">
+            <div class="pulse-card-head">
+              <div class="pulse-title">📈 Прогноз месяца</div>
+              <div class="pulse-hint">сделано + записано</div>
+            </div>
+            <div id="forecast-body">
+              <div style="color:#888;font-size:12px;text-align:center;padding:10px 0;">Загружаю прогноз…</div>
+            </div>
+          </div>
+
         </div>
       </div>
     `;
     c.innerHTML = html;
+    renderForecastByPoints();  // async, заполнит #forecast-body
+  }
+
+  // === Прогноз месяца по всем точкам ===
+  async function renderForecastByPoints() {
+    const body = document.getElementById('forecast-body');
+    if (!body) return;
+    try {
+      const range = pulseData.range;
+      const pad = n => String(n).padStart(2, '0');
+      const monthStart = `${range.year}-${pad(range.month)}-01`;
+      const lastDay = new Date(range.year, range.month, 0).getDate();
+      const monthEnd = `${range.year}-${pad(range.month)}-${pad(lastDay)}`;
+      const today = new Date().toISOString().substring(0,10);
+
+      // Все отгрузки месяца по точкам
+      const { data: shipped } = await sb.from('orders_history_1c')
+        .select('point_id, amount')
+        .gte('date_shipped', monthStart)
+        .lte('date_shipped', monthEnd);
+      // Все записанные машины с датой до конца месяца
+      const { data: booked } = await sb.from('cars_in_work')
+        .select('point_id, amount, expected_at')
+        .is('closed_at', null)
+        .gte('expected_at', today)
+        .lte('expected_at', monthEnd);
+
+      const done = {}, book = {};
+      (shipped || []).forEach(o => { done[o.point_id] = (done[o.point_id]||0) + (+o.amount||0); });
+      (booked || []).forEach(c => { book[c.point_id] = (book[c.point_id]||0) + (+c.amount||0); });
+
+      const POINT_NAMES = { kaluga:'Калужская', serpuhov:'Серпуховская', sovhoz:'Совхозная', poyma:'Пойма' };
+      const pids = Object.keys(POINT_NAMES);
+      let totalDone = 0, totalBook = 0;
+      const rows = pids.map(pid => {
+        const d = Math.round(done[pid]||0), b = Math.round(book[pid]||0);
+        totalDone += d; totalBook += b;
+        const f = d + b;
+        return `<tr style="border-bottom:1px solid #2a2a2a;">
+          <td style="padding:8px 6px;color:#fff;">${POINT_NAMES[pid]}</td>
+          <td style="padding:8px 6px;text-align:right;color:#4caf50;">${fs(d)}</td>
+          <td style="padding:8px 6px;text-align:right;color:#2196f3;">${fs(b)}</td>
+          <td style="padding:8px 6px;text-align:right;color:#e8b84b;font-weight:700;">${fs(f)}</td>
+        </tr>`;
+      }).join('');
+      const totalForecast = totalDone + totalBook;
+
+      body.innerHTML = `
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="border-bottom:1px solid #333;color:#888;font-size:11px;text-transform:uppercase;">
+            <th style="padding:6px;text-align:left;">Точка</th>
+            <th style="padding:6px;text-align:right;">✅ Сделано</th>
+            <th style="padding:6px;text-align:right;">📅 Записано</th>
+            <th style="padding:6px;text-align:right;">📈 Прогноз</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot><tr style="border-top:2px solid #444;font-weight:700;">
+            <td style="padding:8px 6px;color:#fff;">ИТОГО</td>
+            <td style="padding:8px 6px;text-align:right;color:#4caf50;">${fs(totalDone)}</td>
+            <td style="padding:8px 6px;text-align:right;color:#2196f3;">${fs(totalBook)}</td>
+            <td style="padding:8px 6px;text-align:right;color:#e8b84b;">${fs(totalForecast)}</td>
+          </tr></tfoot>
+        </table>
+        <div style="font-size:11px;color:#888;margin-top:8px;">Прогноз = отгружено в месяце + записанные машины с датой до конца месяца. Не показывается учредителям.</div>
+      `;
+    } catch (e) {
+      console.error('renderForecastByPoints error:', e);
+      body.innerHTML = `<div style="color:#888;font-size:12px;text-align:center;padding:10px 0;">Не удалось загрузить прогноз</div>`;
+    }
   }
 
   function channelBarHtml(label, val, prev, total, color) {
