@@ -784,6 +784,13 @@
     </div>
 
     <div class="card">
+      <div class="card-head"><div class="card-title">📈 Прогноз месяца</div></div>
+      <div class="card-body" id="month-forecast-body">
+        <div style="text-align:center;color:var(--muted);font-size:13px;padding:10px 0;">Загружаю прогноз…</div>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="card-head"><div class="card-title">📊 Текущий статус</div></div>
       <div class="card-body" id="plan-status-body">
         <div style="text-align:center;color:var(--muted);font-size:13px;padding:10px 0;">План пока не задан</div>
@@ -1872,7 +1879,7 @@
         localStorage.setItem(key, JSON.stringify(visited));
       }
     }
-    if (t === 'plan') renderPlanStatus();
+    if (t === 'plan') { renderPlanStatus(); renderMonthForecast(); }
     if (t === 'cars') loadCars();
     if (t === 'game') {
       loadMyChallenges().then(() => renderMyGamePage());
@@ -4056,6 +4063,71 @@
       ${block('Страховые', planData.plan_ins_month, insMonth)}
       ${block('Розница (физлица)', planData.plan_phys_month, physMonth)}
       ${block('Корпоратив', planData.plan_corp_month, corpMonth)}`;
+  }
+
+  // === Прогноз месяца ===
+  // Сделано = выручка orders_history_1c за текущий месяц (date_shipped)
+  // Записано на остаток = SUM(amount) cars_in_work где expected_at от сегодня до конца месяца
+  // Прогноз = Сделано + Записано
+  async function renderMonthForecast() {
+    const body = document.getElementById('month-forecast-body');
+    if (!body || !currentPoint) return;
+    try {
+      const d = new Date(getDateValue());
+      const y = d.getFullYear(), m = d.getMonth();
+      const pad = n => String(n).padStart(2, '0');
+      const monthStart = `${y}-${pad(m+1)}-01`;
+      const lastDay = new Date(y, m+1, 0).getDate();
+      const monthEnd = `${y}-${pad(m+1)}-${pad(lastDay)}`;
+      const today = todayLocalISO();
+
+      const { data: shipped, error: e1 } = await sb.from('orders_history_1c')
+        .select('amount')
+        .eq('point_id', currentPoint.id)
+        .gte('date_shipped', monthStart)
+        .lte('date_shipped', monthEnd);
+      if (e1) throw e1;
+      const doneSum = (shipped || []).reduce((s, o) => s + (+o.amount || 0), 0);
+      const doneCount = (shipped || []).length;
+
+      const { data: booked, error: e2 } = await sb.from('cars_in_work')
+        .select('amount, expected_at')
+        .eq('point_id', currentPoint.id)
+        .is('closed_at', null)
+        .gte('expected_at', today)
+        .lte('expected_at', monthEnd);
+      if (e2) throw e2;
+      const bookedSum = (booked || []).reduce((s, c) => s + (+c.amount || 0), 0);
+      const bookedCount = (booked || []).length;
+
+      const forecast = doneSum + bookedSum;
+
+      body.innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+          <div style="background:var(--surface2);border-radius:8px;padding:12px;text-align:center;">
+            <div style="font-size:10px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">✅ Сделано</div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--green);line-height:1;">${fm(Math.round(doneSum))} ₽</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:4px;">${doneCount} ЗН отгружено</div>
+          </div>
+          <div style="background:var(--surface2);border-radius:8px;padding:12px;text-align:center;">
+            <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">📅 Записано</div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--blue);line-height:1;">${fm(Math.round(bookedSum))} ₽</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:4px;">${bookedCount} машин до конца месяца</div>
+          </div>
+          <div style="background:rgba(255,193,7,.08);border:1px solid var(--accent);border-radius:8px;padding:12px;text-align:center;">
+            <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">📈 Прогноз</div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--accent);line-height:1;">${fm(Math.round(forecast))} ₽</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:4px;">если все приедут</div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5;">
+          Прогноз = уже отгружено + записанные машины с датой до конца месяца. Реальная цифра может быть ниже, если кто-то не приедет.
+        </div>
+      `;
+    } catch (e) {
+      console.error('renderMonthForecast error:', e);
+      body.innerHTML = `<div style="color:var(--muted);font-size:12px;text-align:center;padding:10px 0;">Не удалось загрузить прогноз</div>`;
+    }
   }
 
   function fm(n) { return n ? Number(n).toLocaleString('ru-RU') : '0'; }
