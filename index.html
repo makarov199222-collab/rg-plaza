@@ -2505,9 +2505,17 @@
   function extractRegistryDate(val) {
     if (!val) return null;
     const s = String(val);
-    const m = s.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+    // Поддержка форматов: DD.MM.YYYY / DD,MM,YY / DD/MM/YY / DD-MM-YYYY и т.п.
+    // Разделитель — точка, запятая, слеш или дефис. Год 2 или 4 цифры.
+    const m = s.match(/(\d{1,2})[.,/\-](\d{1,2})[.,/\-](\d{2,4})/);
     if (!m) return null;
-    return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+    let [, d, mo, y] = m;
+    // Двузначный год → 20XX
+    if (y.length === 2) y = '20' + y;
+    // Валидация диапазонов
+    const dd = +d, mm = +mo;
+    if (dd < 1 || dd > 31 || mm < 1 || mm > 12) return null;
+    return `${y}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`;
   }
 
   // Парсер суммы из 1С. XLSX с raw:false форматирует числа по локали — "5 000",
