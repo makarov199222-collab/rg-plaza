@@ -508,6 +508,7 @@
     <button class="tab" onclick="showTab('plan')">🎯 План</button>
     <button class="tab cars-only" style="display:none;" onclick="showTab('cars')">🚗 Машины</button>
     <button class="tab" id="tab-game-btn" onclick="showTab('game')" style="display:none;">🎮 Я</button>
+    <button class="tab" id="tab-roles-btn" onclick="showTab('roles')">👥 Роли</button>
     <button class="tab" id="tab-learn-btn" onclick="showTab('learn')" style="display:none;">🎓 Обучение</button>
   </div>
 
@@ -826,6 +827,23 @@
   <div class="page" id="tab-game">
     <div class="game-page" id="game-content">
       <div class="loader"><div class="spinner"></div>Загружаю мою игру...</div>
+    </div>
+  </div>
+
+  <div class="page" id="tab-roles">
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">👥 Зоны ответственности</div>
+        <button class="ce-btn" onclick="addZone()" style="font-size:12px;padding:6px 12px;">+ Зона</button>
+      </div>
+      <div class="card-body">
+        <div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px;">
+          Кто за что отвечает постоянно. Заполни ответственного и заместителя по каждой зоне — споров «кто это делает» больше не будет. Изменения видят все.
+        </div>
+        <div id="zones-list">
+          <div class="loader"><div class="spinner"></div>Загружаю зоны...</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1880,6 +1898,7 @@
       }
     }
     if (t === 'plan') { renderPlanStatus(); renderMonthForecast(); }
+    if (t === 'roles') loadZones();
     if (t === 'cars') loadCars();
     if (t === 'game') {
       loadMyChallenges().then(() => renderMyGamePage());
@@ -2666,8 +2685,13 @@
         const point_id = resolvePointFromTerritory(territory);
         if (!point_id) { parsed.unknownPoint++; continue; }
 
+        // Нормализуем номер ЗН: убираем пробелы и дополняем нулями до 10 знаков.
+        // Иначе '1054' и '0000001054' считаются разными PRIMARY KEY → дубли в БД.
+        let znRaw = String(number).trim();
+        if (/^\d+$/.test(znRaw)) znRaw = znRaw.padStart(10, '0');
+
         const item = {
-          zn_number: String(number).trim(),
+          zn_number: znRaw,
           point_id,
           category: cat,
           sum: parseSum1c(row[cols.sum]),
@@ -4064,6 +4088,95 @@
       ${block('Розница (физлица)', planData.plan_phys_month, physMonth)}
       ${block('Корпоратив', planData.plan_corp_month, corpMonth)}`;
   }
+
+  // === Зоны ответственности ===
+  let zonesCache = [];
+  async function loadZones() {
+    const list = document.getElementById('zones-list');
+    if (!list) return;
+    try {
+      const { data, error } = await sb.from('responsibility_zones')
+        .select('*')
+        .order('sort_order');
+      if (error) throw error;
+      zonesCache = data || [];
+      renderZones();
+    } catch (e) {
+      console.error('loadZones error:', e);
+      list.innerHTML = `<div style="color:var(--muted);font-size:12px;text-align:center;padding:14px;">Не удалось загрузить. Создай таблицу responsibility_zones в Supabase.</div>`;
+    }
+  }
+
+  function renderZones() {
+    const list = document.getElementById('zones-list');
+    if (!list) return;
+    if (zonesCache.length === 0) {
+      list.innerHTML = `<div style="color:var(--muted);font-size:12px;text-align:center;padding:14px;">Зон пока нет. Нажми «+ Зона».</div>`;
+      return;
+    }
+    list.innerHTML = zonesCache.map(z => `
+      <div style="background:var(--surface2);border-radius:10px;padding:12px;margin-bottom:8px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <input value="${(z.zone||'').replace(/"/g,'&quot;')}" placeholder="Название зоны"
+            onchange="updateZone('${z.id}','zone',this.value)"
+            style="flex:1;background:#0e0e0e;border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:7px;font-family:inherit;font-size:13px;font-weight:600;outline:none;">
+          <button onclick="deleteZone('${z.id}')" style="background:none;border:none;color:var(--red);font-size:16px;cursor:pointer;padding:4px 8px;">✕</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+          <div>
+            <div style="font-size:10px;color:var(--green);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Ответственный</div>
+            <input value="${(z.owner_name||'').replace(/"/g,'&quot;')}" placeholder="Имя"
+              onchange="updateZone('${z.id}','owner_name',this.value)"
+              style="width:100%;background:#0e0e0e;border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:7px;font-family:inherit;font-size:13px;outline:none;">
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Заместитель</div>
+            <input value="${(z.deputy_name||'').replace(/"/g,'&quot;')}" placeholder="Имя"
+              onchange="updateZone('${z.id}','deputy_name',this.value)"
+              style="width:100%;background:#0e0e0e;border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:7px;font-family:inherit;font-size:13px;outline:none;">
+          </div>
+        </div>
+        <input value="${(z.note||'').replace(/"/g,'&quot;')}" placeholder="Уточнение (график, условия)"
+          onchange="updateZone('${z.id}','note',this.value)"
+          style="width:100%;background:#0e0e0e;border:1px solid var(--border);color:var(--muted);padding:6px 10px;border-radius:7px;font-family:inherit;font-size:12px;outline:none;">
+      </div>
+    `).join('');
+  }
+
+  async function addZone() {
+    try {
+      const maxOrder = zonesCache.reduce((m,z) => Math.max(m, z.sort_order||0), 0);
+      const { data, error } = await sb.from('responsibility_zones')
+        .insert({ zone: '', owner_name: '', deputy_name: '', note: '', sort_order: maxOrder + 1 })
+        .select().single();
+      if (error) throw error;
+      zonesCache.push(data);
+      renderZones();
+    } catch (e) { console.error('addZone error:', e); toast('Не удалось добавить зону', 'err'); }
+  }
+  window.addZone = addZone;
+
+  async function updateZone(id, field, value) {
+    try {
+      const { error } = await sb.from('responsibility_zones')
+        .update({ [field]: value, updated_at: new Date().toISOString() })
+        .eq('id', id);
+      if (error) throw error;
+      const z = zonesCache.find(x => x.id === id);
+      if (z) z[field] = value;
+    } catch (e) { console.error('updateZone error:', e); toast('Не сохранилось', 'err'); }
+  }
+  window.updateZone = updateZone;
+
+  async function deleteZone(id) {
+    try {
+      const { error } = await sb.from('responsibility_zones').delete().eq('id', id);
+      if (error) throw error;
+      zonesCache = zonesCache.filter(z => z.id !== id);
+      renderZones();
+    } catch (e) { console.error('deleteZone error:', e); toast('Не удалось удалить', 'err'); }
+  }
+  window.deleteZone = deleteZone;
 
   // === Прогноз месяца ===
   // Сделано = выручка orders_history_1c за текущий месяц (date_shipped)
