@@ -342,6 +342,17 @@
   .gen-btn:disabled{opacity:.5;cursor:wait;}
   .gen-btn-m{flex:1;padding:16px;background:var(--surface2);border:1px solid var(--accent);border-radius:12px;color:var(--accent);font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1px;cursor:pointer;}
 
+  /* === Индикатор загрузки импорта 1С === */
+  #import-progress{display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);backdrop-filter:blur(6px);z-index:9999;align-items:center;justify-content:center;flex-direction:column;gap:22px;padding:24px;text-align:center;}
+  #import-progress.show{display:flex;}
+  .imp-spinner{width:64px;height:64px;border:5px solid rgba(232,184,75,.22);border-top-color:var(--accent);border-radius:50%;animation:imp-spin .8s linear infinite;}
+  @keyframes imp-spin{to{transform:rotate(360deg);}}
+  .imp-stage{font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:2px;color:var(--accent);}
+  .imp-sub{font-size:14px;color:#bbb;max-width:320px;line-height:1.5;}
+  .imp-bar{width:240px;max-width:80%;height:8px;background:rgba(255,255,255,.12);border-radius:6px;overflow:hidden;}
+  .imp-bar-fill{height:100%;width:0%;background:var(--accent);border-radius:6px;transition:width .4s ease;}
+  @media(prefers-reduced-motion:reduce){.imp-spinner{animation-duration:1.6s;}}
+
   .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);backdrop-filter:blur(4px);z-index:200;padding:12px;align-items:flex-end;}
   .overlay.show{display:flex;}
   .sheet{background:var(--surface);border:1px solid var(--border);border-radius:14px;width:100%;max-width:600px;margin:0 auto;overflow:hidden;animation:su .3s ease;max-height:90vh;display:flex;flex-direction:column;}
@@ -446,6 +457,13 @@
 </style>
 </head>
 <body>
+
+<div id="import-progress" role="status" aria-live="polite">
+  <div class="imp-spinner" aria-hidden="true"></div>
+  <div class="imp-stage" id="imp-stage">Импортирую…</div>
+  <div class="imp-sub" id="imp-sub">Не закрывайте страницу</div>
+  <div class="imp-bar"><div class="imp-bar-fill" id="imp-bar-fill"></div></div>
+</div>
 
 <div class="login" id="login">
   <div class="login-logo">RG PLAZA<div class="login-sublogo">RG HUB</div></div>
@@ -3180,12 +3198,40 @@
     btn.disabled = false; btn.textContent = '🔬 Диагностика (1 строка)';
   }
 
+  // === Индикатор загрузки импорта 1С ===
+  // Показывает полноэкранный оверлей со спиннером, текстом этапа и полосой прогресса.
+  // requestAnimationFrame даёт браузеру перерисовать UI между этапами (иначе на быстром
+  // импорте все setImportStage отработают, но экран обновится только в самом конце).
+  function showImportProgress(stage, sub, pct) {
+    const el = document.getElementById('import-progress');
+    if (!el) return;
+    el.classList.add('show');
+    setImportStage(stage, sub, pct);
+  }
+  function setImportStage(stage, sub, pct) {
+    const s = document.getElementById('imp-stage');
+    const su = document.getElementById('imp-sub');
+    const bar = document.getElementById('imp-bar-fill');
+    if (s && stage != null) s.textContent = stage;
+    if (su && sub != null) su.textContent = sub;
+    if (bar && pct != null) bar.style.width = pct + '%';
+  }
+  function hideImportProgress() {
+    const el = document.getElementById('import-progress');
+    if (el) el.classList.remove('show');
+  }
+  // Уступаем поток браузеру, чтобы оверлей реально перерисовался между этапами
+  const uiTick = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+
   async function confirmImport1c() {
     const p = import1cParsed;
     if (!p) return;
     const btn = document.getElementById('import1c-confirm-btn');
     btn.disabled = true;
     btn.textContent = 'Импортирую...';
+    // Индикатор загрузки: показываем оверлей со спиннером и этапами
+    showImportProgress('Подготовка…', 'Считываю данные из файла', 5);
+    await uiTick();
     try {
       let carsImported = 0, carsUpdated = 0, daysAffected = 0;
 
@@ -3225,6 +3271,8 @@
       // === 1) Машины в работе → cars_in_work (батч по zn_number) ===
       // Делим на записи С номером ЗН (батч-upsert по уникальному индексу ux_cars_in_work_zn)
       // и БЕЗ номера (их нельзя дедуплицировать — вставляем по одной как раньше).
+      setImportStage('Машины в работе…', `Записываю ${p.inWork.length} шт.`, 20);
+      await uiTick();
       const inWorkRows = p.inWork.map(buildCarInWorkPayload);
       const inWorkWithZn = inWorkRows.filter(r => r.zn_number);
       const inWorkNoZn   = inWorkRows.filter(r => !r.zn_number);
@@ -3240,10 +3288,14 @@
       }
 
       // === 2) Закрытые ЗН → orders_history_1c (батч) ===
+      setImportStage('Закрытые заказы…', `Записываю ${p.closed.length} шт.`, 45);
+      await uiTick();
       const orderRows = p.closed.map(c => buildOrderHistoryPayload(c, sourceFile));
       ordersOk += await upsertBatch('orders_history_1c', orderRows, 'zn_number', 'orders_history_1c');
 
       // === 3) Гарантии/переделки/обслуживание → quality_events_1c (батч) ===
+      setImportStage('Гарантии и переделки…', `Записываю ${p.quality.length} шт.`, 65);
+      await uiTick();
       const qualityRows = p.quality.map(c => buildQualityEventPayload(c, sourceFile));
       qualityOk += await upsertBatch('quality_events_1c', qualityRows, 'zn_number', 'quality_events_1c');
 
@@ -3251,6 +3303,8 @@
       // Менеджер отгрузил машину в 1С → в импорте она в p.closed или p.quality (не в p.inWork).
       // А в cars_in_work запись осталась с closed_at=NULL — показывается как «в работе».
       // Помечаем её закрытой по реальной дате отгрузки из 1С.
+      setImportStage('Обновляю статусы машин…', 'Закрываю отгруженные', 78);
+      await uiTick();
       let carsClosed = 0;
       // Группируем закрытые ЗН по дате отгрузки — обновляем чанками по дате
       // (нельзя одним UPDATE т.к. дата у каждой ЗН своя)
@@ -3289,6 +3343,8 @@
 
       // === 4) Пересчёт daily_reports из orders_history_1c (по каждой точке отдельно) ===
       // Определяем диапазон дат и точки из импортированных данных
+      setImportStage('Пересчитываю отчёты…', 'Обновляю суммы по дням', 90);
+      await uiTick();
       const datesByPoint = {};
       for (const car of p.closed) {
         const d = car.close_iso;
@@ -3339,6 +3395,8 @@
       });
 
       const totalExpected = p.inWork.length + p.closed.length + p.quality.length;
+      setImportStage('Готово!', '', 100);
+      hideImportProgress();
       if (carsImported === 0 && totalExpected > 0) {
         const e0 = firstErrors[0];
         toast(`❌ 0 из ${totalExpected}. ${e0?.table || ''}: ${e0?.code || ''}: ${e0?.message || 'нет связи'}`, 'err');
@@ -3355,6 +3413,7 @@
       if (typeof loadMissingDirAlert === 'function') loadMissingDirAlert();
     } catch (e) {
       console.error('Import 1C confirm error:', e);
+      hideImportProgress();
       toast('Ошибка импорта: ' + (e.message || e), 'err');
       btn.disabled = false;
       btn.textContent = 'Импортировать';
