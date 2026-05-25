@@ -3966,41 +3966,48 @@
 
   async function refreshAll() { await loadPlan(); await loadDayForDate(); await loadMonth(); updatePlanProgress(); }
 
+  // === ЕДИНОЕ ПРАВИЛО для всех месячных/дневных сумм ===
+  // Для каждого показателя берём 1С; если в 1С пусто/ноль — берём ручное.
+  // Это согласовано с витриной для руководства (приоритет 1С) и убирает
+  // расхождения между «Итого за месяц», отчётом для Telegram и т.д.
+  // Терминология: физик из 1С = retail_1c (зафиксировано в коде ниже и в VIEW).
+  function effDay(d) {
+    const pick = (oneC, manual) => (+oneC || 0) > 0 ? (+oneC || 0) : (+manual || 0);
+    const total  = pick(d.total_1c,  d.total_day);
+    const ins    = pick(d.ins_1c,    d.ins_day);
+    const corp   = pick(d.corp_1c,   d.corp_day);
+    const detail = pick(d.detail_1c, d.detail_day);
+    // физлица: 1С-retail = физик; ручное поле — phys_day (или retail_day как запас)
+    const phys   = pick(d.retail_1c, ((+d.phys_day||0) > 0 ? d.phys_day : d.retail_day));
+    // розница в обычном формате = физлица + корпоратив (так считалось исторически)
+    const retail = phys + corp;
+    return { total, ins, corp, detail, phys, retail };
+  }
+
   function renderStats() {
     let t=0,i=0,r=0,c=0,p=0,det=0;
     monthData.days.forEach(d => {
-      // Фолбэк на 1С: если менеджер не вводил суммы вручную, берём из импорта 1С
-      const hasManual = (+d.total_day || 0) > 0 || (+d.ins_day || 0) > 0 || (+d.retail_day || 0) > 0
-                     || (+d.phys_day || 0) > 0 || (+d.corp_day || 0) > 0 || (+d.detail_day || 0) > 0;
-      if (hasManual) {
-        t   += +d.total_day  || 0;
-        i   += +d.ins_day    || 0;
-        r   += +d.retail_day || 0;
-        c   += +d.corp_day   || 0;
-        p   += +d.phys_day   || 0;
-        det += +d.detail_day || 0;
-      } else {
-        // Из 1С: retail_1c = физик, corp_1c = корп, detail_1c = детейл
-        t   += +d.total_1c   || 0;
-        i   += +d.ins_1c     || 0;
-        r   += +d.retail_1c  || 0;
-        c   += +d.corp_1c    || 0;
-        p   += +d.retail_1c  || 0;   // 1С-retail = физик в нашей терминологии
-        det += +d.detail_1c  || 0;
-      }
+      // Единое правило: по каждому показателю 1С приоритетно, иначе ручное
+      const e = effDay(d);
+      t   += e.total;
+      i   += e.ins;
+      r   += e.retail;
+      c   += e.corp;
+      p   += e.phys;
+      det += e.detail;
     });
     document.getElementById('mt').textContent = fs(t);
     document.getElementById('mi').textContent = fs(i);
-    // Физлица в "Итого за месяц" = чистые физлица + детейл (детейл часть розничного направления физиков)
+    // Физлица в "Итого за месяц" = физлица + детейл (детейл — часть розничного направления физиков)
     document.getElementById('mr').textContent = fs(p + det);
     document.getElementById('mc').textContent = fs(c);
     const mdEl = document.getElementById('md');
     if (mdEl) mdEl.textContent = fs(det);
     const pn = document.getElementById('hpanel');
     if (!monthData.days.length) { pn.innerHTML='<div style="color:var(--muted);font-size:12px;text-align:center;padding:8px">Нет данных</div>'; return; }
-    // В истории дней показываем эффективную сумму (ручная или из 1С)
+    // В истории дней показываем эффективную сумму (1С приоритетно, иначе ручная)
     pn.innerHTML = monthData.days.slice().reverse().map(d => {
-      const effTotal = (+d.total_day || 0) > 0 ? (+d.total_day || 0) : (+d.total_1c || 0);
+      const effTotal = effDay(d).total;
       return `<div class="hrow"><span class="hdate">${pdate(d.date)}</span><span class="hamount">${fm(effTotal)} ₽</span><button class="hdel" onclick="delDay('${d.date}')">×</button></div>`;
     }).join('');
   }
@@ -4585,7 +4592,11 @@
     const rvNote = C.rv > 0 ? `возможны ${C.rv}` : '0';
 
     let mT=0,mI=0,mR=0,mC=0,mP=0;
-    monthData.days.forEach(d => { mT+=+d.total_day||0; mI+=+d.ins_day||0; mR+=+d.retail_day||0; mC+=+d.corp_day||0; mP+=+d.phys_day||0; });
+    monthData.days.forEach(d => {
+      // Единое правило: 1С приоритетно, иначе ручное (как в "Итого за месяц")
+      const e = effDay(d);
+      mT += e.total; mI += e.ins; mR += e.retail; mC += e.corp; mP += e.phys;
+    });
 
     let planLine = '';
     if (planData.plan_phys_day) { const gap = planData.plan_phys_day - (+dp||0); planLine += gap > 0 ? `\n⚠️ До плана дня (физ): ${fm(gap)} ₽` : `\n✅ План дня (физ) выполнен! (+${fm(-gap)} ₽)`; }
