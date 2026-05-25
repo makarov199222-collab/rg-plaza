@@ -3193,41 +3193,59 @@
       const firstErrors = [];
       let inWorkOk = 0, ordersOk = 0, qualityOk = 0;
 
-      // === 1) Машины в работе → cars_in_work (76 шт.) ===
-      for (const car of p.inWork) {
-        const payload = buildCarInWorkPayload(car);
-        const { error } = await upsertCarInWork(payload);
+      // === БАТЧ-ХЕЛПЕР: upsert массива записей пачками (вместо построчно) ===
+      // Шлём по BATCH_SIZE строк за один запрос → импорт ускоряется в десятки раз.
+      // Если пачка упала — повторяем её записи ПОШТУЧНО, чтобы найти конкретную битую
+      // строку и не потерять весь батч из-за одной ошибки.
+      const BATCH_SIZE = 500;
+      async function upsertBatch(table, rows, onConflict, label) {
+        let ok = 0;
+        for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+          const chunk = rows.slice(i, i + BATCH_SIZE);
+          const { error } = await sb.from(table).upsert(chunk, { onConflict });
+          if (!error) {
+            ok += chunk.length;
+            continue;
+          }
+          // Пачка не прошла — разбираем поштучно, чтобы изолировать битую строку
+          console.warn(`${label}: батч из ${chunk.length} упал (${error.message}), повторяю поштучно`);
+          for (const row of chunk) {
+            const { error: e1 } = await sb.from(table).upsert(row, { onConflict });
+            if (e1) {
+              if (firstErrors.length < 5) firstErrors.push({ table: label, zn: row.zn_number, code: e1.code, message: e1.message });
+              console.error(`${label} upsert error:`, row.zn_number, e1);
+            } else {
+              ok++;
+            }
+          }
+        }
+        return ok;
+      }
+
+      // === 1) Машины в работе → cars_in_work (батч по zn_number) ===
+      // Делим на записи С номером ЗН (батч-upsert по уникальному индексу ux_cars_in_work_zn)
+      // и БЕЗ номера (их нельзя дедуплицировать — вставляем по одной как раньше).
+      const inWorkRows = p.inWork.map(buildCarInWorkPayload);
+      const inWorkWithZn = inWorkRows.filter(r => r.zn_number);
+      const inWorkNoZn   = inWorkRows.filter(r => !r.zn_number);
+      inWorkOk += await upsertBatch('cars_in_work', inWorkWithZn, 'zn_number', 'cars_in_work');
+      for (const payload of inWorkNoZn) {
+        const { error } = await sb.from('cars_in_work').insert(payload);
         if (error) {
-          if (firstErrors.length < 5) firstErrors.push({ table: 'cars_in_work', zn: car.zn_number, code: error.code, message: error.message });
-          console.error('cars_in_work upsert error:', car.zn_number, error);
+          if (firstErrors.length < 5) firstErrors.push({ table: 'cars_in_work', zn: null, code: error.code, message: error.message });
+          console.error('cars_in_work insert (no zn) error:', error);
         } else {
           inWorkOk++;
         }
       }
 
-      // === 2) Закрытые ЗН → orders_history_1c (972 шт.) ===
-      for (const car of p.closed) {
-        const payload = buildOrderHistoryPayload(car, sourceFile);
-        const { error } = await sb.from('orders_history_1c').upsert(payload, { onConflict: 'zn_number' });
-        if (error) {
-          if (firstErrors.length < 5) firstErrors.push({ table: 'orders_history_1c', zn: car.zn_number, code: error.code, message: error.message });
-          console.error('orders_history_1c upsert error:', car.zn_number, error);
-        } else {
-          ordersOk++;
-        }
-      }
+      // === 2) Закрытые ЗН → orders_history_1c (батч) ===
+      const orderRows = p.closed.map(c => buildOrderHistoryPayload(c, sourceFile));
+      ordersOk += await upsertBatch('orders_history_1c', orderRows, 'zn_number', 'orders_history_1c');
 
-      // === 3) Гарантии/переделки/обслуживание → quality_events_1c (61 шт.) ===
-      for (const car of p.quality) {
-        const payload = buildQualityEventPayload(car, sourceFile);
-        const { error } = await sb.from('quality_events_1c').upsert(payload, { onConflict: 'zn_number' });
-        if (error) {
-          if (firstErrors.length < 5) firstErrors.push({ table: 'quality_events_1c', zn: car.zn_number, code: error.code, message: error.message });
-          console.error('quality_events_1c upsert error:', car.zn_number, error);
-        } else {
-          qualityOk++;
-        }
-      }
+      // === 3) Гарантии/переделки/обслуживание → quality_events_1c (батч) ===
+      const qualityRows = p.quality.map(c => buildQualityEventPayload(c, sourceFile));
+      qualityOk += await upsertBatch('quality_events_1c', qualityRows, 'zn_number', 'quality_events_1c');
 
       // === 3.5) Закрываем cars_in_work для ЗН которые в новом импорте отгружены или ушли в quality ===
       // Менеджер отгрузил машину в 1С → в импорте она в p.closed или p.quality (не в p.inWork).
