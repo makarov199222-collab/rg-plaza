@@ -13,6 +13,7 @@
 <title>RG Plaza · RG Hub — Направления СК</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   /* ============================================
@@ -778,6 +779,8 @@
     <div class="save-dot"></div>
     <span id="save-text">Всё сохранено</span>
   </div>
+  <button class="logout-btn" onclick="importRecsOpen()" title="Импорт рекомендаций из 1С" style="margin-right:6px;">📥</button>
+  <input type="file" id="recs-file-input" accept=".xlsx,.xls" style="display:none;" onchange="importRecsFile(this.files[0])">
   <button class="logout-btn" onclick="doLogout()" title="Выйти">⏻</button>
 </header>
 
@@ -954,6 +957,131 @@
   }
   function getPeriod() { return document.getElementById('month-pick').value || new Date().toISOString().substring(0,7); }
   function getCity() { return document.getElementById('city-pick').value; }
+
+  // ====== ИМПОРТ РЕКОМЕНДАЦИЙ ИЗ 1С (Этап 1: сбор данных) ======
+  // Сопоставление названий страховых из файла → company_id в базе
+  const REC_COMPANY_MAP = {
+    'ресогарантия':'reso','ингосстрах':'ingo','альфастрахование':'alfa','согаз':'sogaz',
+    'согласие':'soglasie','росгосстрах':'rgs','югория':'yugoria','вск':'vsk',
+    'сбербанкстрахование':'sber','зетта':'zetta','тинькофф':'t_strah',
+    'абсолютстрахование':'absolut','ренессанс':'renessans','гелиос':'helios',
+    'скинтери':'interi','совкомбанк':'sovkombank','энергогарант':'energo','энергогарантмск':'energo_msk',
+  };
+  const REC_POINT_MAP = {'калужская':'kaluga','серпуховская':'serpuhov','совхозная':'sovhoz','пойма':'poyma','мгт':'mgt'};
+  function recNorm(s){ return String(s||'').toLowerCase().replace(/[^а-яёa-z]/g,''); }
+  function recStage(t){
+    t = String(t||'').toLowerCase();
+    if (t.includes('рекомендац')) return 'priem';
+    if (t.includes('калькуляц'))  return 'work';
+    if (t.includes('сервисн'))    return 'done';
+    if (t.includes('отзывн'))     return 'cancelled';
+    return 'other';
+  }
+  function recParseZn(s){
+    if (!s) return [null,null];
+    const m = String(s).trim().match(/^(\d+)\s+от\s+(.+)/);
+    if (m) return [m[1], m[2].trim()];
+    return [String(s).trim().split(/\s+/)[0], null];
+  }
+  // Дата из 1С (текст "27.11.2025 16:50:50" или Date) → ISO
+  function recParseDate(v){
+    if (!v) return null;
+    if (v instanceof Date) return v.toISOString();
+    const m = String(v).trim().match(/^(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (m) {
+      const [_,d,mo,y,h='0',mi='0',s='0'] = m;
+      return new Date(+y, +mo-1, +d, +h, +mi, +s).toISOString();
+    }
+    return null;
+  }
+
+  let recParsed = null;
+  function importRecsOpen(){
+    document.getElementById('recs-file-input').value = '';
+    document.getElementById('recs-file-input').click();
+  }
+
+  async function importRecsFile(file){
+    if (!file) return;
+    try {
+      toast('Читаю файл…', 'ok');
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false });
+      // строка 0 = заголовки; данные с 1; колонки по индексам как в файле 1С
+      const C = { date:2, num:3, type:4, sum:5, client:7, model:8, plate:10, vin:11, terr:13, zn:29, company:31 };
+      const parsed = [];
+      let skipped = 0;
+      for (let i = 1; i < rows.length; i++){
+        const r = rows[i];
+        if (!r || !r[C.num]) { skipped++; continue; }
+        const [zn, zndate] = recParseZn(r[C.zn]);
+        parsed.push({
+          rec_number: String(r[C.num]).trim(),
+          rec_date:   recParseDate(r[C.date]),
+          rec_type:   r[C.type] || null,
+          stage:      recStage(r[C.type]),
+          amount:     parseFloat(String(r[C.sum]||'0').replace(',','.')) || 0,
+          company_id: REC_COMPANY_MAP[recNorm(r[C.company])] || null,
+          company_raw: r[C.company] || null,
+          point_id:   REC_POINT_MAP[recNorm(r[C.terr])] || null,
+          point_raw:  r[C.terr] || null,
+          zn_number:  zn,
+          zn_date:    zndate,
+          client:     r[C.client] || null,
+          car_model:  r[C.model] || null,
+          plate:      r[C.plate] || null,
+          vin:        r[C.vin] || null,
+          source_file: file.name,
+        });
+      }
+      recParsed = parsed;
+      // Сводка для подтверждения
+      const byStage = {};
+      parsed.forEach(p => byStage[p.stage] = (byStage[p.stage]||0)+1);
+      const noCompany = parsed.filter(p => !p.company_id).length;
+      const noPoint   = parsed.filter(p => !p.point_id).length;
+      const stageLabel = { priem:'приём', work:'калькуляция', done:'сервисная', cancelled:'отзыв', other:'прочее' };
+      const stageStr = Object.entries(byStage).map(([k,v]) => `${stageLabel[k]||k}: ${v}`).join(', ');
+      const msg = `Файл: ${file.name}\nРаспознано рекомендаций: ${parsed.length}\nСтадии — ${stageStr}\n`
+                + (noCompany ? `⚠ без распознанной СК: ${noCompany}\n` : '')
+                + (noPoint ? `⚠ без распознанной точки: ${noPoint}\n` : '')
+                + (skipped ? `Пропущено пустых строк: ${skipped}\n` : '')
+                + `\nИмпортировать? Существующие рекомендации (по номеру) будут обновлены, дубли не создадутся.`;
+      if (!confirm(msg)) { toast('Импорт отменён', 'err'); return; }
+      await importRecsConfirm();
+    } catch(e){
+      console.error('importRecsFile:', e);
+      toast('Ошибка чтения файла: ' + (e.message||e), 'err');
+    }
+  }
+
+  async function importRecsConfirm(){
+    if (!recParsed || !recParsed.length) { toast('Нет данных для импорта', 'err'); return; }
+    try {
+      toast(`Импортирую ${recParsed.length}…`, 'ok');
+      const BATCH = 200;
+      let ok = 0;
+      for (let i = 0; i < recParsed.length; i += BATCH){
+        const chunk = recParsed.slice(i, i + BATCH);
+        const { error } = await sb.from('insurance_recommendations')
+          .upsert(chunk, { onConflict: 'rec_number' });
+        if (error) {
+          console.error('insurance_recommendations upsert error:', error);
+          toast('Ошибка импорта: ' + error.message, 'err');
+          return;
+        }
+        ok += chunk.length;
+      }
+      toast(`✅ Импортировано рекомендаций: ${ok}`, 'ok');
+      recParsed = null;
+    } catch(e){
+      console.error('importRecsConfirm:', e);
+      toast('Ошибка импорта: ' + (e.message||e), 'err');
+    }
+  }
+
 
   function getPrevPeriod() {
     const [y, m] = getPeriod().split('-').map(Number);
