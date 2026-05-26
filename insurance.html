@@ -402,8 +402,8 @@
     overflow:hidden;
     transition:border-color .25s;
   }
-  .channel-card.fill-partial{border-color:rgba(255,152,0,.4);}
-  .channel-card.fill-full{border-color:rgba(76,175,80,.4);}
+  .channel-card.fill-partial{border-color:var(--border);}
+  .channel-card.fill-full{border-color:var(--border);}
 
   .channel-head{
     padding:14px 16px;
@@ -431,12 +431,9 @@
     background:currentColor;
   }
   .channel-status-badge.fill-empty{color:var(--muted);}
-  .channel-status-badge.fill-partial{color:var(--warn);}
-  .channel-status-badge.fill-full{color:var(--ok);}
-  .channel-status-badge.fill-full .channel-led{
-    box-shadow:0 0 8px currentColor;
-    animation:steady 2s infinite;
-  }
+  .channel-status-badge.fill-full{color:var(--text-dim);}
+  /* Точку-LED для информационного бейджа объёма убираем (это не статус) */
+  .channel-status-badge .channel-led{ display:none; }
   @keyframes steady{50%{opacity:.5;}}
 
   /* ============== ROWS ============== */
@@ -1885,24 +1882,24 @@
     const cardKey = `${channel.id}__${point ? point.id : 'null'}`;
     const cityLabel = channel.city === 'moscow' ? 'Москва' : 'Ижевск';
     const subtitle = point ? point.name : cityLabel;
-    let totalIncoming = 0, totalWithdrawn = 0;
-    let companiesWithData = 0;
+    let totalIncoming = 0, totalWithdrawn = 0, totalSum = 0;
     companies.forEach(c => {
       // И «Поступило», и «Отзыв» берём ИЗ 1С (рекомендации за месяц).
       const rc = recCountByCompany(c.id, point?.id);
       totalIncoming += rc.count;
       totalWithdrawn += rc.cancelled;
-      if (rc.count > 0 || rc.cancelled > 0) companiesWithData++;
+      totalSum += rc.sum || 0;
     });
-    const fillPct = companies.length ? companiesWithData / companies.length : 0;
-    let fillClass, fillBadge;
-    if (fillPct === 0) { fillClass = 'fill-empty'; fillBadge = 'Нет данных'; }
-    else if (fillPct < 0.5) { fillClass = 'fill-partial'; fillBadge = `Заполнено ${Math.round(fillPct*100)}%`; }
-    else { fillClass = 'fill-full'; fillBadge = totalIncoming > 0 ? `Всего ${totalIncoming}` : 'Готово'; }
+    const fmt = n => Math.round(n).toLocaleString('ru-RU');
+    // Бейдж в шапке: объём по точке — направления и деньги (главное по иерархии).
+    const fillClass = totalIncoming > 0 ? 'fill-full' : 'fill-empty';
+    const headSum = totalSum >= 1000000
+      ? `${(totalSum/1000000).toFixed(1).replace('.',',')} млн ₽`
+      : `${fmt(totalSum)} ₽`;
+    const fillBadge = totalIncoming > 0 ? `${totalIncoming} напр. · ${headSum}` : 'Нет направлений';
     const ravtRec = getRavtRecord(channel.id, point?.id);
     const ravtTotal = ravtRec ? +ravtRec.ravt_total || 0 : 0;
     const diffHtml = renderRavtDiff(ravtTotal, totalIncoming);
-    const fmt = n => Math.round(n).toLocaleString('ru-RU');
     // Собираем данные по всем СК, делим на активные (есть направления/отзыв) и спящие.
     const all = companies.map(c => {
       const rc = recCountByCompany(c.id, point?.id);
