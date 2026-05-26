@@ -761,6 +761,8 @@
   .fn-stage-bar{ height:4px; background:var(--border); border-radius:3px; margin:9px 0 7px; overflow:hidden; }
   .fn-stage-bar-fill{ height:100%; border-radius:3px; transition:width .3s; }
   .fn-stage-amount{ font-size:11px; color:var(--text-dim); }
+  .fn-stage.clickable{ cursor:pointer; transition:border-color .15s; }
+  .fn-stage.clickable:hover{ border-color:var(--brand); }
   .fn-other{ font-size:11px; color:var(--muted); margin-top:10px; }
   .funnel-tasks{ margin-top:14px; display:flex; flex-direction:column; gap:8px; }
   .fn-task{
@@ -774,17 +776,26 @@
   .fn-task-body{ flex:1; min-width:0; }
   .fn-task-title{ font-size:13px; font-weight:700; color:var(--text); }
   .fn-task-sub{ font-size:11px; color:var(--text-dim); margin-top:2px; }
+  .fn-task-actions{ display:flex; flex-direction:column; gap:6px; flex:0 0 auto; }
   .fn-task-btn{
     flex:0 0 auto; background:var(--brand); color:#000; border:none;
     border-radius:7px; padding:8px 14px; font-family:var(--font);
     font-size:12px; font-weight:700; cursor:pointer; letter-spacing:.3px;
+    white-space:nowrap;
   }
+  .fn-task-btn.ghost{ background:transparent; border:1px solid var(--border-bright); color:var(--text-dim); }
   .fn-rec-row{ background:var(--bg-dark); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
   .fn-rec-main{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
   .fn-rec-zn{ font-weight:700; color:var(--text); font-size:13px; }
   .fn-rec-amt{ color:var(--brand); font-size:13px; font-weight:600; }
   .fn-rec-meta{ font-size:11px; color:var(--text-dim); margin-top:3px; }
   .fn-rec-meta.dim{ color:var(--muted); }
+  .fn-rec-btn{
+    margin-top:8px; background:var(--brand); color:#000; border:none;
+    border-radius:6px; padding:7px 12px; font-family:var(--font);
+    font-size:12px; font-weight:700; cursor:pointer; letter-spacing:.3px;
+  }
+  .fn-rec-btn.ghost{ background:transparent; border:1px solid var(--border-bright); color:var(--text-dim); }
   .fn-rec-empty{ color:var(--muted); text-align:center; padding:20px; font-size:13px; }
   @media (max-width:600px){
     .funnel-stages{ grid-template-columns:repeat(2,1fr); }
@@ -1311,7 +1322,7 @@
     try {
       const { data: recs, error } = await sb
         .from('insurance_recommendations')
-        .select('rec_number, rec_date, rec_type, stage, amount, company_id, company_raw, point_id, point_raw, zn_number, zn_date, client, car_model, plate');
+        .select('rec_number, rec_date, rec_type, stage, amount, company_id, company_raw, point_id, point_raw, zn_number, zn_date, client, car_model, plate, service_confirmed_at');
       if (error) throw error;
       recsData = recs || [];
 
@@ -1354,27 +1365,39 @@
     return list;
   }
 
+  // Эффективная стадия: ручное подтверждение Сервисной (service_confirmed_at)
+  // важнее стадии из файла. Так перевод не откатывается следующим импортом,
+  // который перезаписывает только r.stage.
+  function effStage(r) {
+    return r.service_confirmed_at ? 'done' : r.stage;
+  }
+
   function funnelCompute() {
     const recs = funnelFilteredRecs();
     const byStage = {};
     FUNNEL_STAGES.forEach(s => { byStage[s.key] = { count: 0, amount: 0 }; });
     const other = { count: 0, amount: 0 };
-    const toService = []; // стадия work/priem, но ЗН уже отгружен
+    const toService = []; // ЗН отгружен, но Сервисная ещё не подтверждена
     const mismatch = [];  // отгружен, но company_id пустой (пограничный случай)
+    const confirmed = []; // подтверждены вручную (service_confirmed_at стоит)
 
     recs.forEach(r => {
       const amt = +r.amount || 0;
-      if (byStage[r.stage]) { byStage[r.stage].count++; byStage[r.stage].amount += amt; }
+      const st = effStage(r);
+      if (byStage[st]) { byStage[st].count++; byStage[st].amount += amt; }
       else { other.count++; other.amount += amt; }
       const shipped = r.zn_number && shippedZnSet.has(String(r.zn_number));
-      if (shipped && (r.stage === 'work' || r.stage === 'priem')) toService.push(r);
+      // Задача актуальна, пока вручную не подтвердили: исходная стадия work/priem,
+      // ЗН отгружен, но service_confirmed_at ещё пуст.
+      if (shipped && !r.service_confirmed_at && (r.stage === 'work' || r.stage === 'priem')) toService.push(r);
       if (shipped && !r.company_id) mismatch.push(r);
+      if (r.service_confirmed_at) confirmed.push(r);
     });
 
     const totalCount = recs.length;
     const totalAmount = recs.reduce((s, r) => s + (+r.amount || 0), 0);
     const inWorkCount = byStage.priem.count + byStage.work.count;
-    return { byStage, other, totalCount, totalAmount, inWorkCount, toService, mismatch };
+    return { byStage, other, totalCount, totalAmount, inWorkCount, toService, mismatch, confirmed };
   }
 
   function setFunnelMode(mode) { recFunnelMode = mode; haptic(10); render(); }
@@ -1390,12 +1413,17 @@
     const stageCards = FUNNEL_STAGES.map(s => {
       const d = f.byStage[s.key];
       const barPct = Math.round((d.count / maxCount) * 100);
-      return `<div class="fn-stage">
+      // Карточку «Отгружено» делаем кликабельной, если есть подтверждённые вручную —
+      // чтобы можно было посмотреть список и при ошибке вернуть в работу.
+      const clickable = (s.key === 'done' && f.confirmed.length);
+      const onclick = clickable ? `onclick="showFunnelTask('confirmed')"` : '';
+      const hint = clickable ? `${s.hint} · ${f.confirmed.length} вручную ›` : s.hint;
+      return `<div class="fn-stage ${clickable ? 'clickable' : ''}" ${onclick}>
         <div class="fn-stage-top">
           <div class="fn-stage-count" style="color:${s.color};">${d.count}</div>
           <div class="fn-stage-label">${escapeHtml(s.label)}</div>
         </div>
-        <div class="fn-stage-hint">${escapeHtml(s.hint)}</div>
+        <div class="fn-stage-hint">${escapeHtml(hint)}</div>
         <div class="fn-stage-bar"><div class="fn-stage-bar-fill" style="width:${barPct}%;background:${s.color};"></div></div>
         <div class="fn-stage-amount">${fmt(d.amount)} ₽</div>
       </div>`;
@@ -1410,9 +1438,12 @@
         <div class="fn-task-ico">🚚</div>
         <div class="fn-task-body">
           <div class="fn-task-title">Перевести в «Сервисную»: ${f.toService.length}</div>
-          <div class="fn-task-sub">ЗН уже отгружены (есть в заказах 1С), но стадия ещё «в работе».</div>
+          <div class="fn-task-sub">ЗН уже отгружены (есть в заказах 1С), но Сервисная ещё не подтверждена.</div>
         </div>
-        <button class="fn-task-btn" onclick="showFunnelTask('toService')">Список</button>
+        <div class="fn-task-actions">
+          <button class="fn-task-btn ghost" onclick="showFunnelTask('toService')">Список</button>
+          <button class="fn-task-btn" onclick="confirmServiceMass()">Подтвердить все</button>
+        </div>
       </div>`;
     }
     if (f.mismatch.length) {
@@ -1456,8 +1487,9 @@
 
   function showFunnelTask(kind) {
     const f = funnelCompute();
-    const list = kind === 'toService' ? f.toService : f.mismatch;
-    const title = kind === 'toService' ? '🚚 Перевести в «Сервисную»' : '⚠️ Нестыковки';
+    const list = kind === 'toService' ? f.toService : (kind === 'confirmed' ? f.confirmed : f.mismatch);
+    const title = kind === 'toService' ? '🚚 Перевести в «Сервисную»'
+      : (kind === 'confirmed' ? '✓ Подтверждены вручную' : '⚠️ Нестыковки');
     const fmt = n => Math.round(n).toLocaleString('ru-RU');
     const rowsHtml = list.length ? list.map(r => {
       const comp = r.company_id
@@ -1465,6 +1497,12 @@
         : (r.company_raw || '—');
       const pt = points.find(p => p.id === r.point_id);
       const ptLbl = pt ? pt.name : (r.point_raw || '—');
+      let action = '';
+      if (kind === 'toService') {
+        action = `<button class="fn-rec-btn" onclick="confirmServiceOne('${escapeHtml(String(r.rec_number))}')">✓ В Сервисную</button>`;
+      } else if (kind === 'confirmed') {
+        action = `<button class="fn-rec-btn ghost" onclick="unconfirmServiceOne('${escapeHtml(String(r.rec_number))}')">↩ Вернуть в работу</button>`;
+      }
       return `<div class="fn-rec-row">
         <div class="fn-rec-main">
           <span class="fn-rec-zn">ЗН ${escapeHtml(r.zn_number || '—')}</span>
@@ -1472,6 +1510,7 @@
         </div>
         <div class="fn-rec-meta">${escapeHtml(comp)} · ${escapeHtml(ptLbl)}${r.client ? ' · ' + escapeHtml(r.client) : ''}</div>
         <div class="fn-rec-meta dim">${escapeHtml(r.car_model || '')}${r.plate ? ' · ' + escapeHtml(r.plate) : ''} · рек. ${escapeHtml(r.rec_number || '')}</div>
+        ${action}
       </div>`;
     }).join('') : '<div class="fn-rec-empty">Пусто</div>';
     document.getElementById('fn-task-modal-title').textContent = title;
@@ -1479,6 +1518,78 @@
     document.getElementById('fn-task-modal').classList.add('show');
   }
   function closeFunnelTask() { document.getElementById('fn-task-modal').classList.remove('show'); }
+
+  // ====== ПЕРЕВОД В «СЕРВИСНУЮ» (Этап 3) ======
+  // Пишем service_confirmed_at = now() в insurance_recommendations.
+  // НЕ трогаем r.stage — чтобы импорт файла не откатил перевод.
+  // Локально обновляем recsData, чтобы не перезагружать всё.
+  async function confirmServiceMass() {
+    const f = funnelCompute();
+    const list = f.toService;
+    if (!list.length) { toast('Нечего переводить', 'ok'); return; }
+    const nums = list.map(r => r.rec_number);
+    const ok = confirm(
+      `Подтвердить «Сервисную» для ${nums.length} рекомендаций?\n\n` +
+      `Запишется service_confirmed_at = текущее время.\n` +
+      `Стадия из файла (stage) не меняется — повторный импорт не откатит.\n` +
+      `Действие обратимо (можно снять подтверждение).`
+    );
+    if (!ok) return;
+    await writeServiceConfirm(nums, new Date().toISOString());
+  }
+
+  async function confirmServiceOne(recNumber) {
+    const r = recsData.find(x => String(x.rec_number) === String(recNumber));
+    if (!r) { toast('Запись не найдена', 'err'); return; }
+    const ok = confirm(
+      `Перевести в «Сервисную» рекомендацию ${recNumber}?\n` +
+      `ЗН ${r.zn_number || '—'}. Запишется service_confirmed_at = сейчас.`
+    );
+    if (!ok) return;
+    await writeServiceConfirm([recNumber], new Date().toISOString());
+    showFunnelTask('toService'); // перерисуем список без закрытой записи
+  }
+
+  // Снять подтверждение: вернуть запись из «Сервисной» обратно к стадии из файла.
+  async function unconfirmServiceOne(recNumber) {
+    const r = recsData.find(x => String(x.rec_number) === String(recNumber));
+    if (!r) { toast('Запись не найдена', 'err'); return; }
+    const ok = confirm(
+      `Снять подтверждение «Сервисной» у ${recNumber}?\n` +
+      `service_confirmed_at очистится, стадия вернётся к «${r.stage}» (из файла).`
+    );
+    if (!ok) return;
+    await writeServiceConfirm([recNumber], null);
+    showFunnelTask('confirmed'); // перерисуем список подтверждённых
+  }
+
+  // value: ISO-строка для подтверждения, либо null для снятия.
+  async function writeServiceConfirm(recNumbers, value) {
+    if (!recNumbers || !recNumbers.length) return;
+    setStatus('saving');
+    try {
+      const CHUNK = 200;
+      let done = 0;
+      for (let i = 0; i < recNumbers.length; i += CHUNK) {
+        const part = recNumbers.slice(i, i + CHUNK);
+        const { error } = await sb.from('insurance_recommendations')
+          .update({ service_confirmed_at: value })
+          .in('rec_number', part);
+        if (error) throw error;
+        done += part.length;
+      }
+      // Локально синхронизируем, чтобы воронка пересчиталась без полной перезагрузки.
+      const set = new Set(recNumbers.map(String));
+      recsData.forEach(r => { if (set.has(String(r.rec_number))) r.service_confirmed_at = value; });
+      setStatus('saved');
+      toast(value ? `✅ Переведено в Сервисную: ${done}` : `↩ Снято подтверждений: ${done}`, 'ok');
+      render();
+    } catch (e) {
+      console.error('writeServiceConfirm:', e);
+      setStatus('error');
+      toast('Ошибка записи: ' + (e.message || e), 'err');
+    }
+  }
 
   function render() {
     const city = getCity();
