@@ -1805,36 +1805,25 @@
     let totalIncoming = 0, totalWithdrawn = 0;
     let companiesWithData = 0;
     companies.forEach(c => {
+      // «Поступило» берём ИЗ 1С (рекомендации за месяц), а не из ручного ввода.
+      const inc1c = recCountByCompany(c.id, point?.id).count;
       const r = getRecord(channel.id, c.id, point?.id);
-      if (r) {
-        totalIncoming += +r.incoming_count || 0;
-        totalWithdrawn += +r.withdrawn_count || 0;
-        if (+r.incoming_count > 0 || +r.withdrawn_count > 0) companiesWithData++;
-      }
+      totalIncoming += inc1c;
+      totalWithdrawn += r ? (+r.withdrawn_count || 0) : 0;
+      if (inc1c > 0 || (r && +r.withdrawn_count > 0)) companiesWithData++;
     });
     const fillPct = companies.length ? companiesWithData / companies.length : 0;
-    // Сводно по карточке: сколько рекомендаций за месяц по всем СК (для сверки в шапке).
-    let totalRecCount = 0;
-    companies.forEach(c => { totalRecCount += recCountByCompany(c.id, point?.id).count; });
     let fillClass, fillBadge;
     if (fillPct === 0) { fillClass = 'fill-empty'; fillBadge = 'Нет данных'; }
     else if (fillPct < 0.5) { fillClass = 'fill-partial'; fillBadge = `Заполнено ${Math.round(fillPct*100)}%`; }
     else { fillClass = 'fill-full'; fillBadge = totalIncoming > 0 ? `Всего ${totalIncoming}` : 'Готово'; }
-    if (totalRecCount > 0) fillBadge += ` · по рекоменд. ${totalRecCount}`;
-    // Считаем, по скольким СК ручная цифра расходится с рекомендациями (для кнопки автозаполнения).
-    let fillDiffCount = 0;
-    companies.forEach(c => {
-      const rc = recCountByCompany(c.id, point?.id).count;
-      if (rc <= 0) return;
-      const cur = getRecord(channel.id, c.id, point?.id)?.incoming_count || 0;
-      if (+cur !== rc) fillDiffCount++;
-    });
     const ravtRec = getRavtRecord(channel.id, point?.id);
     const ravtTotal = ravtRec ? +ravtRec.ravt_total || 0 : 0;
     const diffHtml = renderRavtDiff(ravtTotal, totalIncoming);
     const rows = companies.map(c => {
       const r = getRecord(channel.id, c.id, point?.id);
-      const inc = r?.incoming_count || 0;
+      // «Поступило» показываем из 1С (рекомендации за месяц). Отзыв — из ручного.
+      const inc = recCountByCompany(c.id, point?.id).count;
       const wd = r?.withdrawn_count || 0;
       const pr = getPrevRecord(channel.id, c.id, point?.id);
       const prevInc = pr?.incoming_count || 0;
@@ -1846,21 +1835,10 @@
         prevHtml = `<div class="ck-prev ${cls}"><span class="arr"></span> прошл. месяц: ${prevInc}</div>`;
       }
       const baseAttrs = `data-card="${cardKey}" data-channel="${channel.id}" data-company="${c.id}" data-point="${point?.id || ''}"`;
-      // Сверка: сколько рекомендаций по этой СК за месяц (из импорта). Не из БД направлений.
-      const rc = recCountByCompany(c.id, point?.id);
-      let recHtml = '';
-      if (rc.count > 0) {
-        const diff = rc.count - inc; // расхождение с ручным вводом
-        const diffTxt = diff === 0 ? 'сходится'
-          : (diff > 0 ? `+${diff} в файле` : `−${-diff} в файле`);
-        const diffCls = diff === 0 ? 'rec-ok' : 'rec-diff';
-        recHtml = `<div class="ck-rec ${diffCls}">по рекоменд.: ${rc.count} <span class="ck-rec-diff">· ${diffTxt}</span></div>`;
-      }
       return `<div class="ck-row">
         <div class="ck-name-block">
           <div class="ck-name">${escapeHtml(c.name)}</div>
           ${prevHtml}
-          ${recHtml}
         </div>
         <div class="stepper ${inc > 0 ? 'has-value' : ''}" data-field="incoming_count" ${baseAttrs}>
           <button class="stepper-btn" onpointerdown="stepperDown(event,this,-1)" onpointerup="stepperUp(this)" onpointerleave="stepperUp(this)" onpointercancel="stepperUp(this)">−</button>
@@ -1894,7 +1872,6 @@
         <div class="ck-totals-val">${totalIncoming}</div>
         <div class="ck-totals-val withdrawn">${totalWithdrawn}</div>
       </div>
-      ${fillDiffCount > 0 ? `<button class="ck-fill-btn" onclick="fillFrom1C('${channel.id}','${point?.id || ''}')">⬇ Заполнить из 1С · расхождений: ${fillDiffCount}</button>` : ''}
       <div class="ck-ravt-block">
         <div class="ck-ravt-title">Сверка с данными РАВТ</div>
         <div class="ck-ravt-row">
