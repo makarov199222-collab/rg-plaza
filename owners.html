@@ -393,37 +393,38 @@
 
     try {
       // Хелпер: если таблица не существует — возвращает пустой массив вместо краша
-      const safe = async (q) => {
+      const safe = async (q, fallback) => {
+        const def = fallback !== undefined ? fallback : { data: [] };
         try {
           const r = await q;
           if (r.error) {
             console.warn('Soft error (продолжаем):', r.error.message);
-            return { data: [] };
+            return def;
           }
           return r;
         } catch (e) {
           console.warn('Soft error (продолжаем):', e.message);
-          return { data: [] };
+          return def;
         }
       };
 
       const [pointsRes, currentRes, prevRes, yearRes, plansRes, fotRes, expRes, taxRes, loansRes, dirsRes, ravtRes, channelsRes, companiesRes, breakdownRes, breakdownPrevRes, breakdownYearRes, ravtSettlementsRes, pnlRes, ovrItemsRes] = await Promise.all([
-        sb.from('points').select('*').order('id'),
-        sb.from('daily_reports_unified').select('*').gte('date', range.start).lte('date', range.end).order('date'),
-        sb.from('daily_reports_unified').select('point_id,date,total_day,retail_day,ins_day,phys_day,corp_day,detail_day,cars_total,cars_retail,cars_ins,cars_corp,cars_detail,owe_total,owe_ravt,owe_other').gte('date', prevRange.start).lte('date', prevRange.end),
-        sb.from('daily_reports_unified').select('point_id,date,total_day,retail_day,ins_day,debt_total,debt_retail,debt_insurance,owe_total,owe_ravt,owe_other').gte('date', yearStart).lte('date', range.end),
-        sb.from('plans').select('*'),
-        sb.from('fot_summary').select('*').eq('period', period).maybeSingle(),
-        sb.from('expenses_monthly').select('*').eq('period', period),
-        sb.from('taxes_monthly').select('*').eq('period', period),
-        sb.from('loans_leases').select('*').eq('active', true),
-        sb.from('insurance_directions').select('*').gte('period', `${range.year}-01`).lte('period', period),
-        sb.from('insurance_ravt_check').select('*').eq('period', period),
-        sb.from('insurance_channels').select('*').eq('is_active', true),
-        sb.from('insurance_companies').select('*').eq('is_active', true),
-        sb.from('revenue_breakdown').select('*').eq('period', period),
-        sb.from('revenue_breakdown').select('*').eq('period', `${prevRange.year}-${String(prevRange.month).padStart(2,'0')}`),
-        sb.from('revenue_breakdown').select('*').gte('period', `${range.year}-01`).lte('period', period),
+        safe(sb.from('points').select('*').order('id')),
+        safe(sb.from('daily_reports_unified').select('*').gte('date', range.start).lte('date', range.end).order('date')),
+        safe(sb.from('daily_reports_unified').select('point_id,date,total_day,retail_day,ins_day,phys_day,corp_day,detail_day,cars_total,cars_retail,cars_ins,cars_corp,cars_detail,owe_total,owe_ravt,owe_other').gte('date', prevRange.start).lte('date', prevRange.end)),
+        safe(sb.from('daily_reports_unified').select('point_id,date,total_day,retail_day,ins_day,debt_total,debt_retail,debt_insurance,owe_total,owe_ravt,owe_other').gte('date', yearStart).lte('date', range.end)),
+        safe(sb.from('plans').select('*')),
+        safe(sb.from('fot_summary').select('*').eq('period', period).maybeSingle(), { data: null }),
+        safe(sb.from('expenses_monthly').select('*').eq('period', period)),
+        safe(sb.from('taxes_monthly').select('*').eq('period', period)),
+        safe(sb.from('loans_leases').select('*').eq('active', true)),
+        safe(sb.from('insurance_directions').select('*').gte('period', `${range.year}-01`).lte('period', period)),
+        safe(sb.from('insurance_ravt_check').select('*').eq('period', period)),
+        safe(sb.from('insurance_channels').select('*').eq('is_active', true)),
+        safe(sb.from('insurance_companies').select('*').eq('is_active', true)),
+        safe(sb.from('revenue_breakdown').select('*').eq('period', period)),
+        safe(sb.from('revenue_breakdown').select('*').eq('period', `${prevRange.year}-${String(prevRange.month).padStart(2,'0')}`)),
+        safe(sb.from('revenue_breakdown').select('*').gte('period', `${range.year}-01`).lte('period', period)),
         safe(sb.from('ravt_settlements').select('*').order('settlement_date', { ascending: false }).limit(10)),
         safe(sb.from('point_pnl').select('*').or(`period.eq.${range.year}-YTD,period.eq.${period}`)),
         safe(sb.from('monthly_ovr_items').select('*').eq('period', period))
