@@ -716,6 +716,81 @@
   .summary-item-sub.up{color:var(--ok);}
   .summary-item-sub.down{color:var(--crit);}
 
+  /* ============== ВОРОНКА НАПРАВЛЕНИЙ (Этап 2) ============== */
+  .funnel-block{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:16px;
+    margin-bottom:14px;
+  }
+  .funnel-head{
+    display:flex; align-items:center; justify-content:space-between;
+    gap:10px; flex-wrap:wrap; margin-bottom:4px;
+  }
+  .funnel-title{
+    font-family:var(--font-display); font-size:18px;
+    color:var(--brand); letter-spacing:1.5px;
+  }
+  .funnel-controls{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .fn-toggle{ display:flex; background:var(--bg-dark); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .fn-toggle-btn{
+    background:transparent; border:none; color:var(--text-dim);
+    font-family:var(--font); font-size:12px; font-weight:600;
+    padding:7px 12px; cursor:pointer; letter-spacing:.3px;
+  }
+  .fn-toggle-btn.active{ background:var(--brand); color:#000; }
+  .fn-points-btn{
+    background:var(--bg-dark); border:1px solid var(--border); border-radius:8px;
+    color:var(--text-dim); font-family:var(--font); font-size:12px; font-weight:600;
+    padding:7px 12px; cursor:pointer; letter-spacing:.3px;
+  }
+  .fn-points-btn.active{ border-color:var(--brand); color:var(--brand); }
+  .funnel-sub{ font-size:12px; color:var(--text-dim); margin-bottom:14px; }
+  .funnel-stages{
+    display:grid; grid-template-columns:repeat(4,1fr); gap:10px;
+  }
+  .fn-stage{
+    background:var(--bg-dark); border:1px solid var(--border);
+    border-radius:8px; padding:12px;
+  }
+  .fn-stage-top{ display:flex; align-items:baseline; gap:8px; }
+  .fn-stage-count{ font-family:var(--font-display); font-size:30px; line-height:1; letter-spacing:1px; }
+  .fn-stage-label{ font-size:12px; color:var(--text); font-weight:600; }
+  .fn-stage-hint{ font-size:10px; color:var(--muted); margin-top:3px; }
+  .fn-stage-bar{ height:4px; background:var(--border); border-radius:3px; margin:9px 0 7px; overflow:hidden; }
+  .fn-stage-bar-fill{ height:100%; border-radius:3px; transition:width .3s; }
+  .fn-stage-amount{ font-size:11px; color:var(--text-dim); }
+  .fn-other{ font-size:11px; color:var(--muted); margin-top:10px; }
+  .funnel-tasks{ margin-top:14px; display:flex; flex-direction:column; gap:8px; }
+  .fn-task{
+    display:flex; align-items:center; gap:12px;
+    background:var(--bg-dark); border:1px solid var(--border);
+    border-left:3px solid var(--brand); border-radius:8px; padding:11px 13px;
+  }
+  .fn-task.warn{ border-left-color:var(--crit); }
+  .fn-task.ok{ border-left-color:var(--ok); }
+  .fn-task-ico{ font-size:20px; flex:0 0 auto; }
+  .fn-task-body{ flex:1; min-width:0; }
+  .fn-task-title{ font-size:13px; font-weight:700; color:var(--text); }
+  .fn-task-sub{ font-size:11px; color:var(--text-dim); margin-top:2px; }
+  .fn-task-btn{
+    flex:0 0 auto; background:var(--brand); color:#000; border:none;
+    border-radius:7px; padding:8px 14px; font-family:var(--font);
+    font-size:12px; font-weight:700; cursor:pointer; letter-spacing:.3px;
+  }
+  .fn-rec-row{ background:var(--bg-dark); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
+  .fn-rec-main{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+  .fn-rec-zn{ font-weight:700; color:var(--text); font-size:13px; }
+  .fn-rec-amt{ color:var(--brand); font-size:13px; font-weight:600; }
+  .fn-rec-meta{ font-size:11px; color:var(--text-dim); margin-top:3px; }
+  .fn-rec-meta.dim{ color:var(--muted); }
+  .fn-rec-empty{ color:var(--muted); text-align:center; padding:20px; font-size:13px; }
+  @media (max-width:600px){
+    .funnel-stages{ grid-template-columns:repeat(2,1fr); }
+    .fn-stage-count{ font-size:26px; }
+  }
+
   /* ============== MOBILE ============== */
   @media (max-width:600px){
     .wrap{padding:12px;}
@@ -863,6 +938,14 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<div class="mp-modal" id="fn-task-modal" onclick="if(event.target===this)closeFunnelTask()">
+  <div class="mp-sheet" style="max-width:460px;width:100%;max-height:80vh;display:flex;flex-direction:column;">
+    <div id="fn-task-modal-title" style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;color:var(--brand);margin-bottom:12px;">Задача</div>
+    <div id="fn-task-modal-body" style="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:8px;"></div>
+    <button class="mp-year-arrow" style="border-radius:10px;padding:13px;margin-top:14px;" onclick="closeFunnelTask()">Закрыть</button>
+  </div>
+</div>
 
 <script>
   const SUPABASE_URL = 'https://uxdgiwbkvgbnrsuxjhvp.supabase.co';
@@ -1191,6 +1274,7 @@
       directionsData = dR.data || [];
       ravtData = rR.data || [];
       prevMonthData = prevR.data || [];
+      await loadFunnelData();   // воронка: рекомендации + проверка отгрузки по ЗН
       render();
       if (currentMode === 'year') loadYearData();
     } catch (e) {
@@ -1200,10 +1284,207 @@
     }
   }
 
+  // ====================================================================
+  // ВИДЖЕТ ВОРОНКИ СТРАХОВЫХ НАПРАВЛЕНИЙ (Этап 2)
+  // ====================================================================
+  // Стадии: priem (приём/Рекомендация) → work (калькуляция) →
+  //         done (сервисная/отгружено) → cancelled (отзыв).
+  // Источник: insurance_recommendations. Связь с заказами по zn_number.
+  // «Отгружено по факту» = zn_number найден в orders_history_1c
+  // (там только status_1c='Отгружен'). Нужно для плашки «переведи в Сервисную».
+
+  let recsData = [];            // все insurance_recommendations
+  let shippedZnSet = new Set(); // zn_number, найденные в orders_history_1c
+  let recFunnelMode = 'snapshot'; // 'snapshot' | 'month'
+  let recFunnelAllPoints = false; // false = только город из шапки, true = все точки
+
+  const FUNNEL_STAGES = [
+    { key: 'priem',     label: 'Приём',       hint: 'Рекомендация',          color: 'var(--muted)' },
+    { key: 'work',      label: 'Калькуляция', hint: 'согласована, в работе', color: 'var(--brand)' },
+    { key: 'done',      label: 'Отгружено',   hint: 'Сервисная кампания',    color: 'var(--ok)' },
+    { key: 'cancelled', label: 'Отзыв',       hint: 'Отзывная кампания',     color: 'var(--crit)' },
+  ];
+
+  // Загрузка данных воронки. Изолирована в try/catch — сбой здесь
+  // не должен ронять основной экран направлений.
+  async function loadFunnelData() {
+    try {
+      const { data: recs, error } = await sb
+        .from('insurance_recommendations')
+        .select('rec_number, rec_date, rec_type, stage, amount, company_id, company_raw, point_id, point_raw, zn_number, zn_date, client, car_model, plate');
+      if (error) throw error;
+      recsData = recs || [];
+
+      // Какие из ЗН рекомендаций уже отгружены (есть в orders_history_1c).
+      shippedZnSet = new Set();
+      const zns = [...new Set(recsData.map(r => r.zn_number).filter(Boolean).map(String))];
+      const CHUNK = 200; // дробим .in() на части — список ЗН может быть большим
+      for (let i = 0; i < zns.length; i += CHUNK) {
+        const part = zns.slice(i, i + CHUNK);
+        const { data: ord, error: oErr } = await sb
+          .from('orders_history_1c')
+          .select('zn_number')
+          .in('zn_number', part);
+        if (oErr) { console.warn('orders_history_1c lookup:', oErr); continue; }
+        (ord || []).forEach(o => { if (o.zn_number != null) shippedZnSet.add(String(o.zn_number)); });
+      }
+    } catch (e) {
+      console.warn('loadFunnelData:', e);
+      recsData = recsData || [];
+      // shippedZnSet оставляем как есть — виджет просто покажет меньше задач
+    }
+  }
+
+  // point_id текущего города (points уже отфильтрован по format в loadAll).
+  function funnelCityPointIds() { return points.map(p => p.id); }
+
+  // Рекомендации под текущие фильтры (город + режим месяца).
+  function funnelFilteredRecs() {
+    let list = recsData.slice();
+    if (!recFunnelAllPoints) {
+      const ids = new Set(funnelCityPointIds());
+      // Записи без point_id показываем только в режиме «все точки»,
+      // чтобы не приписать нераспознанную точку чужому городу.
+      list = list.filter(r => r.point_id && ids.has(r.point_id));
+    }
+    if (recFunnelMode === 'month') {
+      const period = getPeriod();
+      list = list.filter(r => r.rec_date && String(r.rec_date).substring(0, 7) === period);
+    }
+    return list;
+  }
+
+  function funnelCompute() {
+    const recs = funnelFilteredRecs();
+    const byStage = {};
+    FUNNEL_STAGES.forEach(s => { byStage[s.key] = { count: 0, amount: 0 }; });
+    const other = { count: 0, amount: 0 };
+    const toService = []; // стадия work/priem, но ЗН уже отгружен
+    const mismatch = [];  // отгружен, но company_id пустой (пограничный случай)
+
+    recs.forEach(r => {
+      const amt = +r.amount || 0;
+      if (byStage[r.stage]) { byStage[r.stage].count++; byStage[r.stage].amount += amt; }
+      else { other.count++; other.amount += amt; }
+      const shipped = r.zn_number && shippedZnSet.has(String(r.zn_number));
+      if (shipped && (r.stage === 'work' || r.stage === 'priem')) toService.push(r);
+      if (shipped && !r.company_id) mismatch.push(r);
+    });
+
+    const totalCount = recs.length;
+    const totalAmount = recs.reduce((s, r) => s + (+r.amount || 0), 0);
+    const inWorkCount = byStage.priem.count + byStage.work.count;
+    return { byStage, other, totalCount, totalAmount, inWorkCount, toService, mismatch };
+  }
+
+  function setFunnelMode(mode) { recFunnelMode = mode; haptic(10); render(); }
+  function toggleFunnelPoints() { recFunnelAllPoints = !recFunnelAllPoints; haptic(10); render(); }
+
+  function renderFunnel() {
+    if (!recsData.length) return ''; // импорта ещё не было — блок не показываем
+    const f = funnelCompute();
+    const fmt = n => Math.round(n).toLocaleString('ru-RU');
+    const cityLbl = getCity() === 'moscow' ? 'Москва' : 'Ижевск';
+
+    const maxCount = Math.max(1, ...FUNNEL_STAGES.map(s => f.byStage[s.key].count));
+    const stageCards = FUNNEL_STAGES.map(s => {
+      const d = f.byStage[s.key];
+      const barPct = Math.round((d.count / maxCount) * 100);
+      return `<div class="fn-stage">
+        <div class="fn-stage-top">
+          <div class="fn-stage-count" style="color:${s.color};">${d.count}</div>
+          <div class="fn-stage-label">${escapeHtml(s.label)}</div>
+        </div>
+        <div class="fn-stage-hint">${escapeHtml(s.hint)}</div>
+        <div class="fn-stage-bar"><div class="fn-stage-bar-fill" style="width:${barPct}%;background:${s.color};"></div></div>
+        <div class="fn-stage-amount">${fmt(d.amount)} ₽</div>
+      </div>`;
+    }).join('');
+
+    const otherChip = f.other.count
+      ? `<div class="fn-other">+ ${f.other.count} без стадии (${fmt(f.other.amount)} ₽)</div>` : '';
+
+    let tasksHtml = '';
+    if (f.toService.length) {
+      tasksHtml += `<div class="fn-task">
+        <div class="fn-task-ico">🚚</div>
+        <div class="fn-task-body">
+          <div class="fn-task-title">Перевести в «Сервисную»: ${f.toService.length}</div>
+          <div class="fn-task-sub">ЗН уже отгружены (есть в заказах 1С), но стадия ещё «в работе».</div>
+        </div>
+        <button class="fn-task-btn" onclick="showFunnelTask('toService')">Список</button>
+      </div>`;
+    }
+    if (f.mismatch.length) {
+      tasksHtml += `<div class="fn-task warn">
+        <div class="fn-task-ico">⚠️</div>
+        <div class="fn-task-body">
+          <div class="fn-task-title">Разобрать нестыковку: ${f.mismatch.length}</div>
+          <div class="fn-task-sub">Отгружено, но страховая не распознана (company_id пустой).</div>
+        </div>
+        <button class="fn-task-btn" onclick="showFunnelTask('mismatch')">Список</button>
+      </div>`;
+    }
+    if (!tasksHtml) {
+      tasksHtml = `<div class="fn-task ok">
+        <div class="fn-task-ico">✓</div>
+        <div class="fn-task-body">
+          <div class="fn-task-title">Задач нет</div>
+          <div class="fn-task-sub">Все отгруженные ЗН в актуальных стадиях.</div>
+        </div>
+      </div>`;
+    }
+
+    const modeBtns = `<div class="fn-toggle">
+      <button class="fn-toggle-btn ${recFunnelMode==='snapshot'?'active':''}" onclick="setFunnelMode('snapshot')">Снимок</button>
+      <button class="fn-toggle-btn ${recFunnelMode==='month'?'active':''}" onclick="setFunnelMode('month')">За месяц</button>
+    </div>`;
+    const pointsBtn = `<button class="fn-points-btn ${recFunnelAllPoints?'active':''}" onclick="toggleFunnelPoints()">${recFunnelAllPoints ? 'Все точки' : escapeHtml(cityLbl)}</button>`;
+    const subtitle = recFunnelMode === 'month' ? `за ${formatMonth()}` : 'текущее состояние';
+
+    return `<div class="funnel-block">
+      <div class="funnel-head">
+        <div class="funnel-title">Воронка направлений</div>
+        <div class="funnel-controls">${pointsBtn}${modeBtns}</div>
+      </div>
+      <div class="funnel-sub">${escapeHtml(subtitle)} · всего ${f.totalCount} на ${fmt(f.totalAmount)} ₽ · в работе ${f.inWorkCount}</div>
+      <div class="funnel-stages">${stageCards}</div>
+      ${otherChip}
+      <div class="funnel-tasks">${tasksHtml}</div>
+    </div>`;
+  }
+
+  function showFunnelTask(kind) {
+    const f = funnelCompute();
+    const list = kind === 'toService' ? f.toService : f.mismatch;
+    const title = kind === 'toService' ? '🚚 Перевести в «Сервисную»' : '⚠️ Нестыковки';
+    const fmt = n => Math.round(n).toLocaleString('ru-RU');
+    const rowsHtml = list.length ? list.map(r => {
+      const comp = r.company_id
+        ? (companies.find(c => c.id === r.company_id)?.name || r.company_id)
+        : (r.company_raw || '—');
+      const pt = points.find(p => p.id === r.point_id);
+      const ptLbl = pt ? pt.name : (r.point_raw || '—');
+      return `<div class="fn-rec-row">
+        <div class="fn-rec-main">
+          <span class="fn-rec-zn">ЗН ${escapeHtml(r.zn_number || '—')}</span>
+          <span class="fn-rec-amt">${fmt(+r.amount || 0)} ₽</span>
+        </div>
+        <div class="fn-rec-meta">${escapeHtml(comp)} · ${escapeHtml(ptLbl)}${r.client ? ' · ' + escapeHtml(r.client) : ''}</div>
+        <div class="fn-rec-meta dim">${escapeHtml(r.car_model || '')}${r.plate ? ' · ' + escapeHtml(r.plate) : ''} · рек. ${escapeHtml(r.rec_number || '')}</div>
+      </div>`;
+    }).join('') : '<div class="fn-rec-empty">Пусто</div>';
+    document.getElementById('fn-task-modal-title').textContent = title;
+    document.getElementById('fn-task-modal-body').innerHTML = rowsHtml;
+    document.getElementById('fn-task-modal').classList.add('show');
+  }
+  function closeFunnelTask() { document.getElementById('fn-task-modal').classList.remove('show'); }
+
   function render() {
     const city = getCity();
     if (!channels.length) { document.getElementById('content').innerHTML = '<div class="empty">Нет активных каналов для этого города</div>'; return; }
-    let html = '<div class="channels-grid">';
+    let html = renderFunnel();   // виджет воронки наверху #content
+    html += '<div class="channels-grid">';
     if (city === 'moscow') {
       points.forEach(p => { channels.forEach(ch => { html += renderChannelCard(ch, p); }); });
     } else {
