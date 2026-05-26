@@ -850,6 +850,18 @@
   </div>
 </div>
 
+<div class="mp-modal" id="rec-import-modal" onclick="if(event.target===this)recImportClose()">
+  <div class="mp-sheet" style="max-width:420px;width:100%;">
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;color:var(--brand);margin-bottom:4px;">📥 Импорт рекомендаций</div>
+    <div id="rec-import-file" style="font-size:13px;color:#999;margin-bottom:14px;word-break:break-all;"></div>
+    <div id="rec-import-body"></div>
+    <div id="rec-import-actions" style="display:flex;gap:10px;margin-top:18px;">
+      <button class="mp-year-arrow" style="flex:1;border-radius:10px;padding:13px;font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1px;background:var(--brand);color:#000;border:none;" id="rec-import-go" onclick="importRecsConfirm()">Импортировать</button>
+      <button class="mp-year-arrow" style="flex:1;border-radius:10px;padding:13px;" onclick="recImportClose()">Отмена</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -1057,30 +1069,56 @@
         });
       }
       recParsed = parsed;
-      // Сводка для подтверждения
+      // Сводка для подтверждения в красивой модалке
       const byStage = {};
       parsed.forEach(p => byStage[p.stage] = (byStage[p.stage]||0)+1);
+      const sumStage = {};
+      parsed.forEach(p => sumStage[p.stage] = (sumStage[p.stage]||0)+p.amount);
       const noCompany = parsed.filter(p => !p.company_id).length;
       const noPoint   = parsed.filter(p => !p.point_id).length;
-      const stageLabel = { priem:'приём', work:'калькуляция', done:'сервисная', cancelled:'отзыв', other:'прочее' };
-      const stageStr = Object.entries(byStage).map(([k,v]) => `${stageLabel[k]||k}: ${v}`).join(', ');
-      const msg = `Файл: ${file.name}\nРаспознано рекомендаций: ${parsed.length}\nСтадии — ${stageStr}\n`
-                + (noCompany ? `⚠ без распознанной СК: ${noCompany}\n` : '')
-                + (noPoint ? `⚠ без распознанной точки: ${noPoint}\n` : '')
-                + (skipped ? `Пропущено пустых строк: ${skipped}\n` : '')
-                + `\nИмпортировать? Существующие рекомендации (по номеру) будут обновлены, дубли не создадутся.`;
-      if (!confirm(msg)) { toast('Импорт отменён', 'err'); return; }
-      await importRecsConfirm();
+      const withZn    = parsed.filter(p => p.zn_number).length;
+      const totalSum  = parsed.reduce((s,p)=>s+p.amount,0);
+      const fmt = n => Math.round(n).toLocaleString('ru-RU');
+      const cards = [
+        ['priem','Приём','#888'], ['work','Калькуляция','#e8b84b'],
+        ['done','Сервисная','#5dcaa5'], ['cancelled','Отзыв','#e24b4a'],
+      ];
+      const cardHtml = cards.map(([k,label,color]) => `
+        <div style="background:rgba(255,255,255,.05);border-radius:10px;padding:10px 12px;flex:1;min-width:88px;">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:${color};line-height:1;">${byStage[k]||0}</div>
+          <div style="font-size:11px;color:#aaa;margin-top:3px;">${label}</div>
+          <div style="font-size:11px;color:#777;">${fmt(sumStage[k]||0)} ₽</div>
+        </div>`).join('');
+      const warnHtml = (noCompany || noPoint)
+        ? `<div style="margin-top:12px;font-size:12px;color:#e8b84b;">⚠ ${noCompany?`без распознанной СК: ${noCompany}`:''}${noCompany&&noPoint?' · ':''}${noPoint?`без точки: ${noPoint}`:''}</div>`
+        : '';
+      document.getElementById('rec-import-file').textContent =
+        `${file.name} · распознано ${parsed.length}, на сумму ${fmt(totalSum)} ₽`;
+      document.getElementById('rec-import-body').innerHTML =
+        `<div style="display:flex;gap:8px;flex-wrap:wrap;">${cardHtml}</div>`
+        + `<div style="margin-top:12px;font-size:12px;color:#999;">Связано с ЗН: ${withZn} из ${parsed.length}${skipped?` · пропущено пустых: ${skipped}`:''}</div>`
+        + warnHtml
+        + `<div style="margin-top:10px;font-size:11px;color:#777;">Повторный импорт обновит существующие записи (по номеру), дубли не создадутся.</div>`;
+      document.getElementById('rec-import-go').disabled = false;
+      document.getElementById('rec-import-go').textContent = 'Импортировать';
+      document.getElementById('rec-import-modal').classList.add('show');
     } catch(e){
       console.error('importRecsFile:', e);
       toast('Ошибка чтения файла: ' + (e.message||e), 'err');
     }
   }
 
+  function recImportClose(){
+    document.getElementById('rec-import-modal').classList.remove('show');
+    recParsed = null;
+  }
+
   async function importRecsConfirm(){
     if (!recParsed || !recParsed.length) { toast('Нет данных для импорта', 'err'); return; }
+    const goBtn = document.getElementById('rec-import-go');
     try {
-      toast(`Импортирую ${recParsed.length}…`, 'ok');
+      goBtn.disabled = true;
+      goBtn.textContent = 'Импортирую…';
       const BATCH = 200;
       let ok = 0;
       for (let i = 0; i < recParsed.length; i += BATCH){
@@ -1090,15 +1128,18 @@
         if (error) {
           console.error('insurance_recommendations upsert error:', error);
           toast('Ошибка импорта: ' + error.message, 'err');
+          goBtn.disabled = false; goBtn.textContent = 'Импортировать';
           return;
         }
         ok += chunk.length;
+        goBtn.textContent = `Импортирую… ${ok}/${recParsed.length}`;
       }
+      recImportClose();
       toast(`✅ Импортировано рекомендаций: ${ok}`, 'ok');
-      recParsed = null;
     } catch(e){
       console.error('importRecsConfirm:', e);
       toast('Ошибка импорта: ' + (e.message||e), 'err');
+      goBtn.disabled = false; goBtn.textContent = 'Импортировать';
     }
   }
 
