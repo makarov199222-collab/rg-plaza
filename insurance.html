@@ -584,11 +584,12 @@
   .cx-trend{ font-size:11px; font-weight:600; }
   .cx-trend.up{ color:var(--ok); }
   .cx-trend.down{ color:var(--crit); }
-  .cx-trend.same{ color:var(--muted); }
-  /* Пустые СК — приглушены, но видны (триггер «давно нет направлений») */
-  .cx-row.empty{ opacity:.4; }
-  .cx-row.empty .cx-num{ font-size:20px; color:var(--muted); }
-  .cx-row.empty .cx-name{ font-weight:500; color:var(--text-dim); }
+  .cx-sleeping{
+    padding:11px 16px; font-size:11px; line-height:1.5;
+    color:var(--muted); border-top:1px solid rgba(51,51,51,.4);
+  }
+  .cx-sleeping-lbl{ color:var(--text-dim); font-weight:600; }
+  .cx-empty{ padding:20px 16px; text-align:center; color:var(--muted); font-size:13px; }
 
   .cx-totals{
     display:flex; align-items:baseline; gap:12px;
@@ -983,15 +984,6 @@
   </div>
 
   <div id="mode-month-content">
-    <div class="info-panel">
-      <div class="info-title">Учёт направлений от страховых компаний</div>
-      <div class="info-text">
-        Тапай <b>+</b> и <b>−</b> для учёта направлений по каждой страховой. Долгий тап на цифру — ввод вручную.
-        Маленькая цифра под названием СК — это значение в прошлом месяце для сравнения.
-        Изменения сохраняются автоматически.
-      </div>
-    </div>
-
     <div id="content">
       <div class="channels-grid">
         <div class="skel-card">
@@ -1539,30 +1531,43 @@
   // (стадия cancelled, «Отзывная кампания»). Исключаем «чужих» (не страховые ЗН).
   // pointId: если задан — только эта точка, иначе все точки города.
   // Возвращает {count, sum, cancelled}. Кэш на время одного render().
+  // ====== ПОДСЧЁТ ПО СК ИЗ 1С ======
+  // count = направления за выбранный месяц (стадии кроме cancelled),
+  // sum = деньги по ним, cancelled = отзывы за месяц,
+  // prevCount = направления за ПРОШЛЫЙ месяц (для тренда, тоже из 1С).
+  // Исключаем «чужих» (не страховые ЗН). pointId: задан — точка, иначе город.
   let _recCountCache = null;
   function buildRecCountCache() {
     const period = getPeriod();
+    const prevPeriod = getPrevPeriod();
     const cityIds = new Set(funnelCityPointIds());
-    const map = {}; // ключ `${company_id}__${point_id||'all'}` → {count,sum,cancelled}
+    const map = {}; // ключ `${company_id}__${point_id||'all'}` → {count,sum,cancelled,prevCount}
+    const ensure = k => { if (!map[k]) map[k] = { count: 0, sum: 0, cancelled: 0, prevCount: 0 }; return map[k]; };
     recsData.forEach(r => {
       if (znIsForeign(r.zn_number)) return;                 // чужих не считаем
       if (!r.company_id) return;                            // нераспознанная СК — пропуск
       if (!r.point_id || !cityIds.has(r.point_id)) return;  // только текущий город
-      if (!r.rec_date || String(r.rec_date).substring(0,7) !== period) return; // только месяц
-      const amt = +r.amount || 0;
+      const m = r.rec_date ? String(r.rec_date).substring(0,7) : '';
       const isCancelled = (r.stage === 'cancelled');
-      [`${r.company_id}__${r.point_id}`, `${r.company_id}__all`].forEach(k => {
-        if (!map[k]) map[k] = { count: 0, sum: 0, cancelled: 0 };
-        if (isCancelled) { map[k].cancelled++; }   // отзыв
-        else { map[k].count++; map[k].sum += amt; } // поступило
-      });
+      const amt = +r.amount || 0;
+      if (m === period) {
+        [`${r.company_id}__${r.point_id}`, `${r.company_id}__all`].forEach(k => {
+          const e = ensure(k);
+          if (isCancelled) e.cancelled++;
+          else { e.count++; e.sum += amt; }
+        });
+      } else if (m === prevPeriod && !isCancelled) {
+        [`${r.company_id}__${r.point_id}`, `${r.company_id}__all`].forEach(k => {
+          ensure(k).prevCount++;
+        });
+      }
     });
     _recCountCache = map;
   }
   function recCountByCompany(companyId, pointId) {
     if (!_recCountCache) buildRecCountCache();
     const k = `${companyId}__${pointId || 'all'}`;
-    return _recCountCache[k] || { count: 0, sum: 0, cancelled: 0 };
+    return _recCountCache[k] || { count: 0, sum: 0, cancelled: 0, prevCount: 0 };
   }
 
   // point_id текущего города (points уже отфильтрован по format в loadAll).
@@ -1898,31 +1903,47 @@
     const ravtTotal = ravtRec ? +ravtRec.ravt_total || 0 : 0;
     const diffHtml = renderRavtDiff(ravtTotal, totalIncoming);
     const fmt = n => Math.round(n).toLocaleString('ru-RU');
-    const rows = companies.map(c => {
+    // Собираем данные по всем СК, делим на активные (есть направления/отзыв) и спящие.
+    const all = companies.map(c => {
       const rc = recCountByCompany(c.id, point?.id);
-      const inc = rc.count;
-      const wd = rc.cancelled;
-      const sum = rc.sum || 0;
-      const empty = (inc === 0 && wd === 0);
-      // Прошлый месяц — для стрелки тренда (по ручным данным прошлого периода).
-      const pr = getPrevRecord(channel.id, c.id, point?.id);
-      const prevInc = pr?.incoming_count || 0;
+      return { c, inc: rc.count, wd: rc.cancelled, sum: rc.sum || 0, prev: rc.prevCount || 0 };
+    });
+    const active = all.filter(x => x.inc > 0 || x.wd > 0)
+                      .sort((a, b) => b.inc - a.inc || b.sum - a.sum); // по кол-ву, затем деньги
+    const sleeping = all.filter(x => x.inc === 0 && x.wd === 0);
+
+    const rows = active.map(x => {
+      const { c, inc, wd, sum, prev } = x;
+      // Тренд в штуках к прошлому месяцу (оба из 1С). Только в режиме «За месяц».
       let trend = '';
-      if (!empty && prevInc > 0) {
-        const cls = inc > prevInc ? 'up' : (inc < prevInc ? 'down' : 'same');
-        const arr = inc > prevInc ? '↑' : (inc < prevInc ? '↓' : '·');
-        trend = `<span class="cx-trend ${cls}">${arr} ${prevInc}</span>`;
+      if (recFunnelMode === 'month' && prev > 0) {
+        const diff = inc - prev;
+        if (diff !== 0) {
+          const cls = diff > 0 ? 'up' : 'down';
+          const arr = diff > 0 ? '↑' : '↓';
+          trend = `<span class="cx-trend ${cls}">${arr} ${Math.abs(diff)}</span>`;
+        }
       }
-      const wdBadge = wd > 0 ? `<span class="cx-wd">↩ ${wd}</span>` : '';
-      const sumTxt = sum > 0 ? `<span class="cx-sum">${fmt(sum)} ₽</span>` : '';
-      return `<div class="cx-row ${empty ? 'empty' : ''}">
+      const wdBadge = wd > 0 ? `<span class="cx-wd">↩ ${wd} отзыв</span>` : '';
+      return `<div class="cx-row">
         <div class="cx-num">${inc}</div>
         <div class="cx-mid">
           <div class="cx-name">${escapeHtml(c.name)}</div>
-          <div class="cx-meta">${sumTxt}${wdBadge}${trend}</div>
+          <div class="cx-meta">
+            <span class="cx-sum">${fmt(sum)} ₽</span>${wdBadge}${trend}
+          </div>
         </div>
       </div>`;
     }).join('');
+
+    // Спящие СК — одна компактная серая строка внизу (триггер «давно нет направлений»).
+    const sleepingRow = sleeping.length
+      ? `<div class="cx-sleeping"><span class="cx-sleeping-lbl">Спящие (нет направлений):</span> ${sleeping.map(x => escapeHtml(x.c.name)).join(', ')}</div>`
+      : '';
+
+    const emptyRow = active.length === 0
+      ? `<div class="cx-empty">Нет направлений за ${recFunnelMode === 'month' ? 'этот месяц' : 'период'}</div>`
+      : '';
 
     // Сверка с РАВТ — свёрнута по умолчанию, разворачивается по клику.
     const ravtState = ravtTotal > 0 ? `РАВТ: ${ravtTotal}` : 'свернуть';
@@ -1946,7 +1967,7 @@
           <span>${fillBadge}</span>
         </div>
       </div>
-      <div class="cx-list">${rows}</div>
+      <div class="cx-list">${emptyRow}${rows}${sleepingRow}</div>
       <div class="cx-totals">
         <div class="cx-totals-num">${totalIncoming}</div>
         <div class="cx-totals-lbl">всего поступило${totalWithdrawn > 0 ? ` · ↩ ${totalWithdrawn} отзыв` : ''}</div>
