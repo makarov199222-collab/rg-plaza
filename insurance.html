@@ -1452,24 +1452,26 @@
 
   // ====== СВЕРКА РУЧНОГО УЧЁТА С РЕКОМЕНДАЦИЯМИ (Этап 2, пункт 2) ======
   // Сколько рекомендаций по конкретной СК за ВЫБРАННЫЙ МЕСЯЦ (по rec_date).
-  // Считаем все рекомендации этой компании (без деления на РАВТ/прямые),
-  // исключая «чужих» (не страховые отгруженные ЗН). pointId: если задан —
-  // только эта точка (Москва), иначе все точки города (Ижевск).
-  // Возвращает {count, sum}. Кэш на время одного render() для скорости.
+  // Разделяем: count = «Поступило» (стадии priem/work/done), cancelled = «Отзыв»
+  // (стадия cancelled, «Отзывная кампания»). Исключаем «чужих» (не страховые ЗН).
+  // pointId: если задан — только эта точка, иначе все точки города.
+  // Возвращает {count, sum, cancelled}. Кэш на время одного render().
   let _recCountCache = null;
   function buildRecCountCache() {
     const period = getPeriod();
     const cityIds = new Set(funnelCityPointIds());
-    const map = {}; // ключ `${company_id}__${point_id||'all'}` → {count,sum}
+    const map = {}; // ключ `${company_id}__${point_id||'all'}` → {count,sum,cancelled}
     recsData.forEach(r => {
       if (znIsForeign(r.zn_number)) return;                 // чужих не считаем
       if (!r.company_id) return;                            // нераспознанная СК — пропуск
       if (!r.point_id || !cityIds.has(r.point_id)) return;  // только текущий город
       if (!r.rec_date || String(r.rec_date).substring(0,7) !== period) return; // только месяц
       const amt = +r.amount || 0;
+      const isCancelled = (r.stage === 'cancelled');
       [`${r.company_id}__${r.point_id}`, `${r.company_id}__all`].forEach(k => {
-        if (!map[k]) map[k] = { count: 0, sum: 0 };
-        map[k].count++; map[k].sum += amt;
+        if (!map[k]) map[k] = { count: 0, sum: 0, cancelled: 0 };
+        if (isCancelled) { map[k].cancelled++; }   // отзыв
+        else { map[k].count++; map[k].sum += amt; } // поступило
       });
     });
     _recCountCache = map;
@@ -1477,7 +1479,7 @@
   function recCountByCompany(companyId, pointId) {
     if (!_recCountCache) buildRecCountCache();
     const k = `${companyId}__${pointId || 'all'}`;
-    return _recCountCache[k] || { count: 0, sum: 0 };
+    return _recCountCache[k] || { count: 0, sum: 0, cancelled: 0 };
   }
 
   // point_id текущего города (points уже отфильтрован по format в loadAll).
@@ -1805,12 +1807,11 @@
     let totalIncoming = 0, totalWithdrawn = 0;
     let companiesWithData = 0;
     companies.forEach(c => {
-      // «Поступило» берём ИЗ 1С (рекомендации за месяц), а не из ручного ввода.
-      const inc1c = recCountByCompany(c.id, point?.id).count;
-      const r = getRecord(channel.id, c.id, point?.id);
-      totalIncoming += inc1c;
-      totalWithdrawn += r ? (+r.withdrawn_count || 0) : 0;
-      if (inc1c > 0 || (r && +r.withdrawn_count > 0)) companiesWithData++;
+      // И «Поступило», и «Отзыв» берём ИЗ 1С (рекомендации за месяц).
+      const rc = recCountByCompany(c.id, point?.id);
+      totalIncoming += rc.count;
+      totalWithdrawn += rc.cancelled;
+      if (rc.count > 0 || rc.cancelled > 0) companiesWithData++;
     });
     const fillPct = companies.length ? companiesWithData / companies.length : 0;
     let fillClass, fillBadge;
@@ -1821,10 +1822,10 @@
     const ravtTotal = ravtRec ? +ravtRec.ravt_total || 0 : 0;
     const diffHtml = renderRavtDiff(ravtTotal, totalIncoming);
     const rows = companies.map(c => {
-      const r = getRecord(channel.id, c.id, point?.id);
-      // «Поступило» показываем из 1С (рекомендации за месяц). Отзыв — из ручного.
-      const inc = recCountByCompany(c.id, point?.id).count;
-      const wd = r?.withdrawn_count || 0;
+      // И «Поступило», и «Отзыв» из 1С (рекомендации за месяц).
+      const rc = recCountByCompany(c.id, point?.id);
+      const inc = rc.count;
+      const wd = rc.cancelled;
       const pr = getPrevRecord(channel.id, c.id, point?.id);
       const prevInc = pr?.incoming_count || 0;
       let prevHtml = '';
@@ -1897,8 +1898,13 @@
   }
 
   function renderSummary() {
+    // Всего поступило и Отозвано — из 1С (рекомендации за месяц), как в карточках.
     let totalInc = 0, totalWd = 0;
-    directionsData.forEach(d => { totalInc += +d.incoming_count || 0; totalWd += +d.withdrawn_count || 0; });
+    companies.forEach(c => {
+      const rc = recCountByCompany(c.id, null); // null = все точки текущего города
+      totalInc += rc.count;
+      totalWd += rc.cancelled;
+    });
     let totalRavt = 0;
     ravtData.forEach(r => { totalRavt += +r.ravt_total || 0; });
     let prevTotal = 0;
