@@ -199,6 +199,25 @@
   }
   .logout-btn:hover{color:var(--crit); border-color:var(--crit);}
 
+  /* Заметная кнопка импорта рекомендаций из 1С */
+  .import-btn{
+    display:flex; align-items:center; gap:7px;
+    background:var(--brand); color:#000;
+    border:none; border-radius:8px;
+    height:34px; padding:0 14px;
+    font-family:var(--font); font-size:13px; font-weight:700;
+    letter-spacing:.3px; cursor:pointer;
+    margin-right:8px;
+    box-shadow:0 0 0 0 var(--brand-glow);
+    transition:box-shadow .2s, filter .15s, transform .1s;
+  }
+  .import-btn:hover{ filter:brightness(1.08); box-shadow:0 0 14px var(--brand-glow); }
+  .import-btn:active{ transform:scale(.97); }
+  .import-btn .import-ico{ font-size:15px; line-height:1; }
+  @media (max-width:600px){
+    .import-btn{ padding:0 11px; font-size:12px; }
+  }
+
   /* ============== РЕЖИМЫ (МЕСЯЦ / ГОД) ============== */
   .mode-switch{
     display:flex; gap:6px; margin-bottom:14px;
@@ -888,9 +907,11 @@
     <div class="save-dot"></div>
     <span id="save-text">Всё сохранено</span>
   </div>
-  <button class="logout-btn" onclick="importRecsOpen()" title="Импорт рекомендаций из 1С" style="margin-right:6px;">📥</button>
+  <button class="import-btn" onclick="importRecsOpen()" title="Импорт рекомендаций из 1С" style="margin-left:auto;">
+    <span class="import-ico">📥</span><span>Импорт 1С</span>
+  </button>
   <input type="file" id="recs-file-input" accept=".xlsx,.xls" style="display:none;" onchange="importRecsFile(this.files[0])">
-  <button class="logout-btn" onclick="doLogout()" title="Выйти">⏻</button>
+  <button class="logout-btn" onclick="doLogout()" title="Выйти" style="margin-left:0;">⏻</button>
 </header>
 
 <div class="wrap">
