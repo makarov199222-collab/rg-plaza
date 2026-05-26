@@ -983,6 +983,26 @@
     if (m) return [m[1], m[2].trim()];
     return [String(s).trim().split(/\s+/)[0], null];
   }
+  // Парсинг суммы: SheetJS с raw:false отдаёт "5,000.00" (запятая=тысячи, точка=дроби).
+  // Поддерживаем также русский "5 000,00" и чистое число.
+  function recParseAmount(v){
+    if (v == null || v === '') return 0;
+    if (typeof v === 'number') return v;
+    let s = String(v).trim().replace(/\s/g,'');
+    if (s.includes(',') && s.includes('.')) {
+      // оба знака: последний из них — десятичный разделитель
+      if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+        s = s.replace(/\./g,'').replace(',','.');   // "5.000,00" → "5000.00"
+      } else {
+        s = s.replace(/,/g,'');                       // "5,000.00" → "5000.00"
+      }
+    } else if (s.includes(',')) {
+      // только запятая: считаем десятичным разделителем (русский "5000,50")
+      s = s.replace(',','.');
+    }
+    const n = parseFloat(s);
+    return isNaN(n) ? 0 : n;
+  }
   // Дата из 1С (текст "27.11.2025 16:50:50" или Date) → ISO
   function recParseDate(v){
     if (!v) return null;
@@ -1022,7 +1042,7 @@
           rec_date:   recParseDate(r[C.date]),
           rec_type:   r[C.type] || null,
           stage:      recStage(r[C.type]),
-          amount:     parseFloat(String(r[C.sum]||'0').replace(',','.')) || 0,
+          amount:     recParseAmount(r[C.sum]),
           company_id: REC_COMPANY_MAP[recNorm(r[C.company])] || null,
           company_raw: r[C.company] || null,
           point_id:   REC_POINT_MAP[recNorm(r[C.terr])] || null,
