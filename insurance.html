@@ -460,6 +460,15 @@
   .ck-prev.down{color:var(--crit);}
   .ck-prev.down .arr{border-top:5px solid var(--crit); border-bottom:none;}
   .ck-prev.same{color:var(--text-dim);}
+  .ck-rec{
+    font-size:10px; font-weight:600; margin-top:2px;
+    color:var(--info); letter-spacing:.2px;
+  }
+  .ck-rec .ck-rec-diff{ font-weight:500; color:var(--muted); }
+  .ck-rec.rec-ok{ color:var(--ok); }
+  .ck-rec.rec-ok .ck-rec-diff{ color:var(--ok); opacity:.8; }
+  .ck-rec.rec-diff{ color:var(--brand); }
+  .ck-rec.rec-diff .ck-rec-diff{ color:var(--brand); opacity:.85; }
 
   /* ============== STEPPER ============== */
   .stepper{
@@ -1385,6 +1394,36 @@
     return d != null && d <= 0;
   }
 
+  // ====== СВЕРКА РУЧНОГО УЧЁТА С РЕКОМЕНДАЦИЯМИ (Этап 2, пункт 2) ======
+  // Сколько рекомендаций по конкретной СК за ВЫБРАННЫЙ МЕСЯЦ (по rec_date).
+  // Считаем все рекомендации этой компании (без деления на РАВТ/прямые),
+  // исключая «чужих» (не страховые отгруженные ЗН). pointId: если задан —
+  // только эта точка (Москва), иначе все точки города (Ижевск).
+  // Возвращает {count, sum}. Кэш на время одного render() для скорости.
+  let _recCountCache = null;
+  function buildRecCountCache() {
+    const period = getPeriod();
+    const cityIds = new Set(funnelCityPointIds());
+    const map = {}; // ключ `${company_id}__${point_id||'all'}` → {count,sum}
+    recsData.forEach(r => {
+      if (znIsForeign(r.zn_number)) return;                 // чужих не считаем
+      if (!r.company_id) return;                            // нераспознанная СК — пропуск
+      if (!r.point_id || !cityIds.has(r.point_id)) return;  // только текущий город
+      if (!r.rec_date || String(r.rec_date).substring(0,7) !== period) return; // только месяц
+      const amt = +r.amount || 0;
+      [`${r.company_id}__${r.point_id}`, `${r.company_id}__all`].forEach(k => {
+        if (!map[k]) map[k] = { count: 0, sum: 0 };
+        map[k].count++; map[k].sum += amt;
+      });
+    });
+    _recCountCache = map;
+  }
+  function recCountByCompany(companyId, pointId) {
+    if (!_recCountCache) buildRecCountCache();
+    const k = `${companyId}__${pointId || 'all'}`;
+    return _recCountCache[k] || { count: 0, sum: 0 };
+  }
+
   // point_id текущего города (points уже отфильтрован по format в loadAll).
   function funnelCityPointIds() { return points.map(p => p.id); }
 
@@ -1680,6 +1719,7 @@
   function render() {
     const city = getCity();
     if (!channels.length) { document.getElementById('content').innerHTML = '<div class="empty">Нет активных каналов для этого города</div>'; return; }
+    _recCountCache = null;       // сбрасываем кэш сверки — месяц/город могли смениться
     let html = renderFunnel();   // виджет воронки наверху #content
     html += '<div class="channels-grid">';
     if (city === 'moscow') {
@@ -1717,10 +1757,14 @@
       }
     });
     const fillPct = companies.length ? companiesWithData / companies.length : 0;
+    // Сводно по карточке: сколько рекомендаций за месяц по всем СК (для сверки в шапке).
+    let totalRecCount = 0;
+    companies.forEach(c => { totalRecCount += recCountByCompany(c.id, point?.id).count; });
     let fillClass, fillBadge;
     if (fillPct === 0) { fillClass = 'fill-empty'; fillBadge = 'Нет данных'; }
     else if (fillPct < 0.5) { fillClass = 'fill-partial'; fillBadge = `Заполнено ${Math.round(fillPct*100)}%`; }
     else { fillClass = 'fill-full'; fillBadge = totalIncoming > 0 ? `Всего ${totalIncoming}` : 'Готово'; }
+    if (totalRecCount > 0) fillBadge += ` · по рекоменд. ${totalRecCount}`;
     const ravtRec = getRavtRecord(channel.id, point?.id);
     const ravtTotal = ravtRec ? +ravtRec.ravt_total || 0 : 0;
     const diffHtml = renderRavtDiff(ravtTotal, totalIncoming);
@@ -1738,10 +1782,21 @@
         prevHtml = `<div class="ck-prev ${cls}"><span class="arr"></span> прошл. месяц: ${prevInc}</div>`;
       }
       const baseAttrs = `data-card="${cardKey}" data-channel="${channel.id}" data-company="${c.id}" data-point="${point?.id || ''}"`;
+      // Сверка: сколько рекомендаций по этой СК за месяц (из импорта). Не из БД направлений.
+      const rc = recCountByCompany(c.id, point?.id);
+      let recHtml = '';
+      if (rc.count > 0) {
+        const diff = rc.count - inc; // расхождение с ручным вводом
+        const diffTxt = diff === 0 ? 'сходится'
+          : (diff > 0 ? `+${diff} в файле` : `−${-diff} в файле`);
+        const diffCls = diff === 0 ? 'rec-ok' : 'rec-diff';
+        recHtml = `<div class="ck-rec ${diffCls}">по рекоменд.: ${rc.count} <span class="ck-rec-diff">· ${diffTxt}</span></div>`;
+      }
       return `<div class="ck-row">
         <div class="ck-name-block">
           <div class="ck-name">${escapeHtml(c.name)}</div>
           ${prevHtml}
+          ${recHtml}
         </div>
         <div class="stepper ${inc > 0 ? 'has-value' : ''}" data-field="incoming_count" ${baseAttrs}>
           <button class="stepper-btn" onpointerdown="stepperDown(event,this,-1)" onpointerup="stepperUp(this)" onpointerleave="stepperUp(this)" onpointercancel="stepperUp(this)">−</button>
