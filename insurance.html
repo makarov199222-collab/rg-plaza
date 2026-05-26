@@ -941,6 +941,17 @@
   }
 
   function fm(n) { return n ? Number(n).toLocaleString('ru-RU') : '0'; }
+  // Экранирование данных из БД перед вставкой в innerHTML — защита от XSS,
+  // если в названии канала/компании/точки окажется HTML/скрипт.
+  function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
   function getPeriod() { return document.getElementById('month-pick').value || new Date().toISOString().substring(0,7); }
   function getCity() { return document.getElementById('city-pick').value; }
 
@@ -1062,7 +1073,7 @@
       const baseAttrs = `data-card="${cardKey}" data-channel="${channel.id}" data-company="${c.id}" data-point="${point?.id || ''}"`;
       return `<div class="ck-row">
         <div class="ck-name-block">
-          <div class="ck-name">${c.name}</div>
+          <div class="ck-name">${escapeHtml(c.name)}</div>
           ${prevHtml}
         </div>
         <div class="stepper ${inc > 0 ? 'has-value' : ''}" data-field="incoming_count" ${baseAttrs}>
@@ -1079,8 +1090,8 @@
     }).join('');
     return `<div class="channel-card ${fillClass}" id="card-${cardKey}">
       <div class="channel-head">
-        <div class="channel-name">${channel.name}</div>
-        <div class="channel-pin">${subtitle}</div>
+        <div class="channel-name">${escapeHtml(channel.name)}</div>
+        <div class="channel-pin">${escapeHtml(subtitle)}</div>
         <div class="channel-status-badge ${fillClass}">
           <div class="channel-led"></div>
           <span>${fillBadge}</span>
@@ -1646,7 +1657,7 @@
         const currMonthIdx = (now.getFullYear() === year) ? now.getMonth() : 11;
         if (lastWithData >= 0 && lastWithData < currMonthIdx - 1) {
           const monthsAgo = currMonthIdx - lastWithData;
-          alerts.push({ type:'red', icon:'💤', text: `<b>Локальный канал "${ch.name}"</b> молчит уже ${monthsAgo} мес. Последняя активность: ${months[lastWithData]} ${year}` });
+          alerts.push({ type:'red', icon:'💤', text: `<b>Локальный канал "${escapeHtml(ch.name)}"</b> молчит уже ${monthsAgo} мес. Последняя активность: ${months[lastWithData]} ${year}` });
         }
       });
     }
@@ -1654,7 +1665,7 @@
     // 4. Лидер роста
     if (topCompanies.length >= 2) {
       const top = topCompanies[0];
-      alerts.push({ type:'green', icon:'🏆', text: `<b>Лидер года</b>: ${top.name} — ${top.count} направлений (${Math.round(top.count/yearTotal*100)}% от общего)` });
+      alerts.push({ type:'green', icon:'🏆', text: `<b>Лидер года</b>: ${escapeHtml(top.name)} — ${top.count} направлений (${Math.round(top.count/yearTotal*100)}% от общего)` });
     }
 
     // === HTML ===
@@ -1680,14 +1691,14 @@
         </button>`;
       availableChannels.forEach(chName => {
         const icon = chName === 'РАВТ' ? '🔗' : '📍';
-        pillsHtml += `<button class="year-pill ${yearChannelFilter===chName?'active':''}" onclick="setYearChannelFilter('${chName}')">
-          ${icon} ${chName}<span class="year-pill-count">${channelCounts[chName] || 0}</span>
+        pillsHtml += `<button class="year-pill ${yearChannelFilter===chName?'active':''}" onclick="setYearChannelFilter('${escapeHtml(chName)}')">
+          ${icon} ${escapeHtml(chName)}<span class="year-pill-count">${channelCounts[chName] || 0}</span>
         </button>`;
       });
       pillsHtml += `</div>`;
     }
 
-    const filterLabel = yearChannelFilter === 'all' ? '' : ` · ${yearChannelFilter}`;
+    const filterLabel = yearChannelFilter === 'all' ? '' : ` · ${escapeHtml(yearChannelFilter)}`;
 
     let html = `
       <div class="year-section">
@@ -1792,7 +1803,7 @@
         months.forEach(m => t += `<div class="year-table-cell head">${m}</div>`);
         t += `<div class="year-table-cell head">Год</div>`;
         localTop.slice(0, 16).forEach(comp => {
-          t += `<div class="year-table-cell label">${comp.name}</div>`;
+          t += `<div class="year-table-cell label">${escapeHtml(comp.name)}</div>`;
           for (let m = 1; m <= 12; m++) {
             const period = `${year}-${String(m).padStart(2,'0')}`;
             const v = byMonthCompany[period][comp.id] || 0;
@@ -1833,8 +1844,8 @@
             if (!sub.length) return;
             // Заголовок: "Калужская" или "Совхозная · РАВТ"
             const suffix = availableChannels.length > 1
-              ? ` · ${pt.name} · ${chName}`
-              : ` · ${pt.name}`;
+              ? ` · ${escapeHtml(pt.name)} · ${escapeHtml(chName)}`
+              : ` · ${escapeHtml(pt.name)}`;
             html += renderCompanyTable(sub, suffix);
           });
         });
@@ -1845,7 +1856,7 @@
           points.forEach(pt => {
             const sub = dirs.filter(d => allowedIds.includes(d.channel_id) && d.point_id === pt.id);
             if (sub.length) {
-              html += renderCompanyTable(sub, `${filterLabel} · ${pt.name}`);
+              html += renderCompanyTable(sub, `${filterLabel} · ${escapeHtml(pt.name)}`);
             }
           });
         } else {
