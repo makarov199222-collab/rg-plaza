@@ -1093,6 +1093,29 @@
   };
   const REC_POINT_MAP = {'калужская':'kaluga','серпуховская':'serpuhov','совхозная':'sovhoz','пойма':'poyma','мгт':'mgt'};
   function recNorm(s){ return String(s||'').toLowerCase().replace(/[^а-яёa-z]/g,''); }
+
+  // Поиск колонок по НАЗВАНИЯМ заголовков (строка 0 файла). Устойчив к сдвигу
+  // столбцов в выгрузках 1С. Возвращает индексы; -1 если колонка не найдена.
+  function recFindColumns(header){
+    const norm = s => String(s||'').toLowerCase().replace(/[^а-яёa-z0-9]/g,'');
+    const idx = {};
+    header.forEach((h,i) => { const k = norm(h); if (k && idx[k] == null) idx[k] = i; });
+    const find = (...names) => { for (const n of names){ const k = norm(n); if (idx[k] != null) return idx[k]; } return -1; };
+    return {
+      date:    find('Дата'),
+      num:     find('Номер'),
+      type:    find('Тип рекомендации'),
+      sum:     find('Сумма'),
+      client:  find('Наименование контрагента'),
+      model:   find('Модель'),
+      plate:   find('Рег.знак','Рег знак','Регзнак'),
+      vin:     find('VIN'),
+      terr:    find('Территория'),
+      zn:      find('Заказ наряд','Заказ-наряд'),
+      company: find('Вид Заказ-наряда','Вид Заказ наряда'),
+    };
+  }
+
   function recStage(t){
     t = String(t||'').toLowerCase();
     if (t.includes('рекомендац')) return 'priem';
@@ -1153,8 +1176,15 @@
       const wb = XLSX.read(buf, { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false });
-      // строка 0 = заголовки; данные с 1; колонки по индексам как в файле 1С
-      const C = { date:2, num:3, type:4, sum:5, client:7, model:8, plate:10, vin:11, terr:13, zn:29, company:31 };
+      // строка 0 = заголовки. Колонки ищем ПО НАЗВАНИЯМ заголовков, а не по номерам:
+      // выгрузки из 1С могут идти со сдвигом столбцов, и жёсткие индексы ломались
+      // («распознано 0»). Поиск по заголовку устойчив к сдвигу и порядку колонок.
+      const C = recFindColumns(rows[0] || []);
+      // Без колонок «Номер» или «Заказ наряд» импортировать нечего — понятная ошибка.
+      if (C.num < 0 || C.zn < 0) {
+        toast('Не нашёл колонки «Номер»/«Заказ наряд» в файле. Проверь заголовки.', 'err');
+        return;
+      }
       const parsed = [];
       let skipped = 0;
       for (let i = 1; i < rows.length; i++){
