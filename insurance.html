@@ -1096,7 +1096,21 @@
     'абсолютстрахование':'absolut','ренессанс':'renessans','гелиос':'helios',
     'скинтери':'interi','совкомбанк':'sovkombank','энергогарант':'energo','энергогарантмск':'energo_msk',
   };
-  const REC_POINT_MAP = {'калужская':'kaluga','серпуховская':'serpuhov','совхозная':'sovhoz','пойма':'poyma','мгт':'mgt'};
+  // Сопоставление территории → point_id ПО КОРНЮ (вхождение), а не точным
+  // совпадением: в файле бывает «Б. Серпуховская», «Калужская ул.» и т.п.
+  // МГТ исключён намеренно — это скрытый проект/контрагент, а НЕ точка.
+  const REC_POINT_ROOTS = [
+    { root: 'калужск',   id: 'kaluga'   },
+    { root: 'серпуховск', id: 'serpuhov' },
+    { root: 'совхозн',   id: 'sovhoz'   },
+    { root: 'пойм',      id: 'poyma'    },
+  ];
+  function recMatchPoint(terr){
+    const s = recNorm(terr); // нижний регистр, только буквы
+    if (!s) return null;
+    for (const p of REC_POINT_ROOTS) { if (s.includes(p.root)) return p.id; }
+    return null;
+  }
   function recNorm(s){ return String(s||'').toLowerCase().replace(/[^а-яёa-z]/g,''); }
 
   // Поиск колонок по НАЗВАНИЯМ заголовков (строка 0 файла). Устойчив к сдвигу
@@ -1204,7 +1218,7 @@
           amount:     recParseAmount(r[C.sum]),
           company_id: REC_COMPANY_MAP[recNorm(r[C.company])] || null,
           company_raw: r[C.company] || null,
-          point_id:   REC_POINT_MAP[recNorm(r[C.terr])] || null,
+          point_id:   recMatchPoint(r[C.terr]),
           point_raw:  r[C.terr] || null,
           zn_number:  zn,
           zn_date:    zndate,
