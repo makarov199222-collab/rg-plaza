@@ -888,6 +888,7 @@
   }
   .fn-task.warn{ border-left-color:var(--crit); }
   .fn-task.wait{ border-left-color:var(--warn); }
+  .fn-task.docs{ border-left-color:var(--info); }
   .fn-task.foreign{ border-left-color:var(--muted); opacity:.85; }
   .fn-task.ok{ border-left-color:var(--ok); }
   .fn-task-ico{ font-size:20px; flex:0 0 auto; }
@@ -1463,6 +1464,7 @@
   let shippedZnSet = new Set(); // zn_number, найденные в orders_history_1c (отгружены)
   let znMaxDebt = new Map();    // zn_number → макс. долг по строкам заказа (для проверки оплаты)
   let znCategory = new Map();   // zn_number → категория заказа (equity/corp/retail/detail)
+  let znHasRegistry = new Map(); // zn_number → реестр отправлен (есть label или date)
   let recFunnelMode = 'snapshot'; // 'snapshot' | 'month'
   let recFunnelAllPoints = false; // false = только город из шапки, true = все точки
 
@@ -1489,13 +1491,14 @@
       shippedZnSet = new Set();
       znMaxDebt = new Map();
       znCategory = new Map();
+      znHasRegistry = new Map();
       const zns = [...new Set(recsData.map(r => r.zn_number).filter(Boolean).map(String))];
       const CHUNK = 200; // дробим .in() на части — список ЗН может быть большим
       for (let i = 0; i < zns.length; i += CHUNK) {
         const part = zns.slice(i, i + CHUNK);
         const { data: ord, error: oErr } = await sb
           .from('orders_history_1c')
-          .select('zn_number, debt, category')
+          .select('zn_number, debt, category, registry_label, registry_date')
           .in('zn_number', part);
         if (oErr) { console.warn('orders_history_1c lookup:', oErr); continue; }
         (ord || []).forEach(o => {
@@ -1505,10 +1508,13 @@
           const d = +o.debt || 0;
           const prev = znMaxDebt.has(zn) ? znMaxDebt.get(zn) : -Infinity;
           if (d > prev) znMaxDebt.set(zn, d);
-          // Категория: если хоть одна строка equity — считаем ЗН страховым
-          // (equity «сильнее» прочих, чтобы не отсеять реально страховой заказ).
+          // Категория: если хоть одна строка equity — считаем ЗН страховым.
           const cat = o.category || null;
           if (!znCategory.has(zn) || cat === 'equity') znCategory.set(zn, cat);
+          // Реестр отправлен, если заполнен label ИЛИ date (хоть в одной строке).
+          const hasReg = (o.registry_label != null && String(o.registry_label).trim() !== '')
+                      || (o.registry_date != null && String(o.registry_date).trim() !== '');
+          if (hasReg || !znHasRegistry.has(zn)) znHasRegistry.set(zn, hasReg || znHasRegistry.get(zn) || false);
         });
       }
     } catch (e) {
@@ -1516,6 +1522,12 @@
       recsData = recsData || [];
       // карты оставляем как есть — виджет просто покажет меньше задач
     }
+  }
+
+  // Реестр (документы) по ЗН отправлен? true = есть реестр, false = нет (надо отправить).
+  function znRegistrySent(zn) {
+    if (!zn) return false;
+    return znHasRegistry.get(String(zn)) === true;
   }
 
   // «Чужая» рекомендация: ЗН отгружён, но категория заказа НЕ страховая (не equity).
@@ -1619,6 +1631,7 @@
     const mismatch = [];       // отгружен, страховой (equity), но company_id пустой
     const confirmed = [];      // подтверждены вручную (service_confirmed_at стоит)
     const foreign = [];        // ЗН отгружён, но категория не страховая (corp/retail/detail) — чужие
+    const needDocs = [];       // отгружен страховой, но реестр не отправлен (документы не сданы в СК)
 
     recs.forEach(r => {
       // «Чужих» (не-страховые отгруженные ЗН) полностью исключаем из воронки и задач.
@@ -1637,12 +1650,14 @@
       if (shipped && !paid && active) awaitingPay.push(r);
       if (shipped && !r.company_id) mismatch.push(r);
       if (r.service_confirmed_at) confirmed.push(r);
+      // Документы: отгружен, но реестр (дата+номер) ещё не проставлен → надо отправить.
+      if (shipped && !znRegistrySent(r.zn_number)) needDocs.push(r);
     });
 
     const totalCount = recs.length - foreign.length; // чужих не считаем в итог
     const totalAmount = recs.reduce((s, r) => znIsForeign(r.zn_number) ? s : s + (+r.amount || 0), 0);
     const inWorkCount = byStage.priem.count + byStage.work.count;
-    return { byStage, other, totalCount, totalAmount, inWorkCount, toService, awaitingPay, mismatch, confirmed, foreign };
+    return { byStage, other, totalCount, totalAmount, inWorkCount, toService, awaitingPay, mismatch, confirmed, foreign, needDocs };
   }
 
   function setFunnelMode(mode) { recFunnelMode = mode; haptic(10); render(); }
@@ -1689,6 +1704,16 @@
           <button class="fn-task-btn ghost" onclick="showFunnelTask('toService')">Список</button>
           <button class="fn-task-btn" onclick="confirmServiceMass()">Подтвердить все</button>
         </div>
+      </div>`;
+    }
+    if (f.needDocs.length) {
+      tasksHtml += `<div class="fn-task docs">
+        <div class="fn-task-ico">📄</div>
+        <div class="fn-task-body">
+          <div class="fn-task-title">Отправить документы в СК: ${f.needDocs.length}</div>
+          <div class="fn-task-sub">Отгружены, но реестр не отправлен (нет даты и номера реестра).</div>
+        </div>
+        <button class="fn-task-btn" onclick="showFunnelTask('needDocs')">Список</button>
       </div>`;
     }
     if (f.awaitingPay.length) {
@@ -1746,13 +1771,14 @@
 
   function showFunnelTask(kind) {
     const f = funnelCompute();
-    const listMap = { toService: f.toService, confirmed: f.confirmed, awaitingPay: f.awaitingPay, mismatch: f.mismatch, foreign: f.foreign };
+    const listMap = { toService: f.toService, confirmed: f.confirmed, awaitingPay: f.awaitingPay, mismatch: f.mismatch, foreign: f.foreign, needDocs: f.needDocs };
     const titleMap = {
       toService: '🚚 Перевести в «Сервисную»',
       confirmed: '✓ Подтверждены вручную',
       awaitingPay: '⏳ Ждут оплаты СК',
       mismatch: '⚠️ Нестыковки',
       foreign: '🚫 Не наши (исключены)',
+      needDocs: '📄 Отправить документы в СК',
     };
     const list = listMap[kind] || f.mismatch;
     const title = titleMap[kind] || '⚠️ Нестыковки';
