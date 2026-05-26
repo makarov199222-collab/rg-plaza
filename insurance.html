@@ -469,6 +469,13 @@
   .ck-rec.rec-ok .ck-rec-diff{ color:var(--ok); opacity:.8; }
   .ck-rec.rec-diff{ color:var(--brand); }
   .ck-rec.rec-diff .ck-rec-diff{ color:var(--brand); opacity:.85; }
+  .ck-fill-btn{
+    width:100%; margin-top:8px; background:transparent;
+    border:1px dashed var(--info); color:var(--info);
+    border-radius:8px; padding:9px; font-family:var(--font);
+    font-size:12px; font-weight:700; cursor:pointer; letter-spacing:.3px;
+  }
+  .ck-fill-btn:hover{ background:rgba(33,150,243,.08); }
 
   /* ============== STEPPER ============== */
   .stepper{
@@ -1765,6 +1772,14 @@
     else if (fillPct < 0.5) { fillClass = 'fill-partial'; fillBadge = `Заполнено ${Math.round(fillPct*100)}%`; }
     else { fillClass = 'fill-full'; fillBadge = totalIncoming > 0 ? `Всего ${totalIncoming}` : 'Готово'; }
     if (totalRecCount > 0) fillBadge += ` · по рекоменд. ${totalRecCount}`;
+    // Считаем, по скольким СК ручная цифра расходится с рекомендациями (для кнопки автозаполнения).
+    let fillDiffCount = 0;
+    companies.forEach(c => {
+      const rc = recCountByCompany(c.id, point?.id).count;
+      if (rc <= 0) return;
+      const cur = getRecord(channel.id, c.id, point?.id)?.incoming_count || 0;
+      if (+cur !== rc) fillDiffCount++;
+    });
     const ravtRec = getRavtRecord(channel.id, point?.id);
     const ravtTotal = ravtRec ? +ravtRec.ravt_total || 0 : 0;
     const diffHtml = renderRavtDiff(ravtTotal, totalIncoming);
@@ -1830,6 +1845,7 @@
         <div class="ck-totals-val">${totalIncoming}</div>
         <div class="ck-totals-val withdrawn">${totalWithdrawn}</div>
       </div>
+      ${fillDiffCount > 0 ? `<button class="ck-fill-btn" onclick="fillFrom1C('${channel.id}','${point?.id || ''}')">⬇ Заполнить из 1С · расхождений: ${fillDiffCount}</button>` : ''}
       <div class="ck-ravt-block">
         <div class="ck-ravt-title">Сверка с данными РАВТ</div>
         <div class="ck-ravt-row">
@@ -2130,6 +2146,41 @@
       }
     }
     setStatus(pendingSaves > 0 ? 'saving' : 'saved');
+  }
+
+  // ====== АВТОЗАПОЛНЕНИЕ «Поступило» ИЗ 1С (рекомендаций) ======
+  // Данные 1С считаем вернее ручных. Перед записью показываем предпросмотр
+  // (было → станет по каждой СК) и ждём подтверждения. Бэкап ручных данных
+  // сделан в insurance_directions_backup_20260526.
+  async function fillFrom1C(channelId, pointIdRaw) {
+    const pointId = pointIdRaw || null;
+    // Собираем расхождения: где ручная цифра не равна числу рекомендаций.
+    const changes = [];
+    companies.forEach(c => {
+      const rc = recCountByCompany(c.id, pointId).count;
+      if (rc <= 0) return;
+      const cur = +(getRecord(channelId, c.id, pointId)?.incoming_count || 0);
+      if (cur !== rc) changes.push({ company: c, from: cur, to: rc });
+    });
+    if (!changes.length) { toast('Всё уже совпадает с 1С', 'ok'); return; }
+
+    // Предпросмотр изменений в окне подтверждения.
+    const lines = changes.map(ch => `• ${ch.company.name}: ${ch.from} → ${ch.to}`).join('\n');
+    const ok = confirm(
+      `Заполнить «Поступило» из 1С? Изменится ${changes.length} строк:\n\n` +
+      lines +
+      `\n\nРучные значения перезапишутся данными 1С (они вернее).\n` +
+      `Бэкап сохранён, откат возможен.`
+    );
+    if (!ok) return;
+
+    // Пишем через тот же механизм, что и ручной ввод: локально + очередь сохранения.
+    changes.forEach(ch => {
+      updateLocalRecord(channelId, ch.company.id, pointId, 'incoming_count', ch.to);
+      queueSave('direction', { channelId, companyId: ch.company.id, pointId });
+    });
+    toast(`Заполнено из 1С: ${changes.length}`, 'ok');
+    render(); // перерисуем карточки с новыми цифрами
   }
 
   async function saveDirection({ channelId, companyId, pointId }) {
