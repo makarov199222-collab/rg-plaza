@@ -829,30 +829,8 @@
     color:var(--brand); letter-spacing:1.5px; margin-bottom:14px;
   }
   .pc-sub{ font-family:var(--font); font-size:11px; color:var(--text-dim); font-weight:500; letter-spacing:.3px; }
-  .pc-table{ display:flex; flex-direction:column; }
-  .pc-row{
-    display:grid;
-    grid-template-columns:1.6fr repeat(var(--pc-cols, 3), 1fr);
-    align-items:center; gap:6px;
-    padding:8px 0; border-bottom:1px solid rgba(51,51,51,.4);
-  }
-  .pc-row:last-child{ border-bottom:none; }
-  .pc-head{ border-bottom:1px solid var(--border-bright); }
-  .pc-head .pc-name, .pc-head .pc-cell{
-    font-size:10px; color:var(--label); font-weight:600;
-    letter-spacing:.6px; text-transform:uppercase;
-  }
-  .pc-name{ font-size:13px; color:var(--text); font-weight:600; padding-left:2px; }
-  .pc-cell{
-    text-align:center; font-family:var(--font-display);
-    font-size:20px; color:var(--brand); letter-spacing:.5px;
-  }
-  .pc-cell.zero{ color:var(--muted); font-family:var(--font); font-size:14px; }
-  .pc-total-col{ color:var(--text); }
-  .pc-head .pc-total-col{ color:var(--label); }
-  .pc-foot{ border-top:1px solid var(--border-bright); margin-top:2px; }
-  .pc-foot .pc-name{ color:var(--brand); font-size:11px; text-transform:uppercase; letter-spacing:1px; }
-  .pc-foot .pc-cell{ font-size:18px; color:var(--text); }
+  .pc-chart-wrap{ position:relative; height:300px; }
+  @media (max-width:600px){ .pc-chart-wrap{ height:240px; } }
 
   /* ============== ВОРОНКА НАПРАВЛЕНИЙ (Этап 2) ============== */
   .funnel-block{
@@ -1895,7 +1873,6 @@
     if (!channels.length) { document.getElementById('content').innerHTML = '<div class="empty">Нет активных каналов для этого города</div>'; return; }
     _recCountCache = null;       // сбрасываем кэш сверки — месяц/город могли смениться
     let html = renderFunnel();   // виджет воронки наверху #content
-    html += renderPointCompare(); // таблица-сравнение СК по точкам
     html += '<div class="channels-grid">';
     if (city === 'moscow') {
       points.forEach(p => { channels.forEach(ch => { html += renderChannelCard(ch, p); }); });
@@ -1904,7 +1881,9 @@
     }
     html += '</div>';
     html += renderSummary();
+    html += renderPointCompare(); // график-сравнение СК по точкам — внизу
     document.getElementById('content').innerHTML = html;
+    drawPointCompareChart();      // рисуем график после вставки в DOM
   }
 
   function getRecord(channelId, companyId, pointId) {
@@ -1917,45 +1896,57 @@
     return ravtData.find(r => r.channel_id === channelId && (pointId ? r.point_id === pointId : !r.point_id));
   }
 
-  // Таблица-сравнение СК по точкам города: строки — СК (по убыванию направлений),
-  // колонки — точки. В ячейке количество направлений за месяц. Показываем только
-  // если в городе ≥2 точек и есть хоть какие-то направления.
+  // График-сравнение СК по точкам (сгруппированные столбцы, Chart.js).
+  // Показываем только если в городе ≥2 точек и есть направления.
+  let pointCompareChart = null;
   function renderPointCompare() {
-    if (!points || points.length < 2) return ''; // сравнивать нечего
-    // Для каждой СК — направления по каждой точке + итого.
-    const rows = companies.map(c => {
-      const byPoint = points.map(p => recCountByCompany(c.id, p.id).count);
-      const total = byPoint.reduce((s, n) => s + n, 0);
-      return { name: c.name, byPoint, total };
-    }).filter(r => r.total > 0)
-      .sort((a, b) => b.total - a.total);
-
-    if (!rows.length) return ''; // нет направлений — таблицу не показываем
-
-    const colTotals = points.map((p, i) => rows.reduce((s, r) => s + r.byPoint[i], 0));
-    const grand = colTotals.reduce((s, n) => s + n, 0);
-
-    const head = `<div class="pc-row pc-head">
-      <div class="pc-name">Страховая</div>
-      ${points.map(p => `<div class="pc-cell">${escapeHtml(p.name)}</div>`).join('')}
-      <div class="pc-cell pc-total-col">Σ</div>
-    </div>`;
-    const body = rows.map(r => `<div class="pc-row">
-      <div class="pc-name">${escapeHtml(r.name)}</div>
-      ${r.byPoint.map(n => `<div class="pc-cell ${n === 0 ? 'zero' : ''}">${n || '—'}</div>`).join('')}
-      <div class="pc-cell pc-total-col">${r.total}</div>
-    </div>`).join('');
-    const foot = `<div class="pc-row pc-foot">
-      <div class="pc-name">Итого</div>
-      ${colTotals.map(n => `<div class="pc-cell">${n}</div>`).join('')}
-      <div class="pc-cell pc-total-col">${grand}</div>
-    </div>`;
-
+    if (!points || points.length < 2) return '';
+    const hasData = companies.some(c => points.some(p => recCountByCompany(c.id, p.id).count > 0));
+    if (!hasData) return '';
     const periodLbl = recFunnelMode === 'month' ? `за ${formatMonth()}` : 'всего';
     return `<div class="pc-block">
-      <div class="pc-title">Направления по точкам <span class="pc-sub">${escapeHtml(periodLbl)}</span></div>
-      <div class="pc-table" style="--pc-cols:${points.length};">${head}${body}${foot}</div>
+      <div class="pc-title">Сравнение СК по точкам <span class="pc-sub">${escapeHtml(periodLbl)}</span></div>
+      <div class="pc-chart-wrap"><canvas id="pc-chart"></canvas></div>
     </div>`;
+  }
+
+  function drawPointCompareChart() {
+    if (pointCompareChart) { try { pointCompareChart.destroy(); } catch(e){} pointCompareChart = null; }
+    const ctx = document.getElementById('pc-chart');
+    if (!ctx || points.length < 2) return;
+
+    // СК с направлениями, по убыванию суммы по всем точкам.
+    const rows = companies.map(c => {
+      const byPoint = points.map(p => recCountByCompany(c.id, p.id).count);
+      return { name: c.name, byPoint, total: byPoint.reduce((s,n)=>s+n,0) };
+    }).filter(r => r.total > 0).sort((a,b) => b.total - a.total);
+    if (!rows.length) return;
+
+    const labels = rows.map(r => r.name.length > 14 ? r.name.slice(0,13)+'…' : r.name);
+    // Цвета точек: янтарь, синий, зелёный, фиолетовый (по числу точек).
+    const palette = ['#e8b84b', '#2196f3', '#4caf50', '#9c6ade'];
+    const datasets = points.map((p, i) => ({
+      label: p.name,
+      data: rows.map(r => r.byPoint[i]),
+      backgroundColor: palette[i % palette.length],
+      borderRadius: 4,
+    }));
+
+    pointCompareChart = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: '#b8b8b8', font: { size: 12 }, usePointStyle: true } },
+          tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.raw} напр.` } },
+        },
+        scales: {
+          x: { ticks: { color: '#b8b8b8', font: { size: 11 } }, grid: { display: false } },
+          y: { ticks: { color: '#909090', precision: 0 }, grid: { color: '#333' }, beginAtZero: true },
+        },
+      },
+    });
   }
 
   function renderChannelCard(channel, point) {
