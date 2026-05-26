@@ -1005,7 +1005,7 @@
         </div>
       </div>
       <div class="cf-actions">
-        <button class="ce-btn primary" onclick="saveCar()">💾 Сохранить</button>
+        <button class="ce-btn primary" id="ce-save" onclick="saveCar()">💾 Сохранить</button>
         <button class="ce-btn close" id="ce-close-btn" onclick="openCloseDialog()" style="display:none;">✅ Выдан клиенту</button>
         <button class="ce-btn delete" id="ce-delete-btn" onclick="deleteCar()" style="display:none;">🗑 Удалить</button>
       </div>
@@ -1082,6 +1082,17 @@
   async function queueAdd(op) {
     try {
       const db = await openOfflineDb();
+      // Дедупликация: если в очереди уже есть идентичная операция (та же таблица,
+      // действие и данные) — не добавляем повторно. Защита от двойного нажатия
+      // "Сохранить" без сети, из-за которого иначе создавались дубли при синке.
+      try {
+        const existing = await queueGetAll();
+        const sig = JSON.stringify({ table: op.table, action: op.action, payload: op.payload, filter: op.filter || null });
+        const dup = (existing || []).some(e =>
+          JSON.stringify({ table: e.table, action: e.action, payload: e.payload, filter: e.filter || null }) === sig
+        );
+        if (dup) { console.warn('queueAdd: дубль операции пропущен', op.table, op.action); return null; }
+      } catch (dedupeErr) { console.warn('queueAdd dedupe check failed (продолжаю):', dedupeErr); }
       return new Promise((resolve, reject) => {
         const tx = db.transaction(OFFLINE_STORE, 'readwrite');
         const store = tx.objectStore(OFFLINE_STORE);
@@ -4588,15 +4599,20 @@
     const dr = document.getElementById('dret').value||0;
     const dp = document.getElementById('dphy').value||0;
     const dc = document.getElementById('dcop').value||0;
+    const ddetVal = +(document.getElementById('ddet')?.value || 0);
+    // Дневная розница Совхозной (izhevsk) = физлица + детейл
+    const dPhysDet = (+dp || 0) + ddetVal;
     const bnote = document.getElementById('bnote').value;
     const rvNote = C.rv > 0 ? `возможны ${C.rv}` : '0';
 
-    let mT=0,mI=0,mR=0,mC=0,mP=0;
+    let mT=0,mI=0,mR=0,mC=0,mP=0,mDet=0;
     monthData.days.forEach(d => {
       // Единое правило: 1С приоритетно, иначе ручное (как в "Итого за месяц")
       const e = effDay(d);
-      mT += e.total; mI += e.ins; mR += e.retail; mC += e.corp; mP += e.phys;
+      mT += e.total; mI += e.ins; mR += e.retail; mC += e.corp; mP += e.phys; mDet += e.detail;
     });
+    // Розница для формата Совхозной (izhevsk) = розничные клиенты (физ) + детейл
+    const mPhysDet = mP + mDet;
 
     let planLine = '';
     if (planData.plan_phys_day) { const gap = planData.plan_phys_day - (+dp||0); planLine += gap > 0 ? `\n⚠️ До плана дня (физ): ${fm(gap)} ₽` : `\n✅ План дня (физ) выполнен! (+${fm(-gap)} ₽)`; }
@@ -4647,9 +4663,10 @@
 
     let carsCountBlock, dayBlock, monthBlock;
     if (isIzhevsk) {
-      carsCountBlock = `2️⃣ отгружено: ${totalCars} шт📄\n  страховые: ${C.ins}\n  розница (физлица): ${C.phy}\n  корпоратив: ${C.cop}`;
-      dayBlock = `4️⃣Отгружено за ${date}: ${fm(dt)}р\n  страховые: ${fm(di)}р\n  розница (физлица): ${fm(dp)}р\n  корпоратив: ${fm(dc)}р`;
-      monthBlock = `5️⃣Отгружено за ${mname(date)}: ${fm(mT)}р\n  страховые: ${fm(mI)}р\n  розница (физлица): ${fm(mP)}р\n  корпоратив: ${fm(mC)}р`;
+      // Совхозная: розница = розничные клиенты (физлица) + детейл; страховые и корпоратив отдельно
+      carsCountBlock = `2️⃣ отгружено: ${totalCars} шт📄\n  страховые: ${C.ins}\n  розница: ${C.phy + C.det} (клиенты: ${C.phy} | детейл: ${C.det})\n  корпоратив: ${C.cop}`;
+      dayBlock = `4️⃣Отгружено за ${date}: ${fm(dt)}р\n  страховые: ${fm(di)}р\n  розница: ${fm(dPhysDet)}р (клиенты: ${fm(dp)}р | детейл: ${fm(ddetVal)}р)\n  корпоратив: ${fm(dc)}р`;
+      monthBlock = `5️⃣Отгружено за ${mname(date)}: ${fm(mT)}р\n  страховые: ${fm(mI)}р\n  розница: ${fm(mPhysDet)}р (клиенты: ${fm(mP)}р | детейл: ${fm(mDet)}р)\n  корпоратив: ${fm(mC)}р`;
     } else {
       carsCountBlock = `2️⃣ отгружено: ${totalCars} шт📄\n  страховые: ${C.ins}\n  розница: ${C.ret} (физлица: ${C.phy} | корпоратив: ${C.cop})`;
       dayBlock = `4️⃣Отгружено за ${date}: ${fm(dt)}р\n  страховые: ${fm(di)}р\n  розница: ${fm(dr)}р (физлица: ${fm(dp)}р | корпоратив: ${fm(dc)}р)`;
@@ -5369,9 +5386,16 @@ ${planLine}
     currentAddons = {};
   }
 
+  let savingCar = false;
   async function saveCar() {
+    // Защита от двойного клика: пока идёт сохранение — игнорируем повторные нажатия,
+    // иначе быстрый двойной тап создаёт две одинаковые машины (особенно без номера ЗН).
+    if (savingCar) return;
     const info = document.getElementById('ce-info').value.trim();
     if (!info) { toast('Заполни «Номер · Марка · Клиент»', 'err'); return; }
+    savingCar = true;
+    const ceSaveBtn = document.getElementById('ce-save');
+    if (ceSaveBtn) ceSaveBtn.disabled = true;
     // Извлекаем plate (первое слово) для legacy-поля и сортировки
     const firstWord = info.split(/\s+/)[0] || '';
     const todo = document.getElementById('ce-todo').value.trim();
@@ -5462,6 +5486,11 @@ ${planLine}
       }
     } catch (e) {
       toast('Ошибка: '+(e.message||e), 'err');
+    } finally {
+      // Снимаем блокировку в любом случае — успех, ошибка или офлайн-выход
+      savingCar = false;
+      const b = document.getElementById('ce-save');
+      if (b) b.disabled = false;
     }
   }
 
