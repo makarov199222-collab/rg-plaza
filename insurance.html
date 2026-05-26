@@ -916,6 +916,14 @@
   }
   .fn-rec-btn.ghost{ background:transparent; border:1px solid var(--border-bright); color:var(--text-dim); }
   .fn-rec-empty{ color:var(--muted); text-align:center; padding:20px; font-size:13px; }
+  .fn-group-head{
+    display:flex; align-items:baseline; justify-content:space-between; gap:8px;
+    font-family:var(--font-display); font-size:16px; color:var(--brand);
+    letter-spacing:1px; padding:14px 2px 6px; margin-top:6px;
+    border-bottom:1px solid var(--border-bright);
+  }
+  .fn-group-head:first-child{ margin-top:0; }
+  .fn-group-count{ font-family:var(--font); font-size:11px; color:var(--text-dim); font-weight:600; letter-spacing:.3px; }
   @media (max-width:600px){
     .funnel-stages{ grid-template-columns:repeat(2,1fr); }
     .fn-stage-count{ font-size:26px; }
@@ -1784,7 +1792,9 @@
     const title = titleMap[kind] || '⚠️ Нестыковки';
     const fmt = n => Math.round(n).toLocaleString('ru-RU');
     const CAT_LBL = { corp: 'корпоратив', retail: 'розница', detail: 'детейл', equity: 'страховой' };
-    const rowsHtml = list.length ? list.map(r => {
+
+    // Рендер одной записи (общий для всех режимов).
+    const renderRec = (r) => {
       const comp = r.company_id
         ? (companies.find(c => c.id === r.company_id)?.name || r.company_id)
         : (r.company_raw || '—');
@@ -1796,26 +1806,47 @@
       } else if (kind === 'confirmed') {
         action = `<button class="fn-rec-btn ghost" onclick="unconfirmServiceOne('${escapeHtml(String(r.rec_number))}')">↩ Вернуть в работу</button>`;
       }
-      // Для «ждут оплаты» показываем долг СК.
       const debtLine = kind === 'awaitingPay'
         ? `<div class="fn-rec-meta" style="color:var(--warn);">Долг СК: ${fmt(znMaxDebt.get(String(r.zn_number)) || 0)} ₽</div>`
         : '';
-      // Для «не наших» показываем категорию заказа.
       const catLine = kind === 'foreign'
         ? `<div class="fn-rec-meta" style="color:var(--crit);">Категория заказа: ${escapeHtml(CAT_LBL[znCategory.get(String(r.zn_number))] || znCategory.get(String(r.zn_number)) || '—')}</div>`
         : '';
+      // В режиме документов точку в строке не дублируем — она в заголовке группы.
+      const ptInline = kind === 'needDocs' ? '' : ` · ${escapeHtml(ptLbl)}`;
       return `<div class="fn-rec-row">
         <div class="fn-rec-main">
           <span class="fn-rec-zn">ЗН ${escapeHtml(r.zn_number || '—')}</span>
           <span class="fn-rec-amt">${fmt(+r.amount || 0)} ₽</span>
         </div>
-        <div class="fn-rec-meta">${escapeHtml(comp)} · ${escapeHtml(ptLbl)}${r.client ? ' · ' + escapeHtml(r.client) : ''}</div>
+        <div class="fn-rec-meta">${escapeHtml(comp)}${ptInline}${r.client ? ' · ' + escapeHtml(r.client) : ''}</div>
         ${debtLine}
         ${catLine}
         <div class="fn-rec-meta dim">${escapeHtml(r.car_model || '')}${r.plate ? ' · ' + escapeHtml(r.plate) : ''} · рек. ${escapeHtml(r.rec_number || '')}</div>
         ${action}
       </div>`;
-    }).join('') : '<div class="fn-rec-empty">Пусто</div>';
+    };
+
+    let rowsHtml;
+    if (!list.length) {
+      rowsHtml = '<div class="fn-rec-empty">Пусто</div>';
+    } else if (kind === 'needDocs') {
+      // Документы группируем ПО ТОЧКАМ — чтобы не искать вперемешку.
+      const groups = {}; // point_id → [recs]
+      list.forEach(r => { const k = r.point_id || '_'; (groups[k] = groups[k] || []).push(r); });
+      const order = points.map(p => p.id).filter(id => groups[id]); // порядок как точки города
+      if (groups['_']) order.push('_');                              // нераспознанные — в конец
+      rowsHtml = order.map(pid => {
+        const pt = points.find(p => p.id === pid);
+        const ptName = pt ? pt.name : 'Без точки';
+        const recs = groups[pid];
+        const sum = recs.reduce((s, r) => s + (+r.amount || 0), 0);
+        return `<div class="fn-group-head">${escapeHtml(ptName)} <span class="fn-group-count">${recs.length} · ${fmt(sum)} ₽</span></div>`
+          + recs.map(renderRec).join('');
+      }).join('');
+    } else {
+      rowsHtml = list.map(renderRec).join('');
+    }
     document.getElementById('fn-task-modal-title').textContent = title;
     document.getElementById('fn-task-modal-body').innerHTML = rowsHtml;
     document.getElementById('fn-task-modal').classList.add('show');
