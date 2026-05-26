@@ -1633,14 +1633,8 @@
       </div>`;
     }
     if (f.foreign.length) {
-      tasksHtml += `<div class="fn-task foreign">
-        <div class="fn-task-ico">🚫</div>
-        <div class="fn-task-body">
-          <div class="fn-task-title">Не наши (исключены): ${f.foreign.length}</div>
-          <div class="fn-task-sub">ЗН в заказах оказались не страховыми (корпоратив/розница). В подсчёт не идут.</div>
-        </div>
-        <button class="fn-task-btn ghost" onclick="showFunnelTask('foreign')">Список</button>
-      </div>`;
+      // Плашку «Не наши» намеренно не показываем: исключение чужих ЗН
+      // (корпоратив/розница) работает молча, постоянная техническая плашка не нужна.
     }
     if (!tasksHtml) {
       tasksHtml = `<div class="fn-task ok">
