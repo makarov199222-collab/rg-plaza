@@ -408,15 +408,28 @@
     if (!period) return;
     data.period = period;
     try {
+      // Защита от каскадного падения: если один запрос упадёт (нет таблицы / RLS),
+      // он вернёт пустой результат, а не обрушит весь экран бухгалтерии.
+      const safe = async (q, fallback) => {
+        const def = fallback !== undefined ? fallback : { data: [] };
+        try {
+          const r = await q;
+          if (r && r.error) { console.warn('Soft error (продолжаем):', r.error.message); return def; }
+          return r;
+        } catch (e) {
+          console.warn('Soft error (продолжаем):', e.message);
+          return def;
+        }
+      };
       const [exp, tax, fot, emp, pen, loan, cal, rep] = await Promise.all([
-        sb.from('expenses_monthly').select('*').eq('period', period),
-        sb.from('taxes_monthly').select('*').eq('period', period),
-        sb.from('fot_summary').select('*').eq('period', period).maybeSingle(),
-        sb.from('fot_employees').select('*').eq('period', period),
-        sb.from('fot_penalties').select('*').eq('period', period),
-        sb.from('loans_leases').select('*').eq('active', true),
-        sb.from('payment_calendar').select('*').eq('period', period),
-        sb.from('daily_reports_unified').select('*').gte('date', period+'-01').lte('date', period+'-31'),
+        safe(sb.from('expenses_monthly').select('*').eq('period', period)),
+        safe(sb.from('taxes_monthly').select('*').eq('period', period)),
+        safe(sb.from('fot_summary').select('*').eq('period', period).maybeSingle(), { data: null }),
+        safe(sb.from('fot_employees').select('*').eq('period', period)),
+        safe(sb.from('fot_penalties').select('*').eq('period', period)),
+        safe(sb.from('loans_leases').select('*').eq('active', true)),
+        safe(sb.from('payment_calendar').select('*').eq('period', period)),
+        safe(sb.from('daily_reports_unified').select('*').gte('date', period+'-01').lte('date', period+'-31')),
       ]);
       data.expenses = exp.data || [];
       data.taxes = tax.data || [];
