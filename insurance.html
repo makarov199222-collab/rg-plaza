@@ -816,6 +816,44 @@
   .summary-item-sub.up{color:var(--ok);}
   .summary-item-sub.down{color:var(--crit);}
 
+  /* ============== ТАБЛИЦА-СРАВНЕНИЕ СК ПО ТОЧКАМ ============== */
+  .pc-block{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:16px;
+    margin-bottom:14px;
+  }
+  .pc-title{
+    font-family:var(--font-display); font-size:18px;
+    color:var(--brand); letter-spacing:1.5px; margin-bottom:14px;
+  }
+  .pc-sub{ font-family:var(--font); font-size:11px; color:var(--text-dim); font-weight:500; letter-spacing:.3px; }
+  .pc-table{ display:flex; flex-direction:column; }
+  .pc-row{
+    display:grid;
+    grid-template-columns:1.6fr repeat(var(--pc-cols, 3), 1fr);
+    align-items:center; gap:6px;
+    padding:8px 0; border-bottom:1px solid rgba(51,51,51,.4);
+  }
+  .pc-row:last-child{ border-bottom:none; }
+  .pc-head{ border-bottom:1px solid var(--border-bright); }
+  .pc-head .pc-name, .pc-head .pc-cell{
+    font-size:10px; color:var(--label); font-weight:600;
+    letter-spacing:.6px; text-transform:uppercase;
+  }
+  .pc-name{ font-size:13px; color:var(--text); font-weight:600; padding-left:2px; }
+  .pc-cell{
+    text-align:center; font-family:var(--font-display);
+    font-size:20px; color:var(--brand); letter-spacing:.5px;
+  }
+  .pc-cell.zero{ color:var(--muted); font-family:var(--font); font-size:14px; }
+  .pc-total-col{ color:var(--text); }
+  .pc-head .pc-total-col{ color:var(--label); }
+  .pc-foot{ border-top:1px solid var(--border-bright); margin-top:2px; }
+  .pc-foot .pc-name{ color:var(--brand); font-size:11px; text-transform:uppercase; letter-spacing:1px; }
+  .pc-foot .pc-cell{ font-size:18px; color:var(--text); }
+
   /* ============== ВОРОНКА НАПРАВЛЕНИЙ (Этап 2) ============== */
   .funnel-block{
     background:var(--surface);
@@ -1857,6 +1895,7 @@
     if (!channels.length) { document.getElementById('content').innerHTML = '<div class="empty">Нет активных каналов для этого города</div>'; return; }
     _recCountCache = null;       // сбрасываем кэш сверки — месяц/город могли смениться
     let html = renderFunnel();   // виджет воронки наверху #content
+    html += renderPointCompare(); // таблица-сравнение СК по точкам
     html += '<div class="channels-grid">';
     if (city === 'moscow') {
       points.forEach(p => { channels.forEach(ch => { html += renderChannelCard(ch, p); }); });
@@ -1876,6 +1915,47 @@
   }
   function getRavtRecord(channelId, pointId) {
     return ravtData.find(r => r.channel_id === channelId && (pointId ? r.point_id === pointId : !r.point_id));
+  }
+
+  // Таблица-сравнение СК по точкам города: строки — СК (по убыванию направлений),
+  // колонки — точки. В ячейке количество направлений за месяц. Показываем только
+  // если в городе ≥2 точек и есть хоть какие-то направления.
+  function renderPointCompare() {
+    if (!points || points.length < 2) return ''; // сравнивать нечего
+    // Для каждой СК — направления по каждой точке + итого.
+    const rows = companies.map(c => {
+      const byPoint = points.map(p => recCountByCompany(c.id, p.id).count);
+      const total = byPoint.reduce((s, n) => s + n, 0);
+      return { name: c.name, byPoint, total };
+    }).filter(r => r.total > 0)
+      .sort((a, b) => b.total - a.total);
+
+    if (!rows.length) return ''; // нет направлений — таблицу не показываем
+
+    const colTotals = points.map((p, i) => rows.reduce((s, r) => s + r.byPoint[i], 0));
+    const grand = colTotals.reduce((s, n) => s + n, 0);
+
+    const head = `<div class="pc-row pc-head">
+      <div class="pc-name">Страховая</div>
+      ${points.map(p => `<div class="pc-cell">${escapeHtml(p.name)}</div>`).join('')}
+      <div class="pc-cell pc-total-col">Σ</div>
+    </div>`;
+    const body = rows.map(r => `<div class="pc-row">
+      <div class="pc-name">${escapeHtml(r.name)}</div>
+      ${r.byPoint.map(n => `<div class="pc-cell ${n === 0 ? 'zero' : ''}">${n || '—'}</div>`).join('')}
+      <div class="pc-cell pc-total-col">${r.total}</div>
+    </div>`).join('');
+    const foot = `<div class="pc-row pc-foot">
+      <div class="pc-name">Итого</div>
+      ${colTotals.map(n => `<div class="pc-cell">${n}</div>`).join('')}
+      <div class="pc-cell pc-total-col">${grand}</div>
+    </div>`;
+
+    const periodLbl = recFunnelMode === 'month' ? `за ${formatMonth()}` : 'всего';
+    return `<div class="pc-block">
+      <div class="pc-title">Направления по точкам <span class="pc-sub">${escapeHtml(periodLbl)}</span></div>
+      <div class="pc-table" style="--pc-cols:${points.length};">${head}${body}${foot}</div>
+    </div>`;
   }
 
   function renderChannelCard(channel, point) {
