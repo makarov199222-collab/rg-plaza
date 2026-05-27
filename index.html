@@ -2632,6 +2632,7 @@
         registry:   find('Комментарий к оценке'),              // AL — «N Реестр от DD.MM.YYYY ИП ...»
         direction:  find('Направление на ремонт'),             // AE/31 — номер направления (РВ0У... = РАВТ, иначе СК)
         sk:         find('Вид Заказ-наряда'),                  // 33 — наименование СК у страховых
+        organization: find('Организация'),                     // 22 — ООО Плаза / ИП Репин (юрлицо)
       };
       // Резерв: альтернативные написания заголовка направления
       if (cols.direction === -1) cols.direction = find('Номер направления');
@@ -2741,6 +2742,7 @@
           registry_date:  cols.registry >= 0 ? extractRegistryDate(row[cols.registry]) : null,
           direction_number: cols.direction >= 0 ? (String(row[cols.direction] || '').trim() || null) : null,
           insurance_company: cols.sk >= 0 ? (String(row[cols.sk] || '').trim() || null) : null,
+          organization: cols.organization >= 0 ? (String(row[cols.organization] || '').trim() || null) : null,
         };
 
         // Особые категории (гарантия/обслуживание своего) или закрыт на затраты → quality
@@ -3032,6 +3034,7 @@
       registry_date: car.registry_date || null,
       direction_number: car.direction_number || null,
       insurance_company: car.insurance_company || null,
+      organization: car.organization || null,
       source_file: sourceFile || null,
       imported_by: currentManager?.id || null,
     };
