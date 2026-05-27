@@ -1456,7 +1456,7 @@
           <div class="hero-sub">${planPct !== null ? `${planPct}% от плана ${fm(allPlanTotal)} ₽` : `${dateSet.size} дн с отчётами`}</div>
         </div>
         <div class="hero-card">
-          <div class="hero-lbl">Физлица (план)</div>
+          <div class="hero-lbl">Розница (план)</div>
           <div class="hero-val g">${fm(allPhys)} ₽</div>
           <div class="hero-sub">${physPct !== null ? `${physPct}% от ${fm(allPlanPhysM)} ₽` : 'план не задан'}</div>
         </div>
@@ -1721,7 +1721,7 @@
         const ch = new Chart(ctx, {
           type: 'bar',
           data: { labels, datasets: [
-            { label: 'Физлица', data: physData, backgroundColor: 'rgba(34,197,94,.7)', borderRadius: 3 },
+            { label: 'Розница', data: physData, backgroundColor: 'rgba(34,197,94,.7)', borderRadius: 3 },
             { label: 'Корпоратив', data: corpData, backgroundColor: 'rgba(168,85,247,.7)', borderRadius: 3 }
           ] },
           options: chartCfg(true)
@@ -1809,7 +1809,7 @@
           <div class="pc-stats">
             <div class="pc-stat"><div class="pc-stat-lbl">Всего</div><div class="pc-stat-val t">${fm(t)} ₽</div></div>
             <div class="pc-stat"><div class="pc-stat-lbl">Страховые</div><div class="pc-stat-val b">${fm(i)} ₽</div></div>
-            <div class="pc-stat"><div class="pc-stat-lbl">Физлица</div><div class="pc-stat-val g">${fm(phys + det)} ₽</div></div>
+            <div class="pc-stat"><div class="pc-stat-lbl">Розница</div><div class="pc-stat-val g">${fm(phys + det)} ₽</div></div>
             <div class="pc-stat"><div class="pc-stat-lbl">Корпоратив</div><div class="pc-stat-val p">${fm(c)} ₽</div></div>
             ${det > 0 ? `<div class="pc-stat" style="opacity:.85;"><div class="pc-stat-lbl">✨ Из них детейл ${detCnt ? `(${detCnt})` : ''}</div><div class="pc-stat-val" style="color:var(--accent);">${fm(det)} ₽</div></div>` : ''}
           </div>
@@ -1819,9 +1819,9 @@
             ${pointOwe > 0 ? `<div style="flex:1;padding:7px 10px;background:#141414;border-radius:6px;border-left:2px solid var(--red);"><div style="color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px;">🔴 Мы должны</div><div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--red);letter-spacing:.4px;">${fm(pointOwe)} ₽</div></div>` : ''}
           </div>` : ''}
           ${progressBlock('Страховые', 'b', plan.plan_ins_month, i)}
-          ${progressBlock('Физлица', 'g', plan.plan_phys_month, phys + det)}
+          ${progressBlock('Розница', 'g', plan.plan_phys_month, phys + det)}
           ${progressBlock('Корпоратив', 'p', plan.plan_corp_month, c)}
-          ${reports.length ? `<div class="pc-chart"><div class="pc-chart-title">📈 Физ vs Корп по дням</div><canvas id="chart-${point.id}" height="120"></canvas></div>` : ''}
+          ${reports.length ? `<div class="pc-chart"><div class="pc-chart-title">📈 Розница vs Корп по дням</div><canvas id="chart-${point.id}" height="120"></canvas></div>` : ''}
         </div>
       </div>`;
   }
@@ -1900,11 +1900,11 @@
               </div>
             </div>
             <div class="plan-field g">
-              <div class="plan-field-lbl g">📆 Физлица / месяц</div>
+              <div class="plan-field-lbl g">📆 Розница / месяц</div>
               <input type="number" placeholder="0" value="${plan.plan_phys_month || ''}" data-pid="${point.id}" data-field="plan_phys_month" data-pair="plan_phys_day" oninput="onPlanInput(this)">
             </div>
             <div class="plan-field g">
-              <div class="plan-field-lbl g">📅 Физлица / день <span style="color:var(--muted);font-weight:600;text-transform:none;font-size:9px;letter-spacing:0;">${autoPhysDay ? `(авто: ${fm(autoPhysDay)})` : ''}</span></div>
+              <div class="plan-field-lbl g">📅 Розница / день <span style="color:var(--muted);font-weight:600;text-transform:none;font-size:9px;letter-spacing:0;">${autoPhysDay ? `(авто: ${fm(autoPhysDay)})` : ''}</span></div>
               <div class="day-input-wrap">
                 <input type="number" placeholder="${autoPhysDay || '0'}" value="${plan.plan_phys_day || ''}" data-pid="${point.id}" data-field="plan_phys_day" oninput="onPlanInput(this)">
                 <button class="auto-btn" onclick="resetToAuto('${point.id}', 'plan_phys_day', 'plan_phys_month')" title="Пересчитать из месячного">↻ авто</button>
@@ -2385,7 +2385,7 @@ ${point.name} ${flow}`;
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), 'Сводка');
 
       // Лист 2: По точкам
-      const pointsRows = [['Точка', 'Выручка', 'Страховые', 'Физлица', 'Корпоратив', 'Дни', 'План физ', '% физ', 'План корп', '% корп']];
+      const pointsRows = [['Точка', 'Выручка', 'Страховые', 'Розница', 'Корпоратив', 'Дни', 'План физ', '% физ', 'План корп', '% корп']];
       data.points.forEach(p => {
         const reports = data.reports.filter(r => r.point_id === p.id);
         const t = reports.reduce((s,r) => s+(+r.total_day||0), 0);
@@ -3607,7 +3607,7 @@ ${point.name} ${flow}`;
             </div>
             <div class="pulse-channels" style="grid-template-columns:1fr;">
               ${channelBarHtml('Страховые',  channels.ins,    channelsPrev.ins,    channelTotal, 'b')}
-              ${channelBarHtml('Физлица',    channels.phys,   channelsPrev.phys,   channelTotal, 'g')}
+              ${channelBarHtml('Розница',    channels.phys,   channelsPrev.phys,   channelTotal, 'g')}
               ${channelBarHtml('Корпоратив', channels.corp,   channelsPrev.corp,   channelTotal, 'p')}
               ${channelBarHtml('Детейл',     channels.detail, channelsPrev.detail, channelTotal, 'a')}
             </div>
@@ -3704,7 +3704,7 @@ ${point.name} ${flow}`;
             </div>
             ${(planSum.phys || planSum.corp || planSum.ins) ? `
               <div class="pulse-channels" style="grid-template-columns:1fr;">
-                ${planBarHtml('Физлица',    planActual.phys, planSum.phys, 'g')}
+                ${planBarHtml('Розница',    planActual.phys, planSum.phys, 'g')}
                 ${planBarHtml('Страховые',  planActual.ins,  planSum.ins,  'b')}
                 ${planBarHtml('Корпоратив', planActual.corp, planSum.corp, 'p')}
               </div>
