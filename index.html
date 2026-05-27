@@ -1515,18 +1515,33 @@
     if (!currentPoint) return;
     try {
       const yearStart = `${new Date().getFullYear()}-01-01`;
-      const [ordersRes, carsRes] = await Promise.all([
-        sb.from('orders_history_1c')
+      // Постранично — equity за год и страховые в работе могут быть >1000.
+      const fetchPaged = async (build) => {
+        const P = 1000; let all = []; let f = 0;
+        for (;;) {
+          const { data, error } = await build(f, f + P - 1);
+          if (error) { console.warn(error.message); break; }
+          const b = data || []; all = all.concat(b);
+          if (b.length < P) break; f += P; if (f > 100000) break;
+        }
+        return all;
+      };
+      const [ordersData, carsData] = await Promise.all([
+        fetchPaged((f, t) => sb.from('orders_history_1c')
           .select('zn_number, amount, debt, customer, payer, insurance_company, date_shipped, category, direction_number')
           .eq('point_id', currentPoint.id)
           .eq('category', 'equity')
-          .gte('date_shipped', yearStart),
-        sb.from('cars_in_work')
+          .gte('date_shipped', yearStart)
+          .range(f, t)),
+        fetchPaged((f, t) => sb.from('cars_in_work')
           .select('zn_number, amount, debt, info, arrived_at, direction_number, insurance_company')
           .eq('point_id', currentPoint.id)
           .eq('source_1c', true)
-          .eq('service_type', 'страх'),
+          .eq('service_type', 'страх')
+          .range(f, t)),
       ]);
+      const ordersRes = { data: ordersData };
+      const carsRes = { data: carsData };
       // Фильтруем только проблемные: хоть одно из 3 полей не ОК
       const flagOrder = o => {
         const flags = [];
@@ -4050,16 +4065,18 @@
     const hint = document.getElementById('debt-1c-hint');
     if (!hint || !currentPoint) return;
     try {
-      // 1. Долги по закрытым ЗН
-      const closedQ = sb.from('orders_history_1c')
-        .select('category, debt')
-        .eq('point_id', currentPoint.id)
-        .gt('debt', 0);
-      // ВАЖНО: долг считаем ТОЛЬКО по отгруженным ЗН.
-      // Машины в работе пока клиент не приехал — это не долг, это будущее обязательство.
-      const closedRes = await closedQ;
-      if (closedRes.error) throw closedRes.error;
-      const closedList = closedRes.data || [];
+      // 1. Долги по закрытым ЗН (постранично — может быть >1000)
+      const P = 1000; let closedList = []; let f = 0;
+      for (;;) {
+        const { data, error } = await sb.from('orders_history_1c')
+          .select('category, debt')
+          .eq('point_id', currentPoint.id)
+          .gt('debt', 0)
+          .range(f, f + P - 1);
+        if (error) throw error;
+        const b = data || []; closedList = closedList.concat(b);
+        if (b.length < P) break; f += P; if (f > 100000) break;
+      }
 
       const sums = { retail: 0, ins: 0, corp: 0, equity: 0 };
       for (const o of closedList) {
@@ -4572,22 +4589,33 @@
       const monthEnd = `${y}-${pad(m+1)}-${pad(lastDay)}`;
       const today = todayLocalISO();
 
-      const { data: shipped, error: e1 } = await sb.from('orders_history_1c')
+      // Постранично — отгрузок за месяц у крупной точки может быть близко к 1000.
+      const fetchPaged = async (build) => {
+        const P = 1000; let all = []; let f = 0;
+        for (;;) {
+          const { data, error } = await build(f, f + P - 1);
+          if (error) throw error;
+          const b = data || []; all = all.concat(b);
+          if (b.length < P) break; f += P; if (f > 100000) break;
+        }
+        return all;
+      };
+      const shipped = await fetchPaged((f, t) => sb.from('orders_history_1c')
         .select('amount')
         .eq('point_id', currentPoint.id)
         .gte('date_shipped', monthStart)
-        .lte('date_shipped', monthEnd);
-      if (e1) throw e1;
+        .lte('date_shipped', monthEnd)
+        .range(f, t));
       const doneSum = (shipped || []).reduce((s, o) => s + (+o.amount || 0), 0);
       const doneCount = (shipped || []).length;
 
-      const { data: booked, error: e2 } = await sb.from('cars_in_work')
+      const booked = await fetchPaged((f, t) => sb.from('cars_in_work')
         .select('amount, expected_at')
         .eq('point_id', currentPoint.id)
         .is('closed_at', null)
         .gte('expected_at', today)
-        .lte('expected_at', monthEnd);
-      if (e2) throw e2;
+        .lte('expected_at', monthEnd)
+        .range(f, t));
       const bookedSum = (booked || []).reduce((s, c) => s + (+c.amount || 0), 0);
       const bookedCount = (booked || []).length;
 
