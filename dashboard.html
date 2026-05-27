@@ -1342,10 +1342,15 @@
     let html = '';
 
     // === ПРОГНОЗ МЕСЯЦА ===
-    // Сделано (по точкам) — из fcDone (отгрузки текущего месяца)
+    // Сделано (по точкам) — считаем ИЗ daily_reports (как карточки точек),
+    // а не из сырого orders_history_1c. Иначе прогноз не видит заказы покупателя (ЗП),
+    // которые подмешаны в total_1c, и расходится с карточками.
+    // Логика per-day: если менеджер ввёл вручную (total_day>0) — берём ручное, иначе 1С (total_1c).
     const fcDoneByPoint = {};
-    (data.fcDone || []).forEach(o => {
-      fcDoneByPoint[o.point_id] = (fcDoneByPoint[o.point_id] || 0) + (+o.amount || 0);
+    (data.reports || []).forEach(r => {
+      const manual = (+r.total_day || 0) > 0 || (+r.ins_day || 0) > 0 || (+r.retail_day || 0) > 0 || (+r.phys_day || 0) > 0 || (+r.corp_day || 0) > 0;
+      const val = manual ? (+r.total_day || 0) : (+r.total_1c || 0);
+      if (val > 0) fcDoneByPoint[r.point_id] = (fcDoneByPoint[r.point_id] || 0) + val;
     });
     // Записано на остаток (по точкам) — из fcBooked где expected_at от сегодня до конца месяца
     const fcTodayStr = new Date().toISOString().substring(0,10);
@@ -3920,8 +3925,16 @@ ${point.name} ${flow}`;
         .lte('expected_at', monthEnd)
         .range(f, t));
 
+      // Заказы покупателя (ЗП) за месяц — тоже идут в «Сделано» (вал точки).
+      const zpRows = await fetchPaged((f, t) => sb.from('customer_orders')
+        .select('point_id, amount')
+        .gte('order_date', monthStart)
+        .lte('order_date', monthEnd)
+        .range(f, t));
+
       const done = {}, book = {};
       (shipped || []).forEach(o => { done[o.point_id] = (done[o.point_id]||0) + (+o.amount||0); });
+      (zpRows || []).forEach(o => { done[o.point_id] = (done[o.point_id]||0) + (+o.amount||0); });
       (booked || []).forEach(c => { book[c.point_id] = (book[c.point_id]||0) + (+c.amount||0); });
 
       const POINT_NAMES = { kaluga:'Калужская', serpuhov:'Серпуховская', sovhoz:'Совхозная', poyma:'Пойма' };
