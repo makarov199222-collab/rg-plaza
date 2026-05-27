@@ -3982,6 +3982,11 @@
       }
       hint.style.display = '';
       document.getElementById('b1c-count').textContent = list.length;
+      // Автоподстановка: если менеджер ещё не вводил записи вручную (C.bk пусто/0),
+      // проставляем число из 1С автоматически — как было раньше. Если уже введено — не трогаем.
+      if (!C.bk || +C.bk === 0) {
+        applyBookings1c(true);  // silent — без тоста при автоподстановке
+      }
       // Свернуть список при перезагрузке
       document.getElementById('b1c-list').style.display = 'none';
       document.getElementById('b1c-toggle-btn').textContent = 'показать';
@@ -4014,7 +4019,7 @@
 
   // Подставляет данные из 1С в поля bk и bnote.
   // bnote = автосгенерированное примечание (типы работ через тип services).
-  function applyBookings1c() {
+  function applyBookings1c(silent) {
     if (!bookings1cCache || bookings1cCache.length === 0) return;
     const count = bookings1cCache.length;
     C.bk = count;
@@ -4030,7 +4035,7 @@
     }
     const parts = Object.entries(byType).map(([t, n]) => `${n} ${t}`);
     document.getElementById('bnote').value = parts.join(', ');
-    toast(`📋 Взято из 1С: ${count} записей на завтра`, 'ok');
+    if (!silent) toast(`📋 Взято из 1С: ${count} записей на завтра`, 'ok');
   }
   window.applyBookings1c = applyBookings1c;
 
