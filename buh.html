@@ -459,7 +459,8 @@
     const totalExp = data.expenses.reduce((s,r) => s + (+r.amount), 0);
     const totalTax = data.taxes.reduce((s,r) => s + (+r.amount), 0);
     const fotTotal = data.fot ? +data.fot.fot_total : 0;
-    const revenue = data.reports.reduce((s,r) => s + (+r.total_day || 0), 0);
+    // ПРИОРИТЕТ 1С: выручка по факту отгрузки из 1С; ручное — пока выгрузки за день нет.
+    const revenue = data.reports.reduce((s,r) => s + ((+r.total_1c || 0) > 0 ? (+r.total_1c || 0) : (+r.total_day || 0)), 0);
     // Прибыль = выручка - все расходы (но без двойного счёта зарплаты в расходах и ФОТ)
     // У нас зарплата официальная учтена в expenses, плюс ФОТ — это весь выплачиваемый ФОТ.
     // Чтобы не считать дважды, для прибыли возьмём: выручка − (expenses без зарплаты) − ФОТ − налоги
