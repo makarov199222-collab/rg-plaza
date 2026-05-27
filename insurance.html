@@ -2122,8 +2122,10 @@
     });
     let totalRavt = 0;
     ravtData.forEach(r => { totalRavt += +r.ravt_total || 0; });
+    // Прошлый месяц — тоже из 1С (recCountByCompany.prevCount), а не из старых
+    // ручных данных. Иначе сравнивали 1С (текущий) с ручным вводом (прошлый) — несопоставимо.
     let prevTotal = 0;
-    prevMonthData.forEach(d => { prevTotal += +d.incoming_count || 0; });
+    companies.forEach(c => { prevTotal += recCountByCompany(c.id, null).prevCount; });
     let monthDelta = '';
     if (prevTotal > 0) {
       const delta = totalInc - prevTotal;
