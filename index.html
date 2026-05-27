@@ -3552,7 +3552,8 @@
     document.getElementById('mtitle').textContent = `${mn[d.getMonth()]} ${d.getFullYear()} — ${currentPoint.name}`;
   }
 
-  async function onDateChange() { updateTitle(); await loadDayForDate(); await loadMonth(); updatePlanProgress(); }
+  let dateManuallySet = false; // true = пользователь сам выбрал дату в поле (не трогаем автообновлением)
+  async function onDateChange() { dateManuallySet = true; updateTitle(); await loadDayForDate(); await loadMonth(); updatePlanProgress(); }
 
   async function loadDayForDate() {
     const date = getDateValue();
@@ -4764,6 +4765,26 @@ ${planLine}
     } else { document.getElementById('login-code').focus(); }
     document.getElementById('login-code').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
   })();
+
+  // Автообновление даты на «сегодня» при возврате к вкладке (например, вкладка
+  // висела открытой со вчера). Не трогаем, если пользователь сам выбрал дату вручную —
+  // тогда он осознанно смотрит прошлый день.
+  function maybeRefreshDateToToday() {
+    if (!currentPoint) return;                 // ещё не вошли в приложение
+    if (dateManuallySet) return;               // дату выбрали руками — не трогаем
+    const el = document.getElementById('date');
+    if (!el) return;
+    const today = todayLocalISO();
+    if (el.value && el.value !== today) {      // в поле вчерашний день — обновляем
+      el.value = today;
+      updateTitle();
+      refreshAll();
+    }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') maybeRefreshDateToToday();
+  });
+  window.addEventListener('focus', maybeRefreshDateToToday);
 
   // ============ МАШИНЫ В РАБОТЕ (cars_in_work) ============
   // Только для Совхозной. Кнопка вкладки и сам tab показываются через class="cars-only".
