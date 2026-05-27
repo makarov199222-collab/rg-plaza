@@ -408,11 +408,25 @@
         }
       };
 
+      // Постранично — за год по всем точкам строк может быть >1000 (Supabase режет на 1000).
+      const fetchAll = async (build) => {
+        const P = 1000; let all = []; let f = 0;
+        try {
+          for (;;) {
+            const r = await build(f, f + P - 1);
+            if (r.error) { console.warn('fetchAll soft:', r.error.message); break; }
+            const b = r.data || []; all = all.concat(b);
+            if (b.length < P) break; f += P; if (f > 100000) break;
+          }
+        } catch (e) { console.warn('fetchAll err:', e.message); }
+        return { data: all };
+      };
+
       const [pointsRes, currentRes, prevRes, yearRes, plansRes, fotRes, expRes, taxRes, loansRes, dirsRes, ravtRes, channelsRes, companiesRes, breakdownRes, breakdownPrevRes, breakdownYearRes, ravtSettlementsRes, pnlRes, ovrItemsRes] = await Promise.all([
         safe(sb.from('points').select('*').order('id')),
         safe(sb.from('daily_reports_unified').select('*').gte('date', range.start).lte('date', range.end).order('date')),
         safe(sb.from('daily_reports_unified').select('point_id,date,total_day,retail_day,ins_day,phys_day,corp_day,detail_day,cars_total,cars_retail,cars_ins,cars_corp,cars_detail,owe_total,owe_ravt,owe_other').gte('date', prevRange.start).lte('date', prevRange.end)),
-        safe(sb.from('daily_reports_unified').select('point_id,date,total_day,retail_day,ins_day,debt_total,debt_retail,debt_insurance,owe_total,owe_ravt,owe_other').gte('date', yearStart).lte('date', range.end)),
+        fetchAll((f, t) => sb.from('daily_reports_unified').select('point_id,date,total_day,retail_day,ins_day,debt_total,debt_retail,debt_insurance,owe_total,owe_ravt,owe_other').gte('date', yearStart).lte('date', range.end).range(f, t)),
         safe(sb.from('plans').select('*')),
         safe(sb.from('fot_summary').select('*').eq('period', period).maybeSingle(), { data: null }),
         safe(sb.from('expenses_monthly').select('*').eq('period', period)),
