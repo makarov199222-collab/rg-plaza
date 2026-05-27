@@ -4273,8 +4273,8 @@
     const detail = pick(d.detail_1c, d.detail_day);
     // физлица: 1С-retail = физик; ручное поле — phys_day (или retail_day как запас)
     const phys   = pick(d.retail_1c, ((+d.phys_day||0) > 0 ? d.phys_day : d.retail_day));
-    // розница в обычном формате = физлица + корпоратив (так считалось исторически)
-    const retail = phys + corp;
+    // розница = физик + корпоратив + детейл (всё кроме страховых) — единая логика со всеми порталами
+    const retail = phys + corp + detail;
     return { total, ins, corp, detail, phys, retail };
   }
 
@@ -4386,22 +4386,20 @@
     const physDayWithDetail = physDayActual + detDayActual;
     let physMonth = 0, corpMonth = 0, insMonth = 0;
     monthData.days.forEach(d => {
-      // Фолбэк на 1С если менеджер не вводил руками
-      const hasManual = (+d.total_day || 0) > 0 || (+d.phys_day || 0) > 0 || (+d.corp_day || 0) > 0
-                     || (+d.retail_day || 0) > 0 || (+d.ins_day || 0) > 0 || (+d.detail_day || 0) > 0;
+      // ПРИОРИТЕТ 1С: есть выгрузка за день — берём 1С, иначе ручной ввод менеджера.
       let phy, cop, det, ret, ins;
-      if (hasManual) {
-        phy = +d.phys_day || 0;
-        cop = +d.corp_day || 0;
-        det = +d.detail_day || 0;
-        ret = +d.retail_day || 0;
-        ins = +d.ins_day || 0;
-      } else {
+      if ((+d.total_1c || 0) > 0) {
         phy = +d.retail_1c || 0;   // 1С retail = физик
         cop = +d.corp_1c || 0;
         det = +d.detail_1c || 0;
         ret = +d.retail_1c || 0;
         ins = +d.ins_1c || 0;
+      } else {
+        phy = +d.phys_day || 0;
+        cop = +d.corp_day || 0;
+        det = +d.detail_day || 0;
+        ret = +d.retail_day || 0;
+        ins = +d.ins_day || 0;
       }
       // Для старых отчётов (где разбивки на физ/корп ещё не было), вся розница идёт как физлица
       if (phy + cop === 0 && ret > 0) {
@@ -4429,22 +4427,20 @@
   function renderPlanStatus() {
     let physMonth=0, corpMonth=0, insMonth=0;
     monthData.days.forEach(d => {
-      // Фолбэк на 1С: если менеджер не вводил руками — берём 1С-значения (как в updatePlanProgress)
-      const hasManual = (+d.total_day || 0) > 0 || (+d.phys_day || 0) > 0 || (+d.corp_day || 0) > 0
-                     || (+d.retail_day || 0) > 0 || (+d.ins_day || 0) > 0 || (+d.detail_day || 0) > 0;
+      // ПРИОРИТЕТ 1С: есть выгрузка за день — берём 1С, иначе ручной ввод менеджера.
       let phy, cop, det, ret, ins;
-      if (hasManual) {
-        phy = +d.phys_day   || 0;
-        cop = +d.corp_day   || 0;
-        det = +d.detail_day || 0;
-        ret = +d.retail_day || 0;
-        ins = +d.ins_day    || 0;
-      } else {
+      if ((+d.total_1c || 0) > 0) {
         phy = +d.retail_1c  || 0;   // 1С retail = физик
         cop = +d.corp_1c    || 0;
         det = +d.detail_1c  || 0;
         ret = +d.retail_1c  || 0;
         ins = +d.ins_1c     || 0;
+      } else {
+        phy = +d.phys_day   || 0;
+        cop = +d.corp_day   || 0;
+        det = +d.detail_day || 0;
+        ret = +d.retail_day || 0;
+        ins = +d.ins_day    || 0;
       }
       if (phy + cop === 0 && ret > 0) {
         physMonth += ret; // ret уже включает detail после фикса
@@ -5015,11 +5011,11 @@ ${planLine}
     const mn = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
     const monthName = mn[d.getMonth()], year = d.getFullYear();
     let mT=0,mI=0,mC=0,mP=0;
-    monthData.days.forEach(d=>{mT+=+d.total_day||0;mI+=+d.ins_day||0;mC+=+d.corp_day||0;mP+=+d.phys_day||0;});
+    monthData.days.forEach(d=>{ const e=effDay(d); mT+=e.total; mI+=e.ins; mC+=e.corp; mP+=e.phys; });
     const labels = monthData.days.map(d => pdate(d.date).substring(0,5));
-    const insurData = monthData.days.map(d => +d.ins_day||0);
-    const physData = monthData.days.map(d => +d.phys_day||0);
-    const corpData = monthData.days.map(d => +d.corp_day||0);
+    const insurData = monthData.days.map(d => effDay(d).ins);
+    const physData = monthData.days.map(d => effDay(d).phys);
+    const corpData = monthData.days.map(d => effDay(d).corp);
 
     function statusBlock(title, plan, actual) {
       if (!plan) return '';
