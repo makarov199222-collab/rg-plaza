@@ -1833,7 +1833,7 @@
             </div>
             <div class="pulse-channels" style="grid-template-columns:1fr;">
               ${channelBarHtml('Страховые',  channels.ins,    channelsPrev.ins,    channelTotal, 'b')}
-              ${channelBarHtml('Физлица',    channels.phys,   channelsPrev.phys,   channelTotal, 'g')}
+              ${channelBarHtml('Розница',    channels.phys,   channelsPrev.phys,   channelTotal, 'g')}
               ${channelBarHtml('Корпоратив', channels.corp,   channelsPrev.corp,   channelTotal, 'p')}
               ${channelBarHtml('Детейл',     channels.detail, channelsPrev.detail, channelTotal, 'a')}
             </div>
@@ -1883,7 +1883,7 @@
             </div>
             ${(planSum.phys || planSum.corp || planSum.ins) ? `
               <div class="pulse-channels" style="grid-template-columns:1fr;">
-                ${planBarHtml('Физлица',    planActual.phys, planSum.phys, 'g')}
+                ${planBarHtml('Розница',    planActual.phys, planSum.phys, 'g')}
                 ${planBarHtml('Страховые',  planActual.ins,  planSum.ins,  'b')}
                 ${planBarHtml('Корпоратив', planActual.corp, planSum.corp, 'p')}
               </div>
