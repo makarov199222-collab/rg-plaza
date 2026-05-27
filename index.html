@@ -2644,8 +2644,18 @@
           }
         } else ok += chunk.length;
       }
-      toast(`🧾 Импортировано заказов покупателя: ${ok}`, 'ok');
+      // Пересчёт вала: подмешиваем заказы покупателя в daily_reports.
+      // Диапазон — по датам импортированных заказов (или весь, если не определить).
+      try {
+        const dates = importZpParsed.map(x => x.order_date).filter(Boolean).sort();
+        const from = dates[0] || '2025-01-01';
+        const to = dates[dates.length - 1] || '2026-12-31';
+        const pid = importZpParsed[0]?.point_id || 'sovhoz';
+        await sb.rpc('recalc_daily_reports_from_1c', { p_point_id: pid, p_date_from: from, p_date_to: to });
+      } catch (e) { console.warn('recalc после импорта ЗП:', e); }
+      toast(`🧾 Импортировано заказов покупателя: ${ok}. Вал пересчитан.`, 'ok');
       closeImportZp();
+      if (typeof refreshAll === 'function') refreshAll();
     } catch (e) {
       console.error(e);
       toast('Ошибка импорта: ' + (e.message || e), 'err');
