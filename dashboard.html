@@ -1005,26 +1005,47 @@
         } catch (e) { console.warn('Soft error:', e.message); return { data: [] }; }
       };
 
+      // Постраничная загрузка: Supabase отдаёт максимум 1000 строк за запрос.
+      // qBuilder(from, to) — функция, строящая запрос с .range(from, to).
+      // Возвращает { data: [...все строки...] } в формате как у safe.
+      const fetchAll = async (qBuilder) => {
+        const PAGE = 1000;
+        let all = [];
+        let from = 0;
+        try {
+          for (;;) {
+            const r = await qBuilder(from, from + PAGE - 1);
+            if (r.error) { console.warn('fetchAll soft error:', r.error.message); break; }
+            const batch = r.data || [];
+            all = all.concat(batch);
+            if (batch.length < PAGE) break;
+            from += PAGE;
+            if (from > 100000) break; // предохранитель
+          }
+        } catch (e) { console.warn('fetchAll error:', e.message); }
+        return { data: all };
+      };
+
       const [pointsRes, reportsRes, plansRes, yearRes, fotRes, expRes, taxRes, dirsRes, pnlRes, ordersRes, missingDirRes, missingDirCarsRes, fcDoneRes, fcBookedRes] = await Promise.all([
         sb.from('points').select('*').order('id'),
-        sb.from('daily_reports_unified').select('*').gte('date', range.start).lte('date', range.end).order('date'),
+        fetchAll((f, t) => sb.from('daily_reports_unified').select('*').gte('date', range.start).lte('date', range.end).order('date').range(f, t)),
         sb.from('plans').select('*'),
-        sb.from('daily_reports_unified').select('point_id,date,total_day,debt_total,debt_retail,debt_insurance,debt_corp,owe_total,owe_ravt,owe_other').gte('date', yearStart).lte('date', range.end),
+        fetchAll((f, t) => sb.from('daily_reports_unified').select('point_id,date,total_day,debt_total,debt_retail,debt_insurance,debt_corp,owe_total,owe_ravt,owe_other').gte('date', yearStart).lte('date', range.end).range(f, t)),
         sb.from('fot_summary').select('*').eq('period', period).maybeSingle(),
         sb.from('expenses_monthly').select('*').eq('period', period),
         sb.from('taxes_monthly').select('*').eq('period', period),
         sb.from('insurance_directions').select('*').gte('period', `${range.year}-01`).lte('period', period),
         safe(sb.from('point_pnl').select('*').or(`period.eq.${period},period.eq.${range.year}-YTD`)),
         // Долги РАВТ: только equity-ЗН с долгом (закрытые)
-        safe(sb.from('orders_history_1c').select('point_id, debt, registry_date, registry_label, category').eq('category', 'equity').gt('debt', 0)),
+        fetchAll((f, t) => sb.from('orders_history_1c').select('point_id, debt, registry_date, registry_label, category').eq('category', 'equity').gt('debt', 0).range(f, t)),
         // Брак заполнения: equity-ЗН с любой из 3 ошибок (без направления / без СК / плательщик=заказчик)
-        safe(sb.from('orders_history_1c').select('zn_number, point_id, amount, debt, customer, payer, insurance_company, date_shipped, direction_number, category').eq('category', 'equity').gte('date_shipped', yearStart)),
+        fetchAll((f, t) => sb.from('orders_history_1c').select('zn_number, point_id, amount, debt, customer, payer, insurance_company, date_shipped, direction_number, category').eq('category', 'equity').gte('date_shipped', yearStart).range(f, t)),
         // То же по машинам в работе (открытые страх-ЗН)
-        safe(sb.from('cars_in_work').select('zn_number, point_id, amount, debt, info, arrived_at, direction_number, insurance_company').eq('source_1c', true).eq('service_type', 'страх')),
+        fetchAll((f, t) => sb.from('cars_in_work').select('zn_number, point_id, amount, debt, info, arrived_at, direction_number, insurance_company').eq('source_1c', true).eq('service_type', 'страх').range(f, t)),
         // Прогноз: отгрузки текущего месяца (Сделано)
-        safe(sb.from('orders_history_1c').select('point_id, amount, date_shipped').gte('date_shipped', range.start).lte('date_shipped', range.end)),
+        fetchAll((f, t) => sb.from('orders_history_1c').select('point_id, amount, date_shipped').gte('date_shipped', range.start).lte('date_shipped', range.end).range(f, t)),
         // Прогноз: машины в работе с датой записи (Записано на остаток)
-        safe(sb.from('cars_in_work').select('point_id, amount, expected_at').is('closed_at', null).not('expected_at', 'is', null)),
+        fetchAll((f, t) => sb.from('cars_in_work').select('point_id, amount, expected_at').is('closed_at', null).not('expected_at', 'is', null).range(f, t)),
       ]);
       if (pointsRes.error) throw pointsRes.error;
       if (reportsRes.error) throw reportsRes.error;
@@ -3875,17 +3896,29 @@ ${point.name} ${flow}`;
       const monthEnd = `${range.year}-${pad(range.month)}-${pad(lastDay)}`;
       const today = new Date().toISOString().substring(0,10);
 
-      // Все отгрузки месяца по точкам
-      const { data: shipped } = await sb.from('orders_history_1c')
+      // Все отгрузки месяца по точкам (постранично — может быть >1000)
+      const fetchPaged = async (build) => {
+        const P = 1000; let all = []; let f = 0;
+        for (;;) {
+          const { data, error } = await build(f, f + P - 1);
+          if (error) { console.warn(error.message); break; }
+          const b = data || []; all = all.concat(b);
+          if (b.length < P) break; f += P; if (f > 100000) break;
+        }
+        return all;
+      };
+      const shipped = await fetchPaged((f, t) => sb.from('orders_history_1c')
         .select('point_id, amount')
         .gte('date_shipped', monthStart)
-        .lte('date_shipped', monthEnd);
+        .lte('date_shipped', monthEnd)
+        .range(f, t));
       // Все записанные машины с датой до конца месяца
-      const { data: booked } = await sb.from('cars_in_work')
+      const booked = await fetchPaged((f, t) => sb.from('cars_in_work')
         .select('point_id, amount, expected_at')
         .is('closed_at', null)
         .gte('expected_at', today)
-        .lte('expected_at', monthEnd);
+        .lte('expected_at', monthEnd)
+        .range(f, t));
 
       const done = {}, book = {};
       (shipped || []).forEach(o => { done[o.point_id] = (done[o.point_id]||0) + (+o.amount||0); });
