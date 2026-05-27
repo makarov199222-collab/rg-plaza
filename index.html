@@ -5185,13 +5185,26 @@ ${planLine}
   async function loadCars() {
     if (!currentPoint) return;
     try {
-      const { data, error } = await sb.from('cars_in_work')
-        .select('*')
-        .eq('point_id', currentPoint.id)
-        .is('closed_at', null)
-        .order('arrived_at');
-      if (error) throw error;
-      carsInWork = data || [];
+      // Supabase отдаёт максимум 1000 строк за запрос. Активных машин может быть больше
+      // (у Совхозной >1200), поэтому грузим постранично, пока не заберём все.
+      const PAGE = 1000;
+      let all = [];
+      let from = 0;
+      for (;;) {
+        const { data, error } = await sb.from('cars_in_work')
+          .select('*')
+          .eq('point_id', currentPoint.id)
+          .is('closed_at', null)
+          .order('arrived_at')
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        const batch = data || [];
+        all = all.concat(batch);
+        if (batch.length < PAGE) break;   // последняя страница
+        from += PAGE;
+        if (from > 20000) break;          // предохранитель
+      }
+      carsInWork = all;
       renderCars();
     } catch (e) {
       console.error('loadCars error:', e);
