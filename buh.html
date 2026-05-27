@@ -890,10 +890,18 @@
     // Долги по нашему учёту: equity-ЗН с debt>0 (закрытые), по точкам→регионам
     const ourRavtDebt = { moscow: 0, izhevsk: 0 };
     try {
-      const { data: oh } = await sb.from('orders_history_1c')
-        .select('point_id, debt')
-        .eq('category', 'equity')
-        .gt('debt', 0);
+      // Постранично — equity-ЗН с долгом может быть >1000 (Supabase режет на 1000).
+      const P = 1000; let oh = []; let f = 0;
+      for (;;) {
+        const { data, error } = await sb.from('orders_history_1c')
+          .select('point_id, debt')
+          .eq('category', 'equity')
+          .gt('debt', 0)
+          .range(f, f + P - 1);
+        if (error) { console.warn(error.message); break; }
+        const b = data || []; oh = oh.concat(b);
+        if (b.length < P) break; f += P; if (f > 100000) break;
+      }
       const regionMap2 = { kaluga: 'moscow', serpuhov: 'moscow', sovhoz: 'izhevsk', poyma: 'izhevsk' };
       (oh || []).forEach(r => {
         const reg = regionMap2[r.point_id];
