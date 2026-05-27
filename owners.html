@@ -316,6 +316,21 @@
   const OWNERS_CODE = 'rgplaza-owners-2026';
   const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+  // === ЕДИНАЯ ЛОГИКА ВАЛА (приоритет 1С) ===
+  // Отчёт строится по факту отгрузки из 1С. Если за день есть выгрузка (total_1c>0) —
+  // берём её, иначе ручной ввод менеджера (временно, пока выгрузки за день нет).
+  const r1c = r => (+r.total_1c || 0) > 0;
+  const rTotal  = r => r1c(r) ? (+r.total_1c || 0) : (+r.total_day || 0);
+  const rIns    = r => r1c(r) ? (+r.ins_1c   || 0) : (+r.ins_day   || 0);
+  const rCorp   = r => r1c(r) ? (+r.corp_1c  || 0) : (+r.corp_day  || 0);
+  const rDetail = r => r1c(r) ? (+r.detail_1c|| 0) : (+r.detail_day|| 0);
+  // Физлица = физик + детейл (один менеджер). Из 1С физик = retail_1c.
+  const rPhys   = r => r1c(r) ? (+r.retail_1c||0)+(+r.detail_1c||0) : (+r.phys_day||0)+(+r.detail_day||0);
+  // Розница = физик + корп + детейл (всё кроме страховых).
+  const rRetail = r => r1c(r)
+    ? (+r.retail_1c||0)+(+r.corp_1c||0)+(+r.detail_1c||0)
+    : (+r.retail_day||0)+(+r.corp_day||0)+(+r.detail_day||0);
+
   let allCharts = [];
   let cachedData = null;
   let expandedPoints = new Set();
@@ -425,8 +440,8 @@
       const [pointsRes, currentRes, prevRes, yearRes, plansRes, fotRes, expRes, taxRes, loansRes, dirsRes, ravtRes, channelsRes, companiesRes, breakdownRes, breakdownPrevRes, breakdownYearRes, ravtSettlementsRes, pnlRes, ovrItemsRes] = await Promise.all([
         safe(sb.from('points').select('*').order('id')),
         safe(sb.from('daily_reports_unified').select('*').gte('date', range.start).lte('date', range.end).order('date')),
-        safe(sb.from('daily_reports_unified').select('point_id,date,total_day,retail_day,ins_day,phys_day,corp_day,detail_day,cars_total,cars_retail,cars_ins,cars_corp,cars_detail,owe_total,owe_ravt,owe_other').gte('date', prevRange.start).lte('date', prevRange.end)),
-        fetchAll((f, t) => sb.from('daily_reports_unified').select('point_id,date,total_day,retail_day,ins_day,debt_total,debt_retail,debt_insurance,owe_total,owe_ravt,owe_other').gte('date', yearStart).lte('date', range.end).range(f, t)),
+        safe(sb.from('daily_reports_unified').select('point_id,date,total_day,retail_day,ins_day,phys_day,corp_day,detail_day,total_1c,retail_1c,ins_1c,corp_1c,detail_1c,cars_total,cars_retail,cars_ins,cars_corp,cars_detail,owe_total,owe_ravt,owe_other').gte('date', prevRange.start).lte('date', prevRange.end)),
+        fetchAll((f, t) => sb.from('daily_reports_unified').select('point_id,date,total_day,retail_day,ins_day,phys_day,corp_day,detail_day,total_1c,retail_1c,ins_1c,corp_1c,detail_1c,debt_total,debt_retail,debt_insurance,owe_total,owe_ravt,owe_other').gte('date', yearStart).lte('date', range.end).range(f, t)),
         safe(sb.from('plans').select('*')),
         safe(sb.from('fot_summary').select('*').eq('period', period).maybeSingle(), { data: null }),
         safe(sb.from('expenses_monthly').select('*').eq('period', period)),
@@ -486,37 +501,24 @@
     const monthName = MP_MONTHS_FULL[data.range.month-1];
     destroyCharts();
 
-    // Хелперы: при отсутствии ручного ввода менеджера берём данные из 1С-импорта.
-    // total_day = ручной ввод суммы дня (приоритет), total_1c = посчитанная из orders_history_1c
-    const useTotal  = r => (+r.total_day  || 0) > 0 ? (+r.total_day  || 0) : (+r.total_1c  || 0);
-    const useIns    = r => {
-      const hasManual = (+r.total_day || 0) > 0 || (+r.ins_day || 0) > 0;
-      return hasManual ? (+r.ins_day || 0) : (+r.ins_1c || 0);
-    };
+    // Хелперы. ПРИОРИТЕТ 1С: если за день есть выгрузка из 1С — берём её,
+    // иначе ручной ввод менеджера (временно, пока выгрузки за день нет).
+    // total_1c = посчитанная из orders_history_1c, total_day = ручной ввод суммы дня.
+    const useTotal  = r => (+r.total_1c  || 0) > 0 ? (+r.total_1c  || 0) : (+r.total_day  || 0);
+    const useIns    = r => (+r.total_1c  || 0) > 0 ? (+r.ins_1c    || 0) : (+r.ins_day    || 0);
     const useRetail = r => {
-      const hasManual = (+r.total_day || 0) > 0 || (+r.retail_day || 0) > 0 || (+r.phys_day || 0) > 0 || (+r.corp_day || 0) > 0 || (+r.detail_day || 0) > 0;
       // «Розница» = физик + корпоратив + детейлинг (всё кроме страховых).
-      // Менеджеры продают всё это, детейл-цех — внутренний исполнитель.
-      if (hasManual) return (+r.retail_day || 0) + (+r.corp_day || 0) + (+r.detail_day || 0);
-      // Из 1С: retail_1c (физик) + corp_1c + detail_1c
-      return (+r.retail_1c || 0) + (+r.corp_1c || 0) + (+r.detail_1c || 0);
+      if ((+r.total_1c || 0) > 0) return (+r.retail_1c || 0) + (+r.corp_1c || 0) + (+r.detail_1c || 0);
+      return (+r.retail_day || 0) + (+r.corp_day || 0) + (+r.detail_day || 0);
     };
     const usePhys = r => {
-      const hasManual = (+r.total_day || 0) > 0 || (+r.phys_day || 0) > 0 || (+r.corp_day || 0) > 0 || (+r.detail_day || 0) > 0;
       // Физлица включают детейл (один менеджер продаёт)
-      if (hasManual) return (+r.phys_day || 0) + (+r.detail_day || 0);
-      return (+r.retail_1c || 0) + (+r.detail_1c || 0);
+      if ((+r.total_1c || 0) > 0) return (+r.retail_1c || 0) + (+r.detail_1c || 0);
+      return (+r.phys_day || 0) + (+r.detail_day || 0);
     };
-    const useCorp = r => {
-      const hasManual = (+r.total_day || 0) > 0 || (+r.corp_day || 0) > 0 || (+r.phys_day || 0) > 0;
-      return hasManual ? (+r.corp_day || 0) : (+r.corp_1c || 0);
-    };
+    const useCorp = r => (+r.total_1c || 0) > 0 ? (+r.corp_1c || 0) : (+r.corp_day || 0);
     // Детейлинг (только Совхозная): отдельная категория ЗН в 1С.
-    // detail_day — ручной ввод менеджера, detail_1c — из импорта 1С.
-    const useDetail = r => {
-      const manual = +r.detail_day || 0;
-      return manual > 0 ? manual : (+r.detail_1c || 0);
-    };
+    const useDetail = r => (+r.total_1c || 0) > 0 ? (+r.detail_1c || 0) : (+r.detail_day || 0);
 
     let monthTotal=0, monthIns=0, monthRetail=0, monthPhys=0, monthCorp=0, monthBookings=0;
     data.current.forEach(r => {
@@ -691,7 +693,7 @@
     const isCurrentMonth = today.getFullYear() === data.range.year && today.getMonth()+1 === data.range.month;
     const isPastMonth = data.range.year < today.getFullYear() || (data.range.year === today.getFullYear() && data.range.month < today.getMonth()+1);
     const daysInMonth = new Date(data.range.year, data.range.month, 0).getDate();
-    const reportedDays = data.current.filter(r => +r.total_day > 0).length;
+    const reportedDays = data.current.filter(r => rTotal(r) > 0).length;
     const monthCoverage = reportedDays / daysInMonth;
     const monthsComplete = isPastMonth || monthCoverage >= 0.85;
 
@@ -706,7 +708,7 @@
     if (isCurrentMonth && monthCoverage < 0.5) {
       const dayOfMonth = today.getDate();
       const prevPeriodEnd = `${data.prevRange.year}-${String(data.prevRange.month).padStart(2,'0')}-${String(dayOfMonth).padStart(2,'0')}`;
-      smartDeltaPrev = data.prev.filter(r => r.date <= prevPeriodEnd).reduce((s,r) => s + (+r.total_day || 0), 0);
+      smartDeltaPrev = data.prev.filter(r => r.date <= prevPeriodEnd).reduce((s,r) => s + rTotal(r), 0);
       if (smartDeltaPrev > 0) {
         smartDelta = Math.round((monthTotal - smartDeltaPrev) / smartDeltaPrev * 100);
         smartDeltaLabel = `к ${MP_MONTHS_SHORT[data.prevRange.month-1]} (за ${dayOfMonth} дн)`;
@@ -855,7 +857,7 @@
           ${expandedKpis.has('year') ? `<div class="expand-row">
             <div class="expand-item"><span>🛡 Страховые год</span><span class="v b">${fm(yearIns)} ₽</span></div>
             <div class="expand-item"><span>💵 Розница год</span><span class="v g">${fm(yearRetail)} ₽</span></div>
-            <div class="expand-item"><span>Средний день года</span><span class="v">${fm(yearTotal / Math.max(1, data.year.filter(r => +r.total_day > 0).length))} ₽</span></div>
+            <div class="expand-item"><span>Средний день года</span><span class="v">${fm(yearTotal / Math.max(1, data.year.filter(r => rTotal(r) > 0).length))} ₽</span></div>
           </div>` : ''}
         </div>
         ${monthOweTotal > 0 ? `
@@ -1133,11 +1135,11 @@
       for (let m=1; m<=12; m++) monthly[m] = { total: 0, ins: 0, retail: 0, days: 0, byPoint: {} };
       data.year.forEach(r => {
         const month = +r.date.split('-')[1];
-        monthly[month].total += +r.total_day || 0;
-        monthly[month].ins += +r.ins_day || 0;
-        monthly[month].retail += +r.retail_day || 0;
-        if (+r.total_day > 0) monthly[month].days++;
-        monthly[month].byPoint[r.point_id] = (monthly[month].byPoint[r.point_id] || 0) + (+r.total_day || 0);
+        monthly[month].total += rTotal(r);
+        monthly[month].ins += rIns(r);
+        monthly[month].retail += rRetail(r);
+        if (rTotal(r) > 0) monthly[month].days++;
+        monthly[month].byPoint[r.point_id] = (monthly[month].byPoint[r.point_id] || 0) + rTotal(r);
       });
 
       const ctx1 = document.getElementById('ch-monthly');
@@ -1207,7 +1209,7 @@
     const block = document.getElementById('month-detail-block');
     if (!block) return;
     const monthName = MP_MONTHS_FULL[monthNum-1];
-    const prevMonth = monthNum > 1 ? data.year.filter(r => +r.date.split('-')[1] === monthNum - 1).reduce((s,r) => s+(+r.total_day||0), 0) : 0;
+    const prevMonth = monthNum > 1 ? data.year.filter(r => +r.date.split('-')[1] === monthNum - 1).reduce((s,r) => s+rTotal(r), 0) : 0;
     const delta = prevMonth > 0 ? Math.round((monthData.total - prevMonth) / prevMonth * 100) : null;
 
     // Топ точка месяца
@@ -1580,7 +1582,7 @@
       const monthName = MP_MONTHS_FULL[data.range.month-1];
 
       let monthTotal=0, monthIns=0, monthRetail=0;
-      data.current.forEach(r => { monthTotal+=+r.total_day||0; monthIns+=+r.ins_day||0; monthRetail+=+r.retail_day||0; });
+      data.current.forEach(r => { monthTotal+=rTotal(r); monthIns+=rIns(r); monthRetail+=rRetail(r); });
       const fot = data.fot || {};
       const expWithoutSalary = data.expenses.filter(r => !r.category.startsWith('salary_')).reduce((s,r) => s+(+r.amount), 0);
       const taxTotal = data.taxes.reduce((s,r) => s+(+r.amount), 0);
@@ -1606,10 +1608,10 @@
       data.current.forEach(r => { if (!lastByPoint[r.point_id] || r.date > lastByPoint[r.point_id].date) lastByPoint[r.point_id] = r; });
       data.points.forEach(p => {
         const reports = data.current.filter(r => r.point_id === p.id);
-        const t = reports.reduce((s,r) => s+(+r.total_day||0), 0);
-        const i = reports.reduce((s,r) => s+(+r.ins_day||0), 0);
-        const ret = reports.reduce((s,r) => s+(+r.retail_day||0), 0);
-        const days = new Set(reports.filter(r => +r.total_day > 0).map(r => r.date)).size;
+        const t = reports.reduce((s,r) => s+rTotal(r), 0);
+        const i = reports.reduce((s,r) => s+rIns(r), 0);
+        const ret = reports.reduce((s,r) => s+rRetail(r), 0);
+        const days = new Set(reports.filter(r => rTotal(r) > 0).map(r => r.date)).size;
         const last = lastByPoint[p.id] || {};
         pointsRows.push([p.name, t, i, ret, days, +last.debt_total||0, +last.owe_total||0]);
       });
@@ -1618,7 +1620,7 @@
       const daysRows = [['Дата', 'Точка', 'Всего', 'Страх', 'Розница', 'Записей', 'Долги (нам)', 'Долги (мы)']];
       data.current.slice().sort((a,b) => a.date.localeCompare(b.date)).forEach(r => {
         const p = data.points.find(x => x.id === r.point_id);
-        daysRows.push([r.date, p?.name || r.point_id, +r.total_day||0, +r.ins_day||0, +r.retail_day||0, +r.bookings||0, +r.debt_total||0, +r.owe_total||0]);
+        daysRows.push([r.date, p?.name || r.point_id, rTotal(r), rIns(r), rRetail(r), +r.bookings||0, +r.debt_total||0, +r.owe_total||0]);
       });
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(daysRows), 'По дням');
 
@@ -1659,8 +1661,8 @@
 
     // Суммы по точкам (текущий месяц и прошлый)
     const sumByPoint = {}, prevSumByPoint = {};
-    for (const rep of (r.current || [])) sumByPoint[rep.point_id] = (sumByPoint[rep.point_id] || 0) + (+rep.total_day || 0);
-    for (const rep of (r.prev    || [])) prevSumByPoint[rep.point_id] = (prevSumByPoint[rep.point_id] || 0) + (+rep.total_day || 0);
+    for (const rep of (r.current || [])) sumByPoint[rep.point_id] = (sumByPoint[rep.point_id] || 0) + rTotal(rep);
+    for (const rep of (r.prev    || [])) prevSumByPoint[rep.point_id] = (prevSumByPoint[rep.point_id] || 0) + rTotal(rep);
 
     const sumCity = (pts, src) => pts.reduce((s, p) => s + (src[p] || 0), 0);
     const moscowMTD = sumCity(moscowPoints, sumByPoint);
@@ -1675,20 +1677,20 @@
     const channelsPrev = { ins: 0, phys: 0, corp: 0, detail: 0 };
     const cars = { ins: 0, phys: 0, corp: 0, detail: 0 };
     for (const rep of (r.current || [])) {
-      channels.ins    += (+rep.ins_day    || 0);
-      channels.phys   += (+rep.phys_day   || 0);
-      channels.corp   += (+rep.corp_day   || 0);
-      channels.detail += (+rep.detail_day || 0);
+      channels.ins    += rIns(rep);
+      channels.phys   += r1c(rep) ? (+rep.retail_1c || 0) : (+rep.phys_day   || 0);
+      channels.corp   += rCorp(rep);
+      channels.detail += rDetail(rep);
       cars.ins    += (+rep.cars_ins    || 0);
       cars.phys   += (+rep.cars_retail || 0);
       cars.corp   += (+rep.cars_corp   || 0);
       cars.detail += (+rep.cars_detail || 0);
     }
     for (const rep of (r.prev || [])) {
-      channelsPrev.ins    += (+rep.ins_day    || 0);
-      channelsPrev.phys   += (+rep.phys_day   || 0);
-      channelsPrev.corp   += (+rep.corp_day   || 0);
-      channelsPrev.detail += (+rep.detail_day || 0);
+      channelsPrev.ins    += rIns(rep);
+      channelsPrev.phys   += r1c(rep) ? (+rep.retail_1c || 0) : (+rep.phys_day   || 0);
+      channelsPrev.corp   += rCorp(rep);
+      channelsPrev.detail += rDetail(rep);
     }
     const channelTotal = channels.ins + channels.phys + channels.corp + channels.detail;
 
