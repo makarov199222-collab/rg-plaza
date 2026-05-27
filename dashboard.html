@@ -1111,9 +1111,16 @@
     const dateSet = new Set();
     Object.values(byPoint).forEach(({reports, plan}) => {
       reports.forEach(r => {
-        // Фолбэк на 1С: если менеджер не вводил ручные суммы — берём из импорта 1С
-        const hasManual = (+r.total_day || 0) > 0 || (+r.ins_day || 0) > 0 || (+r.retail_day || 0) > 0 || (+r.phys_day || 0) > 0 || (+r.corp_day || 0) > 0;
-        if (hasManual) {
+        // ПРИОРИТЕТ 1С: если за день есть выгрузка из 1С — берём её, иначе ручной ввод менеджера.
+        // (Отчёт строится по факту отгрузки из 1С; ручное — временно, пока выгрузки за день нет.)
+        if ((+r.total_1c || 0) > 0) {
+          allTotal += +r.total_1c || 0;
+          allInsur += +r.ins_1c || 0;
+          // Из 1С: retail_1c (физик-стёкла) + detail_1c (детейл-цех) = «Физлица»
+          allPhys  += (+r.retail_1c || 0) + (+r.detail_1c || 0);
+          allCorp  += +r.corp_1c || 0;
+          allRetail += (+r.retail_1c || 0) + (+r.corp_1c || 0) + (+r.detail_1c || 0);
+        } else if ((+r.total_day || 0) > 0 || (+r.ins_day || 0) > 0 || (+r.retail_day || 0) > 0 || (+r.phys_day || 0) > 0 || (+r.corp_day || 0) > 0) {
           allTotal += +r.total_day || 0;
           allInsur += +r.ins_day || 0;
           // Детейл — это продажа того же менеджера, входит в «Физлица»
@@ -1121,13 +1128,6 @@
           allCorp  += +r.corp_day || 0;
           // «Розница» = физик + корп + детейл (детейл-цех продаётся менеджером)
           allRetail += (+r.retail_day || 0) + (+r.corp_day || 0) + (+r.detail_day || 0);
-        } else if ((+r.total_1c || 0) > 0) {
-          allTotal += +r.total_1c || 0;
-          allInsur += +r.ins_1c || 0;
-          // Из 1С: retail_1c (физик-стёкла) + detail_1c (детейл-цех) = «Физлица»
-          allPhys  += (+r.retail_1c || 0) + (+r.detail_1c || 0);
-          allCorp  += +r.corp_1c || 0;
-          allRetail += (+r.retail_1c || 0) + (+r.corp_1c || 0) + (+r.detail_1c || 0);
         } else {
           return;
         }
@@ -1348,8 +1348,8 @@
     // Логика per-day: если менеджер ввёл вручную (total_day>0) — берём ручное, иначе 1С (total_1c).
     const fcDoneByPoint = {};
     (data.reports || []).forEach(r => {
-      const manual = (+r.total_day || 0) > 0 || (+r.ins_day || 0) > 0 || (+r.retail_day || 0) > 0 || (+r.phys_day || 0) > 0 || (+r.corp_day || 0) > 0;
-      const val = manual ? (+r.total_day || 0) : (+r.total_1c || 0);
+      // ПРИОРИТЕТ 1С: есть выгрузка за день — берём 1С, иначе ручной ввод.
+      const val = (+r.total_1c || 0) > 0 ? (+r.total_1c || 0) : (+r.total_day || 0);
       if (val > 0) fcDoneByPoint[r.point_id] = (fcDoneByPoint[r.point_id] || 0) + val;
     });
     // Записано на остаток (по точкам) — из fcBooked где expected_at от сегодня до конца месяца
@@ -1753,21 +1753,21 @@
       const hasOneC = totalOneC > 0;
       if (!hasManual && !hasOneC) return;
       realDays++;
-      if (hasManual) {
+      // ПРИОРИТЕТ 1С: есть выгрузка за день — берём 1С, иначе ручной ввод менеджера.
+      if (hasOneC) {
+        t    += totalOneC;
+        i    += insOneC;
+        phys += retailOneC;    // 1С-retail = физик
+        c    += corpOneC;
+        det  += detailOneC;    // детейл из 1С
+        detCnt += +d.cars_detail_1c || 0;
+      } else {
         t    += totalDay;
         i    += insDay;
         phys += physDay;
         c    += corpDay;
         det  += detailDay;
         detCnt += +d.cars_detail || 0;
-      } else {
-        // Только 1С: разделяем по категориям
-        t    += totalOneC;
-        i    += insOneC;
-        phys += retailOneC;    // 1С-retail = физик
-        c    += corpOneC;
-        det  += detailOneC;    // ← теперь детейл из 1С тоже учитывается
-        detCnt += +d.cars_detail_1c || 0;
       }
     });
 
@@ -2008,7 +2008,7 @@
     const start = `${year}-01-01`;
     const end = `${year}-12-31`;
     const { data, error } = await sb.from('daily_reports_unified')
-      .select('point_id,date,total_day,retail_day,ins_day,phys_day,corp_day,detail_day,cars_detail')
+      .select('point_id,date,total_day,retail_day,ins_day,phys_day,corp_day,detail_day,cars_detail,total_1c,retail_1c,ins_1c,corp_1c,detail_1c')
       .gte('date', start).lte('date', end);
     if (error) throw error;
     return data || [];
@@ -2131,12 +2131,20 @@
     const r = dayReport || {};
     const range = data.range;
 
-    // Накопленное за год. «Розница» = физик + корп + детейл (всё «не страх»).
+    // ПРИОРИТЕТ 1С: есть выгрузка за день — берём 1С, иначе ручной ввод менеджера.
+    const eTotal  = d => (+d.total_1c || 0) > 0 ? (+d.total_1c || 0) : (+d.total_day || 0);
+    const eIns    = d => (+d.total_1c || 0) > 0 ? (+d.ins_1c || 0)   : (+d.ins_day || 0);
+    // «Розница» = физик/retail + корп + детейл (всё «не страх»).
+    const eRetail = d => (+d.total_1c || 0) > 0
+      ? (+d.retail_1c || 0) + (+d.corp_1c || 0) + (+d.detail_1c || 0)
+      : (+d.retail_day || 0) + (+d.corp_day || 0) + (+d.detail_day || 0);
+
+    // Накопленное за год.
     let ytdTotal=0, ytdRetail=0, ytdIns=0;
     (Array.isArray(yearData) ? yearData : []).filter(d => d.point_id === point.id).forEach(d => {
-      ytdTotal += +d.total_day || 0;
-      ytdRetail += (+d.retail_day || 0) + (+d.corp_day || 0) + (+d.detail_day || 0);
-      ytdIns += +d.ins_day || 0;
+      ytdTotal += eTotal(d);
+      ytdRetail += eRetail(d);
+      ytdIns += eIns(d);
     });
     const yearTotal = (+point.year_start_total || 0) + ytdTotal;
     const yearRetail = (+point.year_start_retail || 0) + ytdRetail;
@@ -2146,9 +2154,9 @@
     const monthReports = data.reports.filter(rep => rep.point_id === point.id);
     let mTotal=0, mRetail=0, mIns=0;
     monthReports.forEach(d => {
-      mTotal += +d.total_day || 0;
-      mRetail += (+d.retail_day || 0) + (+d.corp_day || 0) + (+d.detail_day || 0);
-      mIns += +d.ins_day || 0;
+      mTotal += eTotal(d);
+      mRetail += eRetail(d);
+      mIns += eIns(d);
     });
 
     // Используем фактическую дату отчёта (может быть не та что выбрана если fallback)
@@ -2165,9 +2173,9 @@
     })();
 
     // Дневные суммы. «Розница» = физик + корп + детейл (всё кроме страховых).
-    const dTotal = +r.total_day || 0;
-    const dRetail = (+r.retail_day || 0) + (+r.corp_day || 0) + (+r.detail_day || 0);
-    const dIns = +r.ins_day || 0;
+    const dTotal = eTotal(r);
+    const dRetail = eRetail(r);
+    const dIns = eIns(r);
 
     // Долги — берём из lastDebt (последний отчёт с долгами > 0) если в текущем отчёте их нет.
     // Это решает проблему «менеджер забыл указать долги в новом отчёте».
