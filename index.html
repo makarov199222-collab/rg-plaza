@@ -2627,16 +2627,21 @@
     if (!importZpParsed || !importZpParsed.length) { toast('Нет данных для импорта', 'err'); return; }
     const btn = document.getElementById('importzp-confirm-btn');
     btn.disabled = true; btn.textContent = 'Импортирую…';
+    showImportProgress('Заказы покупателя…', `Записываю ${importZpParsed.length} шт.`, 10);
+    await uiTick();
     try {
       let ok = 0;
       const BATCH = 500;
+      const totalBatches = Math.ceil(importZpParsed.length / BATCH);
       for (let i = 0; i < importZpParsed.length; i += BATCH) {
         const chunk = importZpParsed.slice(i, i + BATCH);
+        const batchNo = Math.floor(i / BATCH) + 1;
+        setImportStage('Заказы покупателя…', `Партия ${batchNo} из ${totalBatches}`, 10 + Math.round(70 * batchNo / totalBatches));
+        await uiTick();
         const { error } = await sb.from('customer_orders')
           .upsert(chunk, { onConflict: 'order_number,organization' });
         if (error) {
           console.error('customer_orders upsert:', error);
-          // поштучно, чтобы не потерять весь батч
           for (const row of chunk) {
             const { error: e1 } = await sb.from('customer_orders')
               .upsert(row, { onConflict: 'order_number,organization' });
@@ -2645,7 +2650,8 @@
         } else ok += chunk.length;
       }
       // Пересчёт вала: подмешиваем заказы покупателя в daily_reports.
-      // Диапазон — по датам импортированных заказов (или весь, если не определить).
+      setImportStage('Пересчёт вала…', 'Обновляю суммы по дням', 85);
+      await uiTick();
       try {
         const dates = importZpParsed.map(x => x.order_date).filter(Boolean).sort();
         const from = dates[0] || '2025-01-01';
@@ -2653,10 +2659,14 @@
         const pid = importZpParsed[0]?.point_id || 'sovhoz';
         await sb.rpc('recalc_daily_reports_from_1c', { p_point_id: pid, p_date_from: from, p_date_to: to });
       } catch (e) { console.warn('recalc после импорта ЗП:', e); }
+      setImportStage('Готово', `Импортировано ${ok} заказов`, 100);
+      await uiTick();
+      hideImportProgress();
       toast(`🧾 Импортировано заказов покупателя: ${ok}. Вал пересчитан.`, 'ok');
       closeImportZp();
       if (typeof refreshAll === 'function') refreshAll();
     } catch (e) {
+      hideImportProgress();
       console.error(e);
       toast('Ошибка импорта: ' + (e.message || e), 'err');
     } finally {
@@ -3766,7 +3776,26 @@
   }
 
   let dateManuallySet = false; // true = пользователь сам выбрал дату в поле (не трогаем автообновлением)
+  let zpDay = { corp: 0, retail: 0, cnt: 0 };   // суммы заказов покупателя за выбранный день (для строки в отчёте)
   async function onDateChange() { dateManuallySet = true; updateTitle(); await loadDayForDate(); await loadMonth(); updatePlanProgress(); }
+
+  // Подгружает суммы заказов покупателя (ЗП) за выбранный день — для строки в отчёте.
+  async function loadZpForDay(date) {
+    zpDay = { corp: 0, retail: 0, cnt: 0 };
+    if (!currentPoint || !date) return;
+    try {
+      const { data, error } = await sb.from('customer_orders')
+        .select('amount, category')
+        .eq('point_id', currentPoint.id)
+        .eq('order_date', date);
+      if (error) throw error;
+      (data || []).forEach(o => {
+        const a = +o.amount || 0;
+        if (o.category === 'corp') { zpDay.corp += a; zpDay.cnt++; }
+        else if (o.category === 'retail') { zpDay.retail += a; zpDay.cnt++; }
+      });
+    } catch (e) { console.warn('loadZpForDay:', e); }
+  }
 
   async function loadDayForDate() {
     const date = getDateValue();
@@ -3849,6 +3878,8 @@
       await updateDebt1cHint(date);
       // Подсказка «Мы должны» по региону (защита от двойного учёта одного и того же долга)
       await updateOweRegionHint();
+      // Подгружаем суммы заказов покупателя за день (для строки в отчёте)
+      await loadZpForDay(date);
       // Пересчитываем прогресс по плану по только что подставленным значениям (из БД или из 1С)
       updatePlanProgress();
       setSync('ok');
@@ -4919,7 +4950,7 @@ ${dayBlock}
 ${monthBlock}
 ${planLine}
 6️⃣Подписок МАКС ${C.mx} , отзывы ${rvNote}
-7️⃣Список машин:${cars||'\n—'}`;
+7️⃣Список машин:${cars||'\n—'}${(zpDay.cnt > 0) ? `\n\n🧾 Прямые продажи (ЗП): ${zpDay.cnt} шт · ${fm(zpDay.corp + zpDay.retail)}р (корп: ${fm(zpDay.corp)} · розн: ${fm(zpDay.retail)})` : ''}`;
 
     document.getElementById('overlay-title').textContent = 'Отчёт дня ✅';
     document.getElementById('sheet-body').innerHTML = `<div class="rtext" id="rtext"></div>`;
