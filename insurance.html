@@ -1487,10 +1487,23 @@
   // не должен ронять основной экран направлений.
   async function loadFunnelData() {
     try {
-      const { data: recs, error } = await sb
-        .from('insurance_recommendations')
-        .select('rec_number, rec_date, rec_type, stage, amount, company_id, company_raw, point_id, point_raw, zn_number, zn_date, client, car_model, plate, service_confirmed_at');
-      if (error) throw error;
+      // Supabase отдаёт максимум 1000 строк за запрос. Рекомендаций может стать больше —
+      // грузим постранично, иначе воронка считает по неполным данным.
+      const PAGE = 1000;
+      let recs = [];
+      let from = 0;
+      for (;;) {
+        const { data, error } = await sb
+          .from('insurance_recommendations')
+          .select('rec_number, rec_date, rec_type, stage, amount, company_id, company_raw, point_id, point_raw, zn_number, zn_date, client, car_model, plate, service_confirmed_at')
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        const batch = data || [];
+        recs = recs.concat(batch);
+        if (batch.length < PAGE) break;
+        from += PAGE;
+        if (from > 50000) break; // предохранитель
+      }
       recsData = recs || [];
 
       // Какие из ЗН отгружены (есть в orders_history_1c) и каков их долг.
