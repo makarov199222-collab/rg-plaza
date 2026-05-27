@@ -619,7 +619,7 @@
         </div>
         <div class="rsplit">
           <div class="sblock">
-            <div class="slbl g">Физлица</div>
+            <div class="slbl g">Розница</div>
             <div class="sctrl"><button class="sbtn" onclick="cs('phy',-1)">−</button><div class="sval" id="phy-v">0</div><button class="sbtn" onclick="cs('phy',1)">+</button></div>
           </div>
           <div class="sblock">
@@ -627,7 +627,7 @@
             <div class="sctrl"><button class="sbtn" onclick="cs('cop',-1)">−</button><div class="sval" id="cop-v">0</div><button class="sbtn" onclick="cs('cop',1)">+</button></div>
           </div>
         </div>
-        <div class="snote">Физлица + Корпоратив = Розница</div>
+        <div class="snote">Розница = клиенты + корп/детейл</div>
         <div class="rsplit detailing-only" id="row-detailing-cnt" style="display:none;margin-top:8px;">
           <div class="sblock" style="grid-column: span 2;">
             <div class="slbl" style="color:var(--accent);">🛠 Детейлинг</div>
@@ -654,7 +654,7 @@
           <div class="ablock full"><div class="albl t">Всего за день</div><input class="ainp" type="number" id="dtotal" placeholder="0" oninput="updateCarsSummary()"></div>
           <div class="ablock"><div class="albl b">Страховые</div><input class="ainp" type="number" id="dins" placeholder="0" oninput="updatePlanProgress()"></div>
           <div class="ablock"><div class="albl g">Розница всего</div><input class="ainp" type="number" id="dret" placeholder="0"></div>
-          <div class="ablock"><div class="albl g">Физлица</div><input class="ainp" type="number" id="dphy" placeholder="0" oninput="updatePlanProgress()"></div>
+          <div class="ablock"><div class="albl g">Розница</div><input class="ainp" type="number" id="dphy" placeholder="0" oninput="updatePlanProgress()"></div>
           <div class="ablock"><div class="albl p">Корпоратив</div><input class="ainp" type="number" id="dcop" placeholder="0" oninput="updatePlanProgress()"></div>
           <div class="ablock detailing-only" id="row-detailing-day" style="display:none;"><div class="albl" style="color:var(--accent);">🛠 Детейлинг</div><input class="ainp" type="number" id="ddet" placeholder="0"></div>
         </div>
@@ -668,7 +668,7 @@
           <div class="mstats">
             <div class="mstat"><div class="mval" id="mt">0</div><div class="mstat-lbl">Всего</div></div>
             <div class="mstat"><div class="mval b" id="mi">0</div><div class="mstat-lbl">Страх</div></div>
-            <div class="mstat"><div class="mval g" id="mr">0</div><div class="mstat-lbl">Физлица</div></div>
+            <div class="mstat"><div class="mval g" id="mr">0</div><div class="mstat-lbl">Розница</div></div>
             <div class="mstat"><div class="mval p" id="mc">0</div><div class="mstat-lbl">Корпор</div></div>
             <div class="mstat detailing-only" style="display:none;opacity:.75;"><div class="mval" id="md" style="color:var(--accent);">0</div><div class="mstat-lbl">🛠 Детейл<span style="font-size:8px;display:block;color:var(--muted);font-weight:400;margin-top:1px;">в физлицах</span></div></div>
           </div>
@@ -788,11 +788,11 @@
             <div id="plan-ins-month-view" style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--blue);">— ₽</div>
           </div>
           <div style="background:var(--surface2);border-radius:8px;padding:10px;">
-            <div style="font-size:10px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px;">📅 Физлица / день</div>
+            <div style="font-size:10px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px;">📅 Розница / день</div>
             <div id="plan-phys-day-view" style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--green);">— ₽</div>
           </div>
           <div style="background:var(--surface2);border-radius:8px;padding:10px;">
-            <div style="font-size:10px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px;">📆 Физлица / месяц</div>
+            <div style="font-size:10px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px;">📆 Розница / месяц</div>
             <div id="plan-phys-month-view" style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--green);">— ₽</div>
           </div>
           <div style="background:var(--surface2);border-radius:8px;padding:10px;">
@@ -5033,13 +5033,13 @@ ${planLine}
         <div class="mr-stat-row">
           <div class="mr-stat full"><div class="mr-stat-val">${fm(mT)} ₽</div><div class="mr-stat-lbl">Общий вал</div></div>
           <div class="mr-stat"><div class="mr-stat-val b">${fm(mI)} ₽</div><div class="mr-stat-lbl">Страховые</div></div>
-          <div class="mr-stat"><div class="mr-stat-val g">${fm(mP)} ₽</div><div class="mr-stat-lbl">Физлица</div></div>
+          <div class="mr-stat"><div class="mr-stat-val g">${fm(mP)} ₽</div><div class="mr-stat-lbl">Розница</div></div>
           <div class="mr-stat"><div class="mr-stat-val p">${fm(mC)} ₽</div><div class="mr-stat-lbl">Корпоратив</div></div>
           <div class="mr-stat"><div class="mr-stat-val">${monthData.days.length}</div><div class="mr-stat-lbl">Дней</div></div>
           <div class="mr-stat"><div class="mr-stat-val">${fm(Math.round(mT/monthData.days.length))} ₽</div><div class="mr-stat-lbl">Ср. день</div></div>
         </div>
         ${planHtml}
-        <div class="chart-wrap"><div class="chart-title">📈 Физлица vs Корпоратив</div><canvas id="myChart" height="180"></canvas></div>
+        <div class="chart-wrap"><div class="chart-title">📈 Розница vs Корпоратив</div><canvas id="myChart" height="180"></canvas></div>
         <div class="chart-wrap"><div class="chart-title">🔵 Страх vs 🟢 Физ vs 🟣 Корп</div><canvas id="myChart2" height="180"></canvas></div>
       </div>`;
     document.getElementById('copybtn').style.display = 'none';
@@ -5049,12 +5049,12 @@ ${planLine}
       if (myChart) myChart.destroy();
       const cfg = { responsive: true, plugins: { legend: { display: true, labels: { color: '#ffffff', font: { size: 10 } } } }, scales: { x: { ticks: { color: '#909090', font: { size: 9 } }, grid: { color: '#333333' } }, y: { ticks: { color: '#909090', font: { size: 9 }, callback: v => fs(v) }, grid: { color: '#333333' } } } };
       myChart = new Chart(document.getElementById('myChart'), { type: 'bar', data: { labels, datasets: [
-        { label: 'Физлица', data: physData, backgroundColor: 'rgba(34,197,94,.7)', borderRadius: 4 },
+        { label: 'Розница', data: physData, backgroundColor: 'rgba(34,197,94,.7)', borderRadius: 4 },
         { label: 'Корпоратив', data: corpData, backgroundColor: 'rgba(168,85,247,.7)', borderRadius: 4 }
       ] }, options: cfg });
       new Chart(document.getElementById('myChart2'), { type: 'bar', data: { labels, datasets: [
         { label: 'Страховые', data: insurData, backgroundColor: 'rgba(59,130,246,.7)', borderRadius: 4 },
-        { label: 'Физлица', data: physData, backgroundColor: 'rgba(34,197,94,.7)', borderRadius: 4 },
+        { label: 'Розница', data: physData, backgroundColor: 'rgba(34,197,94,.7)', borderRadius: 4 },
         { label: 'Корпоратив', data: corpData, backgroundColor: 'rgba(168,85,247,.7)', borderRadius: 4 }
       ] }, options: cfg });
     }, 100);
