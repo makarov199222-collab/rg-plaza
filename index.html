@@ -824,6 +824,7 @@
         <div class="card-title">🚗 Машины в работе</div>
         <div style="display:flex;gap:6px;">
           <button class="tab-mini" onclick="openImport1c()" title="Импорт реестра ОПП из 1С">📥 Импорт 1С</button>
+          <button class="tab-mini" onclick="openImportZp()" title="Импорт заказов покупателя (прямые продажи)">🧾 Заказы покуп.</button>
           <button class="add-car-btn" onclick="openCarEdit(null)">+ Машина</button>
         </div>
       </div>
@@ -895,6 +896,32 @@
       <button class="ce-btn" id="import1c-diag-btn" onclick="diagnoseImport1c()" style="background:#0e0e0e;border:1px solid var(--blue);color:var(--blue);">🔬 Диагностика (1 строка)</button>
       <button class="ce-btn primary" id="import1c-confirm-btn" onclick="confirmImport1c()">Импортировать</button>
       <button class="ce-btn" onclick="closeImport1c()">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<!-- Импорт заказов покупателя (ЗП) — прямые продажи стекла/услуг без ЗН -->
+<div class="overlay" id="importzp-overlay" onclick="if(event.target.id==='importzp-overlay') closeImportZp()">
+  <div class="sheet" style="max-width:680px;">
+    <div class="sheet-head">
+      <div class="sheet-title">🧾 Импорт заказов покупателя</div>
+      <button class="xbtn" onclick="closeImportZp()">✕</button>
+    </div>
+    <div class="sheet-body">
+      <div id="importzp-step1">
+        <div style="font-size:13px;color:var(--text);line-height:1.5;margin-bottom:14px;">
+          Выгрузи <b>Заказы покупателя</b> из 1С в Excel и загрузи сюда. Это прямые продажи (стекло, услуги) без заказ-наряда. Автосалоны и юрлица → корпоратив, физлица и ИП → розница. Идут в общий вал точки.
+        </div>
+        <input type="file" id="importzp-file" accept=".xlsx,.xls" style="width:100%;padding:10px;background:#0e0e0e;border:1px dashed var(--accent);border-radius:8px;color:var(--text);font-family:Inter,sans-serif;font-size:13px;cursor:pointer;" onchange="parseImportZpFile()">
+        <div id="importzp-error" style="display:none;margin-top:10px;color:var(--red);font-size:12px;line-height:1.5;"></div>
+      </div>
+      <div id="importzp-step2" style="display:none;">
+        <div id="importzp-summary"></div>
+      </div>
+    </div>
+    <div class="cf-actions" id="importzp-actions" style="display:none;">
+      <button class="ce-btn primary" id="importzp-confirm-btn" onclick="confirmImportZp()">Импортировать</button>
+      <button class="ce-btn" onclick="closeImportZp()">Отмена</button>
     </div>
   </div>
 </div>
@@ -2455,6 +2482,178 @@
     document.getElementById('import1c-overlay').classList.remove('show');
     import1cParsed = null;
   }
+
+  // ============ ИМПОРТ ЗАКАЗОВ ПОКУПАТЕЛЯ (ЗП) → customer_orders ============
+  // Прямые продажи стекла/услуг без ЗН. Идут в общий вал точки.
+  // Категория: автосалоны/крупные юрлица → corp, физлица и ИП → retail.
+  let importZpParsed = null;
+
+  function openImportZp() {
+    document.getElementById('importzp-overlay').classList.add('show');
+    document.getElementById('importzp-step1').style.display = 'block';
+    document.getElementById('importzp-step2').style.display = 'none';
+    document.getElementById('importzp-actions').style.display = 'none';
+    document.getElementById('importzp-error').style.display = 'none';
+    document.getElementById('importzp-file').value = '';
+    importZpParsed = null;
+  }
+  function closeImportZp() {
+    document.getElementById('importzp-overlay').classList.remove('show');
+    importZpParsed = null;
+  }
+
+  // Категория заказа покупателя по контрагенту (вариант А):
+  // крупные юрлица/автосалоны → corp; физлица и ИП → retail; нулёвки/служебка → skip.
+  function zpCategory(counterparty, amount) {
+    const c = String(counterparty || '').trim();
+    const lc = c.toLowerCase();
+    if (!c) return 'skip';
+    if ((+amount || 0) <= 0) return 'skip';
+    if (lc.includes('дисконт') || lc.includes('бонус')) return 'skip';
+    const corpMarkers = ['ооо','оао','зао','пао','завод','аспэк','итс-авто','ижкар',
+      'навигатор авто','автосалон','купол','ижгэт','каркаде','лизинг','т-лизинг'];
+    const hasCorp = corpMarkers.some(m => lc.includes(m)) || /\bао\b/.test(lc);
+    return hasCorp ? 'corp' : 'retail';
+  }
+
+  async function parseImportZpFile() {
+    const file = document.getElementById('importzp-file').files[0];
+    const errEl = document.getElementById('importzp-error');
+    errEl.style.display = 'none';
+    if (!file) return;
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true });
+      if (rows.length < 2) throw new Error('Файл пустой или нет данных');
+      const rawH = rows[0] || [];
+      const headers = [];
+      for (let i = 0; i < rawH.length; i++) headers[i] = (rawH[i] == null) ? '' : String(rawH[i]).trim();
+      const find = (name) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
+      const cols = {
+        date:    find('Дата'),
+        number:  find('Номер'),
+        sum:     find('Сумма'),
+        debt:    find('Задолженность'),
+        counterparty: find('Контрагент'),
+        manager: find('Менеджер'),
+        warehouse: find('Склад'),
+        organization: find('Организация'),
+        paid:    find('Оплачен'),
+        shipped: find('Отгружен'),
+        status:  find('Статус заказа'),
+      };
+      if (cols.number < 0 || cols.sum < 0 || cols.counterparty < 0) {
+        throw new Error('Не нашёл колонки «Номер»/«Сумма»/«Контрагент». Проверь, что это выгрузка заказов покупателя.');
+      }
+      const items = [];
+      const stat = { corp:{c:0,s:0}, retail:{c:0,s:0}, skip:0, otherPoint:0, notShipped:0 };
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || !r[cols.number]) continue;
+        const warehouse = cols.warehouse >= 0 ? String(r[cols.warehouse] || '').trim() : '';
+        // Привязка к точке по складу. «Оптовый Плаза»/«Оптовый» → Совхозная.
+        const pid = resolvePointFromWarehouse(warehouse);
+        if (!pid) { stat.otherPoint++; continue; }
+        // В вал идут только ОТГРУЖЕННЫЕ заказы. Неотгруженные (Нет/пусто) пропускаем —
+        // это оформленные, но не завершённые продажи, деньги ещё не заработаны.
+        const shippedRaw = cols.shipped >= 0 ? String(r[cols.shipped] || '').trim().toLowerCase() : '';
+        const isShipped = shippedRaw === 'полностью' || shippedRaw === 'больше' || shippedRaw === 'да';
+        if (!isShipped) { stat.notShipped++; continue; }
+        const counterparty = String(r[cols.counterparty] || '').trim();
+        const amount = parseSum1c(r[cols.sum]);
+        const cat = zpCategory(counterparty, amount);
+        if (cat === 'skip') { stat.skip++; continue; }
+        stat[cat].c++; stat[cat].s += amount;
+        let numRaw = String(r[cols.number]).trim();
+        const d = parseDate(r[cols.date]);
+        items.push({
+          order_number: numRaw,
+          order_date: d ? isoDate(d) : null,
+          amount,
+          debt: cols.debt >= 0 ? parseSum1c(r[cols.debt]) : 0,
+          counterparty,
+          manager: cols.manager >= 0 ? String(r[cols.manager] || '').trim() : null,
+          warehouse: warehouse || null,
+          organization: cols.organization >= 0 ? (String(r[cols.organization] || '').trim() || null) : null,
+          paid_status: cols.paid >= 0 ? String(r[cols.paid] || '').trim() : null,
+          shipped_status: cols.shipped >= 0 ? String(r[cols.shipped] || '').trim() : null,
+          order_status: cols.status >= 0 ? String(r[cols.status] || '').trim() : null,
+          category: cat,
+          point_id: pid,
+          source_file: file.name,
+          imported_by: currentManager?.id || null,
+        });
+      }
+      importZpParsed = items;
+      // Превью
+      const fmt = n => Math.round(n).toLocaleString('ru-RU');
+      document.getElementById('importzp-summary').innerHTML = `
+        <div style="font-size:14px;color:var(--text);margin-bottom:12px;">Распознано <b>${items.length}</b> заказов покупателя:</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="background:#0e0e0e;border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
+            <div style="font-size:12px;color:var(--muted);">Корпоратив (автосалоны/юрлица)</div>
+            <div style="font-size:18px;color:var(--accent);font-weight:700;">${stat.corp.c} шт · ${fmt(stat.corp.s)} ₽</div>
+          </div>
+          <div style="background:#0e0e0e;border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
+            <div style="font-size:12px;color:var(--muted);">Розница (физлица/ИП)</div>
+            <div style="font-size:18px;color:var(--green);font-weight:700;">${stat.retail.c} шт · ${fmt(stat.retail.s)} ₽</div>
+          </div>
+          <div style="font-size:12px;color:var(--muted);">Пропущено: ${stat.notShipped} не отгружено · ${stat.skip} нулевые/служебка${stat.otherPoint ? ` · ${stat.otherPoint} не Совхозная` : ''}</div>
+        </div>`;
+      document.getElementById('importzp-step1').style.display = 'none';
+      document.getElementById('importzp-step2').style.display = 'block';
+      document.getElementById('importzp-actions').style.display = 'flex';
+    } catch (e) {
+      errEl.textContent = 'Ошибка: ' + (e.message || e);
+      errEl.style.display = 'block';
+    }
+  }
+
+  // Склад → точка. «Оптовый Плаза»/«Оптовый» → Совхозная. Иначе пробуем общую карту.
+  function resolvePointFromWarehouse(warehouse) {
+    const w = String(warehouse || '').trim().toLowerCase();
+    if (!w) return currentPoint ? currentPoint.id : null;
+    if (w.includes('оптов')) return 'sovhoz';   // Оптовый Плаза / Оптовый → Совхозная
+    // запасной вариант: вдруг склад назван как территория
+    for (const [key, pid] of Object.entries(ONEC_TERRITORY_MAP)) {
+      if (w.startsWith(key)) return pid;
+    }
+    return currentPoint ? currentPoint.id : null;
+  }
+
+  async function confirmImportZp() {
+    if (!importZpParsed || !importZpParsed.length) { toast('Нет данных для импорта', 'err'); return; }
+    const btn = document.getElementById('importzp-confirm-btn');
+    btn.disabled = true; btn.textContent = 'Импортирую…';
+    try {
+      let ok = 0;
+      const BATCH = 500;
+      for (let i = 0; i < importZpParsed.length; i += BATCH) {
+        const chunk = importZpParsed.slice(i, i + BATCH);
+        const { error } = await sb.from('customer_orders')
+          .upsert(chunk, { onConflict: 'order_number,organization' });
+        if (error) {
+          console.error('customer_orders upsert:', error);
+          // поштучно, чтобы не потерять весь батч
+          for (const row of chunk) {
+            const { error: e1 } = await sb.from('customer_orders')
+              .upsert(row, { onConflict: 'order_number,organization' });
+            if (!e1) ok++;
+          }
+        } else ok += chunk.length;
+      }
+      toast(`🧾 Импортировано заказов покупателя: ${ok}`, 'ok');
+      closeImportZp();
+    } catch (e) {
+      console.error(e);
+      toast('Ошибка импорта: ' + (e.message || e), 'err');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Импортировать';
+    }
+  }
+
 
   // Сопоставление территории из 1С → point_id
   const ONEC_TERRITORY_MAP = {
