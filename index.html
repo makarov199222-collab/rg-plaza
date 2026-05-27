@@ -711,6 +711,10 @@
         <div class="cars-only" id="day-oneoff-label" style="display:none;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">➕ Разовые (без вкладки):</div>
         <div class="cars-list" id="cars"></div>
         <button class="add-btn" onclick="addCar()">+ Добавить машину</button>
+        <div id="zp-day-row" style="display:none;margin-top:10px;padding:11px 13px;background:#141414;border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:10px;">
+          <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:16px;">🧾</span><span style="font-size:13px;color:var(--text);font-weight:600;">Прямые продажи за день</span></div>
+          <div style="text-align:right;"><div id="zp-day-sum" style="font-size:16px;color:var(--accent);font-weight:800;">0 ₽</div><div id="zp-day-cnt" style="font-size:11px;color:var(--muted);">0 шт</div></div>
+        </div>
         <div class="cars-summary" id="cars-summary" style="display:none;">
           <div class="cs-item"><div class="cs-val g" id="cs-total">0</div><div class="cs-lbl">Сумма ЗН</div></div>
           <div class="cs-item"><div class="cs-val" id="cs-count">0</div><div class="cs-lbl">Машин с ЗН</div></div>
@@ -3795,6 +3799,17 @@
         else if (o.category === 'retail') { zpDay.retail += a; zpDay.cnt++; }
       });
     } catch (e) { console.warn('loadZpForDay:', e); }
+    // Отрисовываем строку «Прямые продажи за день» в блоке машин
+    const row = document.getElementById('zp-day-row');
+    if (row) {
+      if (zpDay.cnt > 0) {
+        row.style.display = 'flex';
+        document.getElementById('zp-day-sum').textContent = fm(zpDay.corp + zpDay.retail) + ' ₽';
+        document.getElementById('zp-day-cnt').textContent = `${zpDay.cnt} шт · корп ${fm(zpDay.corp)} · розн ${fm(zpDay.retail)}`;
+      } else {
+        row.style.display = 'none';
+      }
+    }
   }
 
   async function loadDayForDate() {
