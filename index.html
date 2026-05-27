@@ -295,6 +295,7 @@
   .car-row{display:flex;flex-direction:column;gap:6px;background:#141414;border:1px solid var(--border);border-radius:8px;padding:8px;animation:fi .2s ease;}
   @keyframes fi{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:translateY(0);}}
   .car-line-1{display:flex;gap:6px;align-items:center;}
+  .ip-badge{flex-shrink:0;background:var(--accent);color:#000;font-weight:800;font-size:10px;letter-spacing:.5px;padding:4px 7px;border-radius:5px;font-family:'Inter',sans-serif;}
   .car-line-2{display:flex;gap:6px;align-items:center;}
   .car-inp{flex:1;min-width:0;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px 11px;color:var(--text);font-family:'Inter',sans-serif;font-size:13px;outline:none;-webkit-appearance:none;}
   .car-inp:focus{border-color:var(--accent);}
@@ -3653,7 +3654,7 @@
     if (!currentPoint) return;
     try {
       const { data, error } = await sb.from('orders_history_1c')
-        .select('zn_number, customer, plate, car_model, amount, category, comment')
+        .select('zn_number, customer, plate, car_model, amount, category, comment, organization')
         .eq('point_id', currentPoint.id)
         .eq('date_shipped', date)
         .order('zn_number');
@@ -3685,6 +3686,7 @@
           text: parts,
           sum: +o.amount || 0,
           type: mapCat(o.category),
+          org: o.organization || '',
         });
         added++;
       });
@@ -4410,6 +4412,12 @@
     const list = document.getElementById('cars');
     const row = document.createElement('div');
     row.className = 'car-row';
+    // Организация (ООО/ИП) из 1С. Бейдж показываем только для ИП — их мало,
+    // и менеджеру важно сразу их замечать. ООО — основное юрлицо, без пометки.
+    const org = (data && data.org) ? String(data.org) : '';
+    row.dataset.org = org;
+    const isIP = /\bИП\b|^ИП|ИП\s/i.test(org) || org.toUpperCase().includes('ИП ');
+    const ipBadge = isIP ? `<span class="ip-badge" title="${escapeHtml(org)}">ИП</span>` : '';
     const t = (data && data.type) || 'страх';
     const showDetail = currentPoint && currentPoint.id === 'sovhoz';
     const detailOption = showDetail
@@ -4421,7 +4429,7 @@
       return `<button type="button" class="extra-chip ${isOn ? 'on' : ''}" data-key="${e.key}" onclick="toggleExtraChip(this)">${e.label}</button>`;
     }).join('');
     row.innerHTML = `<div class="car-line-1">
-        <input class="car-inp" type="text" placeholder="Номер, марка, владелец, вид работ" value="${data ? escapeHtml(data.text||'') : ''}">
+        ${ipBadge}<input class="car-inp" type="text" placeholder="Номер, марка, владелец, вид работ" value="${data ? escapeHtml(data.text||'') : ''}">
         <button class="rmbtn" onclick="this.closest('.car-row').remove();updateCarsSummary();updateCountersFromCars();">×</button>
       </div>
       <div class="car-line-2">
@@ -4630,6 +4638,8 @@
 
     let cars = '';
     let carsTotal = 0, carsCount = 0;
+    let sumIP = 0, sumOOO = 0;   // разбивка вала по юрлицам (для строки в скобках)
+    let anyIP = false;           // встретился ли хоть один ИП — иначе разбивку не показываем
     // Удаляет ФИО клиента из строки машины для Telegram-отчёта.
     // Юриков (ООО/ИП/ПАО/АО или CAPSLOCK 3+ символов) оставляем как есть.
     // Физлица: отрезаем подряд 2-3 кириллических слова с заглавной буквы в конце.
@@ -4648,6 +4658,11 @@
       const sumVal = +row.querySelector('.car-sum').value || 0;
       const t = row.querySelector('select').value;
       const lbl = t==='страх'?'[страх]':t==='корп'?'[корп]':'[розн]';
+      // Организация: бейдж ИП — приставка [ИП] в строке; для подсчёта разбивки вала.
+      const org = row.dataset.org || '';
+      const isIP = /\bИП\b|^ИП|ИП\s/i.test(org) || org.toUpperCase().includes('ИП ');
+      const orgTag = isIP ? '[ИП]' : '';
+      if (isIP) anyIP = true;
       if (txt) {
         const cleaned = stripClientName(txt);
         const sumPart = (showCarSums && sumVal > 0) ? ` — ${fm(sumVal)}р` : '';
@@ -4657,11 +4672,15 @@
           .map(k => (CAR_EXTRAS.find(e => e.key === k) || {}).label)
           .filter(Boolean);
         const extrasPart = extraLabels.length ? ` 🎁 ${extraLabels.join(', ')}` : '';
-        cars += `\n${lbl} ${cleaned}${sumPart}${extrasPart}`;
-        if (sumVal > 0) { carsTotal += sumVal; carsCount++; }
+        cars += `\n${lbl}${orgTag} ${cleaned}${sumPart}${extrasPart}`;
+        if (sumVal > 0) { carsTotal += sumVal; carsCount++; if (isIP) sumIP += sumVal; else sumOOO += sumVal; }
       }
     });
-    if (showCarSums && carsCount > 0) cars += `\n———\nИтого по машинам: ${fm(carsTotal)}р (${carsCount} ЗН, ср. чек ${fm(Math.round(carsTotal/carsCount))}р)`;
+    if (showCarSums && carsCount > 0) {
+      // Общий вал + разбивка по юрлицам в скобках (только если были ИП-машины).
+      const split = anyIP ? ` (ООО: ${fm(sumOOO)} · ИП: ${fm(sumIP)})` : '';
+      cars += `\n———\nИтого по машинам: ${fm(carsTotal)}р${split} (${carsCount} ЗН, ср. чек ${fm(Math.round(carsTotal/carsCount))}р)`;
+    }
 
     const isIzhevsk = currentPoint.format === 'izhevsk';
 
