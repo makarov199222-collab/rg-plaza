@@ -1773,17 +1773,20 @@
     }
 
     const modeBtns = `<div class="fn-toggle">
-      <button class="fn-toggle-btn ${recFunnelMode==='snapshot'?'active':''}" onclick="setFunnelMode('snapshot')">Всё время</button>
-      <button class="fn-toggle-btn ${recFunnelMode==='month'?'active':''}" onclick="setFunnelMode('month')">За месяц</button>
+      <button class="fn-toggle-btn ${recFunnelMode==='snapshot'?'active':''}" onclick="setFunnelMode('snapshot')" title="Снимок: все направления и где каждое сейчас (независимо от месяца прихода)">Всё время</button>
+      <button class="fn-toggle-btn ${recFunnelMode==='month'?'active':''}" onclick="setFunnelMode('month')" title="Только направления, пришедшие в выбранном месяце (по дате направления)">За месяц</button>
     </div>`;
-    const subtitle = recFunnelMode === 'month' ? `за ${formatMonth()}` : 'текущее состояние';
+    const subtitle = recFunnelMode === 'month'
+      ? `направления, пришедшие за ${formatMonth()} (по дате направления)`
+      : 'все направления — текущая стадия каждого';
 
     return `<div class="funnel-block">
       <div class="funnel-head">
         <div class="funnel-title">Воронка направлений</div>
         <div class="funnel-controls">${modeBtns}</div>
       </div>
-      <div class="funnel-sub">${escapeHtml(subtitle)} · всего ${f.totalCount} на ${fmt(f.totalAmount)} ₽ · в работе ${f.inWorkCount}</div>
+      <div class="funnel-sub">${escapeHtml(subtitle)}</div>
+      <div class="funnel-sub" style="opacity:.75;margin-top:2px;">📋 ${f.totalCount} направлений · оценка ${fmt(f.totalAmount)} ₽ <span style="opacity:.7;">(сумма направлений, не отгруженный вал)</span> · в работе ${f.inWorkCount}</div>
       <div class="funnel-stages">${stageCards}</div>
       ${otherChip}
       <div class="funnel-tasks">${tasksHtml}</div>
