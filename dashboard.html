@@ -1267,8 +1267,9 @@
 
     // 1. Точки которые не отчитались до 19:00 локального времени
     if (isCurrentMonth) {
-      const todayStr = today.toISOString().substring(0,10);
-      const dayOfWeek = today.getDay();
+      const todayStr = todayMoscowISO();
+      // День недели по МСК-дате (а не по локали браузера) — для корректного определения выходного точки
+      const dayOfWeek = new Date(todayStr + 'T12:00:00').getDay();
       const reportedToday = new Set();
       data.reports.forEach(r => { if (r.date === todayStr && +r.total_day > 0) reportedToday.add(r.point_id); });
 
@@ -1364,7 +1365,7 @@
       if (val > 0) fcDoneByPoint[r.point_id] = (fcDoneByPoint[r.point_id] || 0) + val;
     });
     // Записано на остаток (по точкам) — из fcBooked где expected_at от сегодня до конца месяца
-    const fcTodayStr = new Date().toISOString().substring(0,10);
+    const fcTodayStr = todayMoscowISO();
     const fcMonthEnd = data.range.end;
     const fcBookedByPoint = {};
     (data.fcBooked || []).forEach(c => {
@@ -2036,7 +2037,7 @@
         return;
       }
       const range = data.range;
-      const date = document.getElementById('myreport-date')?.value || new Date().toISOString().split('T')[0];
+      const date = document.getElementById('myreport-date')?.value || todayMoscowISO();
 
       // Грузим данные за весь год БЕЗ кэша — иначе после импортов 1С показывает устаревшее
       let yearData = [];
@@ -4309,6 +4310,18 @@ ${point.name} ${flow}`;
     const y = d.getFullYear();
     const mo = String(d.getMonth()+1).padStart(2,'0');
     const da = String(d.getDate()).padStart(2,'0');
+    return `${y}-${mo}-${da}`;
+  }
+
+  // Дата «сегодня» по Москве (UTC+3) — не зависит от часового пояса смотрящего.
+  // Используется для сверки «кто отчитался сегодня»: отчётность точек привязана к МСК.
+  function todayMoscowISO() {
+    const now = new Date();
+    const utcMs = now.getTime() + now.getTimezoneOffset() * 60000; // привели к чистому UTC
+    const msk = new Date(utcMs + 3 * 3600000);                     // +3 часа = МСК
+    const y = msk.getFullYear();
+    const mo = String(msk.getMonth()+1).padStart(2,'0');
+    const da = String(msk.getDate()).padStart(2,'0');
     return `${y}-${mo}-${da}`;
   }
 
