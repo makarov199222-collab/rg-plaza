@@ -327,6 +327,9 @@
   // Имя поля ins_1c — легаси: туда импорт кладёт категорию equity (страховые машины).
   // total всегда из total_1c напрямую, не сумма каналов (иначе corp Москвы задвоится).
   const r1c = r => (+r.total_1c || 0) > 0;
+  // Регион точки по id (надёжнее поля format).
+  const REGION_MAP = { kaluga: 'moscow', serpuhov: 'moscow', sovhoz: 'izhevsk', poyma: 'izhevsk' };
+  const isIzhevskId = pid => REGION_MAP[pid] === 'izhevsk';
   const rTotal  = r => r1c(r) ? (+r.total_1c || 0) : (+r.total_day || 0);
   const rIns    = r => r1c(r) ? (+r.ins_1c   || 0) : (+r.ins_day   || 0);
   const rCorp   = r => r1c(r) ? (+r.corp_1c  || 0) : (+r.corp_day  || 0);
@@ -1743,6 +1746,27 @@
     }
     const planActual = { phys: channels.phys + channels.detail, corp: channels.corp, ins: channels.ins };
 
+    // === Мотивашка «зона менеджера» по регионам ===
+    // Москва: зона = розница + корп (менеджер сам ведёт корп) → план = план_розн + план_корп
+    // Ижевск: зона = розница + детейл (корп — отдельный человек) → план = план_розн
+    const zoneFact = { moscow: 0, izhevsk: 0 };
+    const zonePlan = { moscow: 0, izhevsk: 0 };
+    for (const rep of (r.current || [])) {
+      const reg = REGION_MAP[rep.point_id];
+      if (!reg) continue;
+      const phys = r1c(rep) ? (+rep.retail_1c || 0) : (+rep.phys_day || 0);
+      const det  = rDetail(rep);
+      const corp = rCorp(rep);
+      zoneFact[reg] += (reg === 'izhevsk') ? (phys + det) : (phys + corp);
+    }
+    for (const plan of (r.plans || [])) {
+      const reg = REGION_MAP[plan.point_id];
+      if (!reg) continue;
+      const pPhys = +plan.plan_phys_month || 0;
+      const pCorp = +plan.plan_corp_month || 0;
+      zonePlan[reg] += (reg === 'izhevsk') ? pPhys : (pPhys + pCorp);
+    }
+
     // Топ продукты ОВР
     const ovrByCategory = {};
     let ovrTotal = 0;
@@ -1784,6 +1808,22 @@
       return `<div class="pch-bar-row">
         <div class="pch-bar-lbl"><div>${label}</div><div>${fs(actual)} / ${fs(plan)} <span style="color:${pct>=100?'#4caf50':'#a0a0a0'};">· ${pct}%</span></div></div>
         <div class="pch-bar"><div class="pch-bar-seg ${colorClass}" style="width:${cappedPct}%;"></div></div>
+      </div>`;
+    };
+    const zoneMotivHtml = (label, fact, plan) => {
+      if (plan <= 0) return '';
+      const pct = Math.round(fact / plan * 100);
+      const cappedPct = Math.min(100, pct);
+      const remain = Math.max(0, plan - fact);
+      const reached = fact >= plan;
+      const seg = reached ? 'g' : pct >= 70 ? 'a' : 'p';
+      const status = reached
+        ? `🎉 План выполнен (+${fs(fact - plan)})`
+        : `осталось ${fs(remain)} ₽`;
+      return `<div class="pch-bar-row">
+        <div class="pch-bar-lbl"><div>${label}</div><div>${fs(fact)} / ${fs(plan)} <span style="color:${reached?'#4caf50':'#a0a0a0'};">· ${pct}%</span></div></div>
+        <div class="pch-bar"><div class="pch-bar-seg ${seg}" style="width:${cappedPct}%;"></div></div>
+        <div style="font-size:11px;color:${reached?'#4caf50':'var(--accent)'};margin-top:3px;">${status}</div>
       </div>`;
     };
     const monthName = MP_MONTHS_FULL[r.range.month-1] + ' ' + r.range.year;
@@ -1874,6 +1914,19 @@
                 }).join('')}
               </div>`
             }
+          </div>
+
+          <div class="pulse-card">
+            <div class="pulse-card-head">
+              <div class="pulse-title">Цель менеджеров (зона премии)</div>
+              <div class="pulse-hint">факт vs план зоны</div>
+            </div>
+            ${(zonePlan.moscow > 0 || zonePlan.izhevsk > 0) ? `
+              <div class="pulse-channels" style="grid-template-columns:1fr;gap:12px;">
+                ${zoneMotivHtml('Москва · Розница + Корп', zoneFact.moscow, zonePlan.moscow)}
+                ${zoneMotivHtml('Ижевск · Розница + Детейл', zoneFact.izhevsk, zonePlan.izhevsk)}
+              </div>
+            ` : '<div class="pulse-cs-msg">Планы зон не заданы</div>'}
           </div>
 
           <div class="pulse-card">
