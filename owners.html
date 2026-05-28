@@ -1746,26 +1746,32 @@
     }
     const planActual = { phys: channels.phys + channels.detail, corp: channels.corp, ins: channels.ins };
 
-    // === Мотивашка «зона менеджера» по регионам ===
+    // === Мотивашка «зона менеджера» по ТОЧКАМ (сгруппировано по регионам) ===
     // Москва: зона = розница + корп (менеджер сам ведёт корп) → план = план_розн + план_корп
     // Ижевск: зона = розница + детейл (корп — отдельный человек) → план = план_розн
-    const zoneFact = { moscow: 0, izhevsk: 0 };
-    const zonePlan = { moscow: 0, izhevsk: 0 };
+    const zoneByPoint = {};  // pid -> { fact, plan, region }
+    const ensureZone = pid => {
+      if (!zoneByPoint[pid]) zoneByPoint[pid] = { fact: 0, plan: 0, region: REGION_MAP[pid] || 'moscow' };
+      return zoneByPoint[pid];
+    };
     for (const rep of (r.current || [])) {
-      const reg = REGION_MAP[rep.point_id];
-      if (!reg) continue;
+      if (!REGION_MAP[rep.point_id]) continue;
+      const z = ensureZone(rep.point_id);
       const phys = r1c(rep) ? (+rep.retail_1c || 0) : (+rep.phys_day || 0);
       const det  = rDetail(rep);
       const corp = rCorp(rep);
-      zoneFact[reg] += (reg === 'izhevsk') ? (phys + det) : (phys + corp);
+      z.fact += (z.region === 'izhevsk') ? (phys + det) : (phys + corp);
     }
     for (const plan of (r.plans || [])) {
-      const reg = REGION_MAP[plan.point_id];
-      if (!reg) continue;
+      if (!REGION_MAP[plan.point_id]) continue;
+      const z = ensureZone(plan.point_id);
       const pPhys = +plan.plan_phys_month || 0;
       const pCorp = +plan.plan_corp_month || 0;
-      zonePlan[reg] += (reg === 'izhevsk') ? pPhys : (pPhys + pCorp);
+      z.plan += (z.region === 'izhevsk') ? pPhys : (pPhys + pCorp);
     }
+    // Имена точек для подписей
+    const pointNameById = {};
+    (r.points || []).forEach(p => { pointNameById[p.id] = p.name; });
 
     // Топ продукты ОВР
     const ovrByCategory = {};
@@ -1871,12 +1877,28 @@
               <div class="pulse-title">Цель менеджеров (зона премии)</div>
               <div class="pulse-hint">факт vs план зоны</div>
             </div>
-            ${(zonePlan.moscow > 0 || zonePlan.izhevsk > 0) ? `
-              <div class="pulse-channels" style="grid-template-columns:1fr;gap:12px;">
-                ${zoneMotivHtml('Москва · Розница + Корп', zoneFact.moscow, zonePlan.moscow)}
-                ${zoneMotivHtml('Ижевск · Розница + Детейл', zoneFact.izhevsk, zonePlan.izhevsk)}
-              </div>
-            ` : '<div class="pulse-cs-msg">Планы зон не заданы</div>'}
+            ${(() => {
+              const order = [
+                { region: 'moscow',  label: 'МОСКВА',  zoneSuffix: 'Розница + Корп',   pts: moscowPoints },
+                { region: 'izhevsk', label: 'ИЖЕВСК',  zoneSuffix: 'Розница + Детейл', pts: izhevskPoints },
+              ];
+              let html = '';
+              order.forEach(grp => {
+                // только точки с заданным планом зоны
+                const rows = grp.pts
+                  .map(pid => ({ pid, z: zoneByPoint[pid] }))
+                  .filter(x => x.z && x.z.plan > 0);
+                if (!rows.length) return;
+                html += `<div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin:14px 0 8px;">${grp.label}</div>`;
+                html += `<div class="pulse-channels" style="grid-template-columns:1fr;gap:12px;">`;
+                rows.forEach(({ pid, z }) => {
+                  const name = pointNameById[pid] || pid;
+                  html += zoneMotivHtml(`${name} · ${grp.zoneSuffix}`, z.fact, z.plan);
+                });
+                html += `</div>`;
+              });
+              return html || '<div class="pulse-cs-msg">Планы зон не заданы</div>';
+            })()}
           </div>
 
           <div class="pulse-card">
