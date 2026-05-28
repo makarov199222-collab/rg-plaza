@@ -1653,9 +1653,13 @@
     const flagOrder = o => {
       const f = [];
       if (!o.direction_number) f.push('dir');
+      const payerIsClient = o.customer && o.payer && o.payer.trim().toLowerCase() === o.customer.trim().toLowerCase();
       if (!o.payer) f.push('payer');
-      else if (o.customer && o.payer.trim().toLowerCase() === o.customer.trim().toLowerCase()) f.push('payer_eq_customer');
-      if (!o.insurance_company) f.push('sk');
+      else if (payerIsClient) f.push('payer_eq_customer');
+      // СК известна, если заполнено наименование СК ИЛИ есть плательщик-организация (≠ заказчик).
+      // Исторические ЗН не имеют insurance_company — реальная СК лежит в payer.
+      const skKnown = !!o.insurance_company || (!!o.payer && !payerIsClient);
+      if (!skKnown) f.push('sk');
       return f;
     };
     const flagCar = c => {
