@@ -3863,7 +3863,7 @@
           // Суммы: ручные пусты → подставляем 1С-значения (как ручной ввод, чтобы при сохранении они улетели в *_day)
           document.getElementById('dtotal').value = data.total_1c  || '';
           document.getElementById('dins').value   = data.ins_1c    || '';
-          document.getElementById('dret').value   = (+data.retail_1c || 0) + (+data.corp_1c || 0) || '';
+          document.getElementById('dret').value   = retailAll(data.retail_1c, data.corp_1c, data.detail_1c, currentPoint.id) || '';
           document.getElementById('dphy').value   = data.retail_1c || '';
           document.getElementById('dcop').value   = data.corp_1c   || '';
           // Счётчики машин: подставляем только если ручные тоже нули
@@ -3876,7 +3876,7 @@
         } else {
           document.getElementById('dtotal').value = data.total_day || '';
           document.getElementById('dins').value = data.ins_day || '';
-          document.getElementById('dret').value = data.retail_day || '';
+          document.getElementById('dret').value = retailAll(((+data.phys_day||0)>0?data.phys_day:data.retail_day), data.corp_day, data.detail_day, currentPoint.id) || '';
           document.getElementById('dphy').value = data.phys_day || '';
           document.getElementById('dcop').value = data.corp_day || '';
         }        const ddEl = document.getElementById('ddet');
@@ -4265,6 +4265,17 @@
   // Это согласовано с витриной для руководства (приоритет 1С) и убирает
   // расхождения между «Итого за месяц», отчётом для Telegram и т.д.
   // Терминология: физик из 1С = retail_1c (зафиксировано в коде ниже и в VIEW).
+  // === Регион точки (одно правило на весь портал) ===
+  const REGION_MAP = { kaluga: 'moscow', serpuhov: 'moscow', sovhoz: 'izhevsk', poyma: 'izhevsk' };
+  function pointRegion(pid) { return REGION_MAP[pid || (currentPoint && currentPoint.id)] || 'moscow'; }
+  function isIzhevsk(pid) { return pointRegion(pid) === 'izhevsk'; }
+  // «Розница всего» регион-зависима:
+  //   Ижевск (sovhoz/poyma): розница = физик + детейл (corp идёт отдельной плашкой)
+  //   Москва (kaluga/serpuhov): розница = физик + корпоратив (детейла нет)
+  function retailAll(phys, corp, detail, pid) {
+    return isIzhevsk(pid) ? ((+phys||0) + (+detail||0)) : ((+phys||0) + (+corp||0));
+  }
+
   function effDay(d) {
     const pick = (oneC, manual) => (+oneC || 0) > 0 ? (+oneC || 0) : (+manual || 0);
     const total  = pick(d.total_1c,  d.total_day);
@@ -4273,8 +4284,8 @@
     const detail = pick(d.detail_1c, d.detail_day);
     // физлица: 1С-retail = физик; ручное поле — phys_day (или retail_day как запас)
     const phys   = pick(d.retail_1c, ((+d.phys_day||0) > 0 ? d.phys_day : d.retail_day));
-    // розница = физик + корпоратив + детейл (всё кроме страховых) — единая логика со всеми порталами
-    const retail = phys + corp + detail;
+    // розница регион-зависима: Ижевск = физик+детейл, Москва = физик+корп
+    const retail = retailAll(phys, corp, detail, d.point_id);
     return { total, ins, corp, detail, phys, retail };
   }
 
@@ -4825,8 +4836,8 @@
     writeCounter('phy', stat.phy);
     writeCounter('cop', stat.cop);
     writeCounter('det', stat.det);
-    // Розница = физ + корп + детейл (детейл — это тоже розничное направление)
-    C.ret = C.phy + C.cop + C.det;
+    // Розница (штук) регион-зависима: Ижевск = физ+детейл, Москва = физ+корп
+    C.ret = retailAll(C.phy, C.cop, C.det, currentPoint && currentPoint.id);
     const retEl = document.getElementById('ret-v');
     if (retEl) retEl.textContent = C.ret;
 
@@ -4844,15 +4855,15 @@
     writeField('dphy', 'dphy', stat.dphy);
     writeField('dcop', 'dcop', stat.dcop);
 
-    // Розничный вал = физ + корп + детейл (детейл — часть розницы)
-    const dret = stat.dphy + stat.dcop + stat.ddet;
+    // Розничный вал регион-зависим: Ижевск = физ+детейл, Москва = физ+корп
+    const dret = retailAll(stat.dphy, stat.dcop, stat.ddet, currentPoint && currentPoint.id);
     writeField('dret', 'dret', dret);
 
     // Поле детейлинга — отдельное (для детальной аналитики)
     writeField('ddet', 'ddet', stat.ddet);
 
-    // Общий дневной вал = страх + розница (вся, включая детейл)
-    const dtotal = stat.dins + dret;
+    // Общий дневной вал = страх + физ + корп + детейл (все каналы, не зависит от группировки розницы)
+    const dtotal = stat.dins + stat.dphy + stat.dcop + stat.ddet;
     writeField('dtotal', 'dtotal', dtotal);
 
     // Обновляем сверку (cars-summary видит изменения dtotal)
@@ -4966,10 +4977,10 @@
       cars += `\n———\nИтого по машинам: ${fm(carsTotal)}р${split} (${carsCount} ЗН, ср. чек ${fm(Math.round(carsTotal/carsCount))}р)`;
     }
 
-    const isIzhevsk = currentPoint.format === 'izhevsk';
+    const izh = isIzhevsk(currentPoint.id);
 
     let carsCountBlock, dayBlock, monthBlock;
-    if (isIzhevsk) {
+    if (izh) {
       // Совхозная: розница = розничные клиенты (физлица) + детейл; страховые и корпоратив отдельно
       carsCountBlock = `2️⃣ отгружено: ${totalCars} шт📄\n  страховые: ${C.ins}\n  розница: ${C.phy + C.det} (клиенты: ${C.phy} | детейл: ${C.det})\n  корпоратив: ${C.cop}`;
       dayBlock = `4️⃣Отгружено за ${date}: ${fm(dt)}р\n  страховые: ${fm(di)}р\n  розница: ${fm(dPhysDet)}р (клиенты: ${fm(dp)}р | детейл: ${fm(ddetVal)}р)\n  корпоратив: ${fm(dc)}р`;
