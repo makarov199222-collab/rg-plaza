@@ -1868,6 +1868,19 @@
 
           <div class="pulse-card">
             <div class="pulse-card-head">
+              <div class="pulse-title">Цель менеджеров (зона премии)</div>
+              <div class="pulse-hint">факт vs план зоны</div>
+            </div>
+            ${(zonePlan.moscow > 0 || zonePlan.izhevsk > 0) ? `
+              <div class="pulse-channels" style="grid-template-columns:1fr;gap:12px;">
+                ${zoneMotivHtml('Москва · Розница + Корп', zoneFact.moscow, zonePlan.moscow)}
+                ${zoneMotivHtml('Ижевск · Розница + Детейл', zoneFact.izhevsk, zonePlan.izhevsk)}
+              </div>
+            ` : '<div class="pulse-cs-msg">Планы зон не заданы</div>'}
+          </div>
+
+          <div class="pulse-card">
+            <div class="pulse-card-head">
               <div class="pulse-title">Каналы по компании</div>
               <div class="pulse-hint">${fs(channelTotal)} ₽</div>
             </div>
@@ -1914,19 +1927,6 @@
                 }).join('')}
               </div>`
             }
-          </div>
-
-          <div class="pulse-card">
-            <div class="pulse-card-head">
-              <div class="pulse-title">Цель менеджеров (зона премии)</div>
-              <div class="pulse-hint">факт vs план зоны</div>
-            </div>
-            ${(zonePlan.moscow > 0 || zonePlan.izhevsk > 0) ? `
-              <div class="pulse-channels" style="grid-template-columns:1fr;gap:12px;">
-                ${zoneMotivHtml('Москва · Розница + Корп', zoneFact.moscow, zonePlan.moscow)}
-                ${zoneMotivHtml('Ижевск · Розница + Детейл', zoneFact.izhevsk, zonePlan.izhevsk)}
-              </div>
-            ` : '<div class="pulse-cs-msg">Планы зон не заданы</div>'}
           </div>
 
           <div class="pulse-card">
