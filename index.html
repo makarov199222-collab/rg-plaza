@@ -834,6 +834,7 @@
         <div style="display:flex;gap:6px;">
           <button class="tab-mini" onclick="openImport1c()" title="Импорт реестра ОПП из 1С">📥 Импорт 1С</button>
           <button class="tab-mini" onclick="openImportZp()" title="Импорт заказов покупателя (прямые продажи)">🧾 Заказы покуп.</button>
+          <button class="tab-mini" onclick="openImportServices()" title="Импорт услуг из 1С (выработка по механикам)">🔧 Услуги 1С</button>
           <button class="add-car-btn" onclick="openCarEdit(null)">+ Машина</button>
         </div>
       </div>
@@ -931,6 +932,31 @@
     <div class="cf-actions" id="importzp-actions" style="display:none;">
       <button class="ce-btn primary" id="importzp-confirm-btn" onclick="confirmImportZp()">Импортировать</button>
       <button class="ce-btn" onclick="closeImportZp()">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="importsvc-overlay" onclick="if(event.target.id==='importsvc-overlay') closeImportServices()">
+  <div class="sheet" style="max-width:680px;">
+    <div class="sheet-head">
+      <div class="sheet-title">🔧 Импорт услуг 1С</div>
+      <button class="xbtn" onclick="closeImportServices()">✕</button>
+    </div>
+    <div class="sheet-body">
+      <div id="importsvc-step1">
+        <div style="font-size:13px;color:var(--text);line-height:1.5;margin-bottom:14px;">
+          Выгрузи отчёт <b>«Выработка по механикам»</b> из 1С (плоский, с детальными записями) и загрузи сюда. Я разберу все услуги по ЗН, механикам и менеджерам — допы (антидождь, щётки, тонировка, бронь и т.д.) пойдут в игру.
+        </div>
+        <input type="file" id="importsvc-file" accept=".xlsx,.xls" style="width:100%;padding:10px;background:#0e0e0e;border:1px dashed var(--accent);border-radius:8px;color:var(--text);font-family:Inter,sans-serif;font-size:13px;cursor:pointer;" onchange="parseImportServicesFile()">
+        <div id="importsvc-error" style="display:none;margin-top:10px;color:var(--red);font-size:12px;line-height:1.5;"></div>
+      </div>
+      <div id="importsvc-step2" style="display:none;">
+        <div id="importsvc-summary"></div>
+      </div>
+    </div>
+    <div class="cf-actions" id="importsvc-actions" style="display:none;">
+      <button class="ce-btn primary" id="importsvc-confirm-btn" onclick="confirmImportServices()">Импортировать</button>
+      <button class="ce-btn" onclick="closeImportServices()">Отмена</button>
     </div>
   </div>
 </div>
@@ -2693,6 +2719,233 @@
       hideImportProgress();
       console.error(e);
       toast('Ошибка импорта: ' + (e.message || e), 'err');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Импортировать';
+    }
+  }
+
+  // ============ ИМПОРТ УСЛУГ 1С («Выработка по механикам») ============
+  let importSvcParsed = null;
+
+  // Маппинг названия услуги (номенклатура «Тип работ») → тип допа для игры.
+  // Ключи проверяются по подстроке (lower). Порядок важен: более специфичные выше.
+  const SERVICE_KIND_MAP = [
+    { match: ['щёток','щеток','щетк'],            kind: 'brush',            action: 'sold_brush' },
+    { match: ['антидожд','гидрофоб'],             kind: 'antirain',         action: 'sold_antirain' },
+    { match: ['тонировк'],                        kind: 'tinting',          action: 'sold_tinting' },
+    { match: ['бронирование лоб','бронь лоб'],    kind: 'armor',            action: 'sold_armor' },
+    { match: ['бронирование фар'],                kind: 'headlight_armor',  action: 'sold_armor' },
+    { match: ['полировка перед','полировка фар'], kind: 'headlight_polish', action: 'sold_headlight_polish' },
+    { match: ['полировка'],                       kind: 'glass_polish',     action: 'sold_glass_polish' },
+    { match: ['ремонт ветров','ремонт скол','ремонт лоб'], kind: 'chip_repair', action: 'sold_chip_repair' },
+    { match: ['переклейка датчик'],               kind: 'sensor',           action: null },
+    { match: ['защита рамки','коррози'],          kind: 'frame_protect',    action: null },
+    { match: ['замена ветров','замена заднего','замена бокового','замена лоб','переклейка лоб','переклейка боков','в резинку'], kind: 'replace', action: null },
+    { match: ['слесарн'],                         kind: 'slesar',           action: null },
+  ];
+  function mapServiceKind(name) {
+    const s = String(name || '').toLowerCase();
+    for (const m of SERVICE_KIND_MAP) {
+      if (m.match.some(k => s.includes(k))) return m;
+    }
+    return { kind: 'other', action: null };
+  }
+
+  // Территория из выгрузки услуг → point_id. Поддержка «Б. Серпуховская», «Калужская» и т.п.
+  // Используем includes (не startsWith), т.к. встречается префикс «Б. ».
+  function svcResolvePoint(territoryRaw) {
+    const t = String(territoryRaw || '').trim().toLowerCase();
+    if (!t) return null;
+    if (t.includes('калуж'))   return 'kaluga';
+    if (t.includes('серпух'))  return 'serpuhov';
+    if (t.includes('совхоз'))  return 'sovhoz';
+    if (t.includes('пойм'))    return 'poyma';
+    return null;
+  }
+
+  // Извлекает номер ЗН из строки «Заказ наряд 0000000236 от 17.05.2026 10:00:00».
+  // Возвращает нормализованный 10-значный номер (как в orders_history_1c).
+  function svcExtractZn(val) {
+    if (!val) return null;
+    const m = String(val).match(/(\d{4,})/); // первое длинное число — номер ЗН
+    if (!m) return null;
+    return m[1].padStart(10, '0');
+  }
+
+  function openImportServices() {
+    importSvcParsed = null;
+    document.getElementById('importsvc-file').value = '';
+    document.getElementById('importsvc-error').style.display = 'none';
+    document.getElementById('importsvc-step1').style.display = 'block';
+    document.getElementById('importsvc-step2').style.display = 'none';
+    document.getElementById('importsvc-actions').style.display = 'none';
+    document.getElementById('importsvc-overlay').classList.add('show');
+  }
+  function closeImportServices() {
+    document.getElementById('importsvc-overlay').classList.remove('show');
+    importSvcParsed = null;
+  }
+
+  async function parseImportServicesFile() {
+    const file = document.getElementById('importsvc-file').files[0];
+    const errEl = document.getElementById('importsvc-error');
+    errEl.style.display = 'none';
+    if (!file) return;
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true });
+      if (rows.length < 4) throw new Error('Файл пустой или нет данных');
+
+      // Заголовки не в первой строке: отчёт 1С имеет шапку («Выработка по механикам», «Период…»).
+      // Ищем строку, где «Заказ наряд» и «Номенклатура» — это ОТДЕЛЬНЫЕ ячейки (а не текст
+      // в описании фильтров, где эти слова тоже встречаются одной строкой).
+      let hdrIdx = -1;
+      for (let i = 0; i < Math.min(12, rows.length); i++) {
+        const cells = (rows[i] || []).map(c => String(c || '').trim().toLowerCase());
+        const hasZn = cells.some(c => c === 'заказ наряд');
+        const hasNom = cells.some(c => c.startsWith('номенклатура'));
+        if (hasZn && hasNom) { hdrIdx = i; break; }
+      }
+      if (hdrIdx < 0) throw new Error('Не нашёл строку заголовков с колонками «Заказ наряд» и «Номенклатура». Это точно отчёт «Выработка по механикам» с детальными записями?');
+
+      const rawH = rows[hdrIdx] || [];
+      const headers = rawH.map(h => (h == null ? '' : String(h).trim()));
+      const find = (name) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
+      const findInc = (sub) => headers.findIndex(h => h.toLowerCase().includes(sub.toLowerCase()));
+      const cols = {
+        date:      find('Дата отгрузки'),
+        zn:        find('Заказ наряд'),
+        manager:   find('Менеджер'),
+        service:   find('Номенклатура (Тип работ)') >= 0 ? find('Номенклатура (Тип работ)') : findInc('номенклатура'),
+        mechanic:  find('Механик'),
+        org:       find('Организация'),
+        znType:    find('Тип ЗН'),
+        znStatus:  find('Статус ЗН'),
+        car:       find('Автомобиль'),
+        territory: find('Территория'),
+        nch:       find('Количество НЧ'),
+        nchFact:   find('Количество НЧ факт'),
+        amount:    find('Сумма работ'),
+      };
+      if (cols.zn < 0 || cols.service < 0) {
+        throw new Error('Не нашёл колонки «Заказ наряд»/«Номенклатура (Тип работ)».');
+      }
+
+      const items = [];
+      const stat = { total: 0, byKind: {}, byPoint: {}, noPoint: 0, skipped: 0 };
+      for (let i = hdrIdx + 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r) continue;
+        const znRaw = cols.zn >= 0 ? r[cols.zn] : null;
+        // Строки-итоги и пустые пропускаем (нет «Заказ наряд …»).
+        if (!znRaw || !String(znRaw).toLowerCase().includes('заказ наряд')) { stat.skipped++; continue; }
+        const zn = svcExtractZn(znRaw);
+        if (!zn) { stat.skipped++; continue; }
+        const territory = cols.territory >= 0 ? String(r[cols.territory] || '').trim() : '';
+        const pid = svcResolvePoint(territory);
+        if (!pid) { stat.noPoint++; }
+        const serviceName = String(r[cols.service] || '').trim();
+        if (!serviceName) { stat.skipped++; continue; }
+        const km = mapServiceKind(serviceName);
+        const d = cols.date >= 0 ? parseDate(r[cols.date]) : null;
+        const amount = cols.amount >= 0 ? parseSum1c(r[cols.amount]) : 0;
+        items.push({
+          zn_number: zn,
+          point_id: pid,
+          service_date: d ? isoDate(d) : null,
+          service_name: serviceName,
+          service_kind: km.kind,
+          manager_name: cols.manager >= 0 ? (String(r[cols.manager] || '').trim() || null) : null,
+          mechanic_name: cols.mechanic >= 0 ? (String(r[cols.mechanic] || '').trim() || null) : null,
+          zn_type: cols.znType >= 0 ? (String(r[cols.znType] || '').trim() || null) : null,
+          zn_status: cols.znStatus >= 0 ? (String(r[cols.znStatus] || '').trim() || null) : null,
+          car_info: cols.car >= 0 ? (String(r[cols.car] || '').trim() || null) : null,
+          nch: cols.nch >= 0 ? parseSum1c(r[cols.nch]) : null,
+          nch_fact: cols.nchFact >= 0 ? parseSum1c(r[cols.nchFact]) : null,
+          amount,
+          source_file: file.name,
+        });
+        stat.total++;
+        stat.byKind[km.kind] = (stat.byKind[km.kind] || 0) + 1;
+        if (pid) stat.byPoint[pid] = (stat.byPoint[pid] || 0) + 1;
+      }
+
+      importSvcParsed = items;
+      const fmt = n => Math.round(n).toLocaleString('ru-RU');
+      const KIND_LBL = {
+        brush:'🌬 Щётки', antirain:'💧 Антидождь', tinting:'✨ Тонировка', armor:'🛡 Бронь',
+        headlight_armor:'🛡 Бронь фар', headlight_polish:'💡 Полировка фар', glass_polish:'🪟 Полировка стекла',
+        chip_repair:'🔧 Ремонт скола', sensor:'📡 Датчик дождя', frame_protect:'🛡 Защита рамки',
+        replace:'🔄 Замена стекла', slesar:'🔩 Слесарные', other:'… Прочее',
+      };
+      const POINT_LBL = { kaluga:'Калужская', serpuhov:'Серпуховская', sovhoz:'Совхозная', poyma:'Пойма' };
+      // Допы (то, что идёт в игру) — отдельно подсветим.
+      const addonKinds = ['brush','antirain','tinting','armor','headlight_armor','headlight_polish','glass_polish','chip_repair'];
+      const addonCount = addonKinds.reduce((s,k) => s + (stat.byKind[k] || 0), 0);
+
+      const kindRows = Object.entries(stat.byKind)
+        .sort((a,b) => b[1]-a[1])
+        .map(([k,c]) => `<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;"><span style="color:var(--text);">${KIND_LBL[k]||k}</span><span style="color:var(--muted);">${c}</span></div>`)
+        .join('');
+      const pointRows = Object.entries(stat.byPoint)
+        .map(([p,c]) => `${POINT_LBL[p]||p}: ${c}`).join(' · ');
+
+      document.getElementById('importsvc-summary').innerHTML = `
+        <div style="font-size:14px;color:var(--text);margin-bottom:10px;">Распознано <b>${items.length}</b> услуг · из них допов для игры: <b style="color:var(--accent);">${addonCount}</b></div>
+        <div style="background:#0e0e0e;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px;">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">По типам услуг</div>
+          ${kindRows}
+        </div>
+        <div style="font-size:12px;color:var(--muted);">Точки: ${pointRows || '—'}${stat.noPoint ? ` · <span style="color:var(--orange);">без точки: ${stat.noPoint}</span>` : ''}${stat.skipped ? ` · пропущено строк: ${stat.skipped}` : ''}</div>
+        ${stat.noPoint ? '<div style="font-size:11px;color:var(--orange);margin-top:6px;">⚠ Часть строк без распознанной точки — проверь колонку «Территория».</div>' : ''}
+      `;
+      document.getElementById('importsvc-step1').style.display = 'none';
+      document.getElementById('importsvc-step2').style.display = 'block';
+      document.getElementById('importsvc-actions').style.display = 'flex';
+    } catch (e) {
+      errEl.textContent = 'Ошибка: ' + (e.message || e);
+      errEl.style.display = 'block';
+    }
+  }
+
+  async function confirmImportServices() {
+    if (!importSvcParsed || !importSvcParsed.length) { toast('Нет данных для импорта', 'err'); return; }
+    const btn = document.getElementById('importsvc-confirm-btn');
+    btn.disabled = true; btn.textContent = 'Импортирую…';
+    showImportProgress('Услуги 1С…', `Записываю ${importSvcParsed.length} строк`, 10);
+    await uiTick();
+    try {
+      let ok = 0;
+      const BATCH = 500;
+      const totalBatches = Math.ceil(importSvcParsed.length / BATCH);
+      for (let i = 0; i < importSvcParsed.length; i += BATCH) {
+        const chunk = importSvcParsed.slice(i, i + BATCH);
+        const batchNo = Math.floor(i / BATCH) + 1;
+        setImportStage('Услуги 1С…', `Партия ${batchNo} из ${totalBatches}`, 10 + Math.round(80 * batchNo / totalBatches));
+        await uiTick();
+        const { error } = await sb.from('services_1c')
+          .upsert(chunk, { onConflict: 'zn_number,service_name,mechanic_name' });
+        if (error) {
+          console.error('services_1c upsert:', error);
+          // построчный фолбэк, чтобы одна битая строка не валила всю партию
+          for (const row of chunk) {
+            const { error: e1 } = await sb.from('services_1c')
+              .upsert(row, { onConflict: 'zn_number,service_name,mechanic_name' });
+            if (!e1) ok++;
+          }
+        } else ok += chunk.length;
+      }
+      setImportStage('Готово', `Импортировано ${ok} услуг`, 100);
+      await uiTick();
+      hideImportProgress();
+      toast(`🔧 Импортировано услуг: ${ok}`, 'ok');
+      closeImportServices();
+    } catch (e) {
+      hideImportProgress();
+      console.error(e);
+      toast('Ошибка импорта услуг: ' + (e.message || e), 'err');
     } finally {
       btn.disabled = false; btn.textContent = 'Импортировать';
     }
