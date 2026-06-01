@@ -1130,15 +1130,16 @@
           // Из 1С: retail_1c (физик-стёкла) + detail_1c (детейл-цех) = «Физлица»
           allPhys  += (+r.retail_1c || 0) + (+r.detail_1c || 0);
           allCorp  += +r.corp_1c || 0;
-          allRetail += (+r.retail_1c || 0) + (+r.corp_1c || 0) + (+r.detail_1c || 0);
+          // Розница регион-зависима: Ижевск=retail+detail, Москва=retail+corp (01.06.2026)
+          allRetail += retailAll(r.retail_1c, r.corp_1c, r.detail_1c, r.point_id);
         } else if ((+r.total_day || 0) > 0 || (+r.ins_day || 0) > 0 || (+r.retail_day || 0) > 0 || (+r.phys_day || 0) > 0 || (+r.corp_day || 0) > 0) {
           allTotal += +r.total_day || 0;
           allInsur += +r.ins_day || 0;
           // Детейл — это продажа того же менеджера, входит в «Физлица»
           allPhys  += (+r.phys_day || 0) + (+r.detail_day || 0);
           allCorp  += +r.corp_day || 0;
-          // «Розница» = физик + корп + детейл (детейл-цех продаётся менеджером)
-          allRetail += (+r.retail_day || 0) + (+r.corp_day || 0) + (+r.detail_day || 0);
+          // Розница регион-зависима: Ижевск=retail+detail, Москва=retail+corp (01.06.2026)
+          allRetail += retailAll(r.retail_day, r.corp_day, r.detail_day, r.point_id);
         } else {
           return;
         }
@@ -2153,10 +2154,11 @@
     // ПРИОРИТЕТ 1С: есть выгрузка за день — берём 1С, иначе ручной ввод менеджера.
     const eTotal  = d => (+d.total_1c || 0) > 0 ? (+d.total_1c || 0) : (+d.total_day || 0);
     const eIns    = d => (+d.total_1c || 0) > 0 ? (+d.ins_1c || 0)   : (+d.ins_day || 0);
-    // «Розница» = физик/retail + корп + детейл (всё «не страх»).
+    // Розница регион-зависима (01.06.2026): Ижевск = retail+detail (corp отдельно),
+    // Москва = retail+corp (детейл там 0).
     const eRetail = d => (+d.total_1c || 0) > 0
-      ? (+d.retail_1c || 0) + (+d.corp_1c || 0) + (+d.detail_1c || 0)
-      : (+d.retail_day || 0) + (+d.corp_day || 0) + (+d.detail_day || 0);
+      ? (+d.retail_1c || 0) + (isIzhevskId(point.id) ? (+d.detail_1c || 0) : (+d.corp_1c || 0))
+      : (+d.retail_day || 0) + (isIzhevskId(point.id) ? (+d.detail_day || 0) : (+d.corp_day || 0));
 
     // Накопленное за год.
     let ytdTotal=0, ytdRetail=0, ytdIns=0;
