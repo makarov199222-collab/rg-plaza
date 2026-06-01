@@ -105,6 +105,7 @@ self.addEventListener('fetch', event => {
           caches.match(req)
             .then(cached => cached || caches.match('/index.html'))
             .then(cached => cached || caches.match('/offline.html'))
+            .then(cached => cached || new Response('Нет связи', { status: 504, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }))
         )
     );
     return;
@@ -117,11 +118,20 @@ self.addEventListener('fetch', event => {
         .then(response => {
           if (response && response.status === 200) {
             const clone = response.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(req, clone));
+            caches.open(CACHE_NAME)
+              .then(cache => cache.put(req, clone))
+              .catch(() => {/* сеть упала при кэшировании — молча игнорируем */});
           }
           return response;
         })
-        .catch(() => caches.match(req))
+        .catch(() =>
+          caches.match(req).then(cached =>
+            cached || new Response(
+              JSON.stringify({ error: 'offline', message: 'Нет связи с сервером' }),
+              { status: 503, headers: { 'Content-Type': 'application/json' } }
+            )
+          )
+        )
     );
     return;
   }
@@ -133,7 +143,9 @@ self.addEventListener('fetch', event => {
         .then(response => {
           if (response && response.status === 200) {
             const clone = response.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(req, clone));
+            caches.open(CACHE_NAME)
+              .then(cache => cache.put(req, clone))
+              .catch(() => {/* молча */});
           }
           return response;
         })
@@ -141,8 +153,8 @@ self.addEventListener('fetch', event => {
       if (cached) { networkFetch; return cached; }
       return networkFetch.then(res => {
         if (res) return res;
-        if (isHtmlRequest(req)) return caches.match('/offline.html');
-        return undefined;
+        if (isHtmlRequest(req)) return caches.match('/offline.html').then(o => o || new Response('', { status: 504 }));
+        return new Response('', { status: 504 });
       });
     })
   );
