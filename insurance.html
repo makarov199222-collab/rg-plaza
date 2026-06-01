@@ -1469,10 +1469,14 @@
   // (там только status_1c='Отгружен'). Нужно для плашки «переведи в Сервисную».
 
   let recsData = [];            // все insurance_recommendations
-  let shippedZnSet = new Set(); // zn_number, найденные в orders_history_1c (отгружены)
-  let znMaxDebt = new Map();    // zn_number → макс. долг по строкам заказа (для проверки оплаты)
-  let znCategory = new Map();   // zn_number → категория заказа (equity/corp/retail/detail)
-  let znHasRegistry = new Map(); // zn_number → реестр отправлен (есть label или date)
+  // Ключи карт ниже — СОСТАВНЫЕ: `${point_id}|${zn_number}`. Номера ЗН пересекаются
+  // между точками/юрлицами (см. A14), поэтому матчить только по zn_number нельзя —
+  // иначе московская рекомендация цепляет одноимённый ижевский заказ и считается «чужой».
+  const znKey = (pid, zn) => `${pid == null ? '' : pid}|${zn == null ? '' : String(zn)}`;
+  let shippedZnSet = new Set(); // ключ → найден в orders_history_1c (отгружен)
+  let znMaxDebt = new Map();    // ключ → макс. долг по строкам заказа (для проверки оплаты)
+  let znCategory = new Map();   // ключ → категория заказа (equity/corp/retail/detail)
+  let znHasRegistry = new Map(); // ключ → реестр отправлен (есть label или date)
   let recFunnelMode = 'snapshot'; // 'snapshot' | 'month'
   let recFunnelAllPoints = false; // false = только город из шапки, true = все точки
 
@@ -1519,23 +1523,23 @@
         const part = zns.slice(i, i + CHUNK);
         const { data: ord, error: oErr } = await sb
           .from('orders_history_1c')
-          .select('zn_number, debt, category, registry_label, registry_date')
+          .select('zn_number, point_id, debt, category, registry_label, registry_date')
           .in('zn_number', part);
         if (oErr) { console.warn('orders_history_1c lookup:', oErr); continue; }
         (ord || []).forEach(o => {
           if (o.zn_number == null) return;
-          const zn = String(o.zn_number);
-          shippedZnSet.add(zn);
+          const key = znKey(o.point_id, o.zn_number);
+          shippedZnSet.add(key);
           const d = +o.debt || 0;
-          const prev = znMaxDebt.has(zn) ? znMaxDebt.get(zn) : -Infinity;
-          if (d > prev) znMaxDebt.set(zn, d);
+          const prev = znMaxDebt.has(key) ? znMaxDebt.get(key) : -Infinity;
+          if (d > prev) znMaxDebt.set(key, d);
           // Категория: если хоть одна строка equity — считаем ЗН страховым.
           const cat = o.category || null;
-          if (!znCategory.has(zn) || cat === 'equity') znCategory.set(zn, cat);
+          if (!znCategory.has(key) || cat === 'equity') znCategory.set(key, cat);
           // Реестр отправлен, если заполнен label ИЛИ date (хоть в одной строке).
           const hasReg = (o.registry_label != null && String(o.registry_label).trim() !== '')
                       || (o.registry_date != null && String(o.registry_date).trim() !== '');
-          if (hasReg || !znHasRegistry.has(zn)) znHasRegistry.set(zn, hasReg || znHasRegistry.get(zn) || false);
+          if (hasReg || !znHasRegistry.has(key)) znHasRegistry.set(key, hasReg || znHasRegistry.get(key) || false);
         });
       }
     } catch (e) {
@@ -1546,28 +1550,29 @@
   }
 
   // Реестр (документы) по ЗН отправлен? true = есть реестр, false = нет (надо отправить).
-  function znRegistrySent(zn) {
+  function znRegistrySent(zn, pid) {
     if (!zn) return false;
-    return znHasRegistry.get(String(zn)) === true;
+    return znHasRegistry.get(znKey(pid, zn)) === true;
   }
 
   // «Чужая» рекомендация: ЗН отгружён, но категория заказа НЕ страховая (не equity).
   // Это случайно попавшие в файл corp/retail/detail (напр. ЗН 0000000095, corp,
   // плательщик ТЕХНЕЙДАВТО). Такие исключаем из воронки и подсчётов.
   // Если ЗН ещё не отгружён (категории нет) — НЕ считаем чужим: рекомендация в работе.
-  function znIsForeign(zn) {
+  function znIsForeign(zn, pid) {
     if (!zn) return false;
-    if (!shippedZnSet.has(String(zn))) return false; // не отгружён — не судим
-    const cat = znCategory.get(String(zn));
+    const key = znKey(pid, zn);
+    if (!shippedZnSet.has(key)) return false; // не отгружён (на этой точке) — не судим
+    const cat = znCategory.get(key);
     return cat != null && cat !== 'equity';
   }
 
   // Долг страховой по ЗН погашен? Готов к Сервисной, если максимальный долг <= 0
   // (ноль = оплачено, отрицательный = переплата/франшиза — тоже не блокирует).
   // Долг > 0 означает: СК ещё не доплатила свою часть, переводить рано.
-  function znPaid(zn) {
+  function znPaid(zn, pid) {
     if (!zn) return false;
-    const d = znMaxDebt.get(String(zn));
+    const d = znMaxDebt.get(znKey(pid, zn));
     return d != null && d <= 0;
   }
 
@@ -1590,7 +1595,7 @@
     const map = {}; // ключ `${company_id}__${point_id||'all'}` → {count,sum,cancelled,prevCount}
     const ensure = k => { if (!map[k]) map[k] = { count: 0, sum: 0, cancelled: 0, prevCount: 0 }; return map[k]; };
     recsData.forEach(r => {
-      if (znIsForeign(r.zn_number)) return;                 // чужих не считаем
+      if (znIsForeign(r.zn_number, r.point_id)) return;     // чужих не считаем
       if (!r.company_id) return;                            // нераспознанная СК — пропуск
       if (!r.point_id || !cityIds.has(r.point_id)) return;  // только текущий город
       const m = r.rec_date ? String(r.rec_date).substring(0,7) : '';
@@ -1656,14 +1661,14 @@
 
     recs.forEach(r => {
       // «Чужих» (не-страховые отгруженные ЗН) полностью исключаем из воронки и задач.
-      if (znIsForeign(r.zn_number)) { foreign.push(r); return; }
+      if (znIsForeign(r.zn_number, r.point_id)) { foreign.push(r); return; }
 
       const amt = +r.amount || 0;
       const st = effStage(r);
       if (byStage[st]) { byStage[st].count++; byStage[st].amount += amt; }
       else { other.count++; other.amount += amt; }
-      const shipped = r.zn_number && shippedZnSet.has(String(r.zn_number));
-      const paid = znPaid(r.zn_number);
+      const shipped = r.zn_number && shippedZnSet.has(znKey(r.point_id, r.zn_number));
+      const paid = znPaid(r.zn_number, r.point_id);
       const active = !r.service_confirmed_at && (r.stage === 'work' || r.stage === 'priem');
       // Готов к Сервисной: отгружен, долг СК погашен, ещё не подтверждён.
       if (shipped && paid && active) toService.push(r);
@@ -1672,11 +1677,11 @@
       if (shipped && !r.company_id) mismatch.push(r);
       if (r.service_confirmed_at) confirmed.push(r);
       // Документы: отгружен, но реестр (дата+номер) ещё не проставлен → надо отправить.
-      if (shipped && !znRegistrySent(r.zn_number)) needDocs.push(r);
+      if (shipped && !znRegistrySent(r.zn_number, r.point_id)) needDocs.push(r);
     });
 
     const totalCount = recs.length - foreign.length; // чужих не считаем в итог
-    const totalAmount = recs.reduce((s, r) => znIsForeign(r.zn_number) ? s : s + (+r.amount || 0), 0);
+    const totalAmount = recs.reduce((s, r) => znIsForeign(r.zn_number, r.point_id) ? s : s + (+r.amount || 0), 0);
     const inWorkCount = byStage.priem.count + byStage.work.count;
     return { byStage, other, totalCount, totalAmount, inWorkCount, toService, awaitingPay, mismatch, confirmed, foreign, needDocs };
   }
@@ -1738,7 +1743,7 @@
       </div>`;
     }
     if (f.awaitingPay.length) {
-      const sumDebt = f.awaitingPay.reduce((s, r) => s + (znMaxDebt.get(String(r.zn_number)) || 0), 0);
+      const sumDebt = f.awaitingPay.reduce((s, r) => s + (znMaxDebt.get(znKey(r.point_id, r.zn_number)) || 0), 0);
       tasksHtml += `<div class="fn-task wait">
         <div class="fn-task-ico">⏳</div>
         <div class="fn-task-body">
@@ -1773,20 +1778,17 @@
     }
 
     const modeBtns = `<div class="fn-toggle">
-      <button class="fn-toggle-btn ${recFunnelMode==='snapshot'?'active':''}" onclick="setFunnelMode('snapshot')" title="Снимок: все направления и где каждое сейчас (независимо от месяца прихода)">Всё время</button>
-      <button class="fn-toggle-btn ${recFunnelMode==='month'?'active':''}" onclick="setFunnelMode('month')" title="Только направления, пришедшие в выбранном месяце (по дате направления)">За месяц</button>
+      <button class="fn-toggle-btn ${recFunnelMode==='snapshot'?'active':''}" onclick="setFunnelMode('snapshot')">Всё время</button>
+      <button class="fn-toggle-btn ${recFunnelMode==='month'?'active':''}" onclick="setFunnelMode('month')">За месяц</button>
     </div>`;
-    const subtitle = recFunnelMode === 'month'
-      ? `направления, пришедшие за ${formatMonth()} (по дате направления)`
-      : 'все направления — текущая стадия каждого';
+    const subtitle = recFunnelMode === 'month' ? `за ${formatMonth()}` : 'текущее состояние';
 
     return `<div class="funnel-block">
       <div class="funnel-head">
         <div class="funnel-title">Воронка направлений</div>
         <div class="funnel-controls">${modeBtns}</div>
       </div>
-      <div class="funnel-sub">${escapeHtml(subtitle)}</div>
-      <div class="funnel-sub" style="opacity:.75;margin-top:2px;">📋 ${f.totalCount} направлений · оценка ${fmt(f.totalAmount)} ₽ <span style="opacity:.7;">(сумма направлений, не отгруженный вал)</span> · в работе ${f.inWorkCount}</div>
+      <div class="funnel-sub">${escapeHtml(subtitle)} · всего ${f.totalCount} на ${fmt(f.totalAmount)} ₽ · в работе ${f.inWorkCount}</div>
       <div class="funnel-stages">${stageCards}</div>
       ${otherChip}
       <div class="funnel-tasks">${tasksHtml}</div>
@@ -1823,10 +1825,10 @@
         action = `<button class="fn-rec-btn ghost" onclick="unconfirmServiceOne('${escapeHtml(String(r.rec_number))}')">↩ Вернуть в работу</button>`;
       }
       const debtLine = kind === 'awaitingPay'
-        ? `<div class="fn-rec-meta" style="color:var(--warn);">Долг СК: ${fmt(znMaxDebt.get(String(r.zn_number)) || 0)} ₽</div>`
+        ? `<div class="fn-rec-meta" style="color:var(--warn);">Долг СК: ${fmt(znMaxDebt.get(znKey(r.point_id, r.zn_number)) || 0)} ₽</div>`
         : '';
       const catLine = kind === 'foreign'
-        ? `<div class="fn-rec-meta" style="color:var(--crit);">Категория заказа: ${escapeHtml(CAT_LBL[znCategory.get(String(r.zn_number))] || znCategory.get(String(r.zn_number)) || '—')}</div>`
+        ? `<div class="fn-rec-meta" style="color:var(--crit);">Категория заказа: ${escapeHtml(CAT_LBL[znCategory.get(znKey(r.point_id, r.zn_number))] || znCategory.get(znKey(r.point_id, r.zn_number)) || '—')}</div>`
         : '';
       // В режиме документов точку в строке не дублируем — она в заголовке группы.
       const ptInline = kind === 'needDocs' ? '' : ` · ${escapeHtml(ptLbl)}`;
