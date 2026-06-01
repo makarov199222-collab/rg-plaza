@@ -8,7 +8,7 @@
 //
 // CACHE_VERSION бампать НЕ обязательно при каждом деплое HTML (network-first сам отдаёт
 // свежий HTML). Версию меняем, только если надо принудительно сбросить кэш СТАТИКИ.
-const CACHE_VERSION = 'rgh-v2.0.0';
+const CACHE_VERSION = 'rgh-v2.1.0';
 const CACHE_NAME = `rgh-cache-${CACHE_VERSION}`;
 
 // Таймаут сети для HTML: если за это время не ответило — отдаём кэш (что-то показать
@@ -27,9 +27,12 @@ const APP_SHELL = [
   '/offline.html',
   '/icon-192.png',
   '/icon-512.png',
-  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
-  'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js',
-  'https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js',
+  // Библиотеки лежат локально в репозитории (/lib) — не зависим от внешних CDN,
+  // которые без VPN иногда не грузятся («XLSX is not defined» и т.п.). 01.06.2026.
+  '/lib/supabase.js',
+  '/lib/chart.umd.js',
+  '/lib/xlsx.full.min.js',
+  // Шрифты — некритично (без них просто другой шрифт)
   'https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap',
 ];
 
