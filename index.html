@@ -1090,6 +1090,43 @@
   const SUPABASE_KEY = 'sb_publishable_bg1BRofqJsjkV_9eXzn2Pg__YJ-xRMK';
   const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+  // === Проверка связи с базой (Путь 3): при блокировке доступа к Supabase
+  // (часто без VPN) показываем понятный полноэкранный экран вместо пустых цифр. ===
+  function rgpShowConnError() {
+    if (document.getElementById('rgp-conn-error')) return;
+    const o = document.createElement('div');
+    o.id = 'rgp-conn-error';
+    o.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(10,10,10,.97);' +
+      'display:flex;align-items:center;justify-content:center;padding:24px;font-family:Inter,system-ui,sans-serif;color:#fff;';
+    o.innerHTML =
+      '<div style="max-width:380px;text-align:center;background:#1a1a1a;border:1px solid #e8b84b;border-radius:16px;padding:28px 24px;box-shadow:0 20px 60px rgba(0,0,0,.6);">' +
+        '<div style="font-size:46px;line-height:1;margin-bottom:12px;">&#128225;</div>' +
+        '<div style="font-size:19px;font-weight:800;margin-bottom:8px;">Нет связи с сервером</div>' +
+        '<div style="font-size:14px;line-height:1.5;color:#cfcfcf;margin-bottom:20px;">Похоже, доступ к базе временно заблокирован.<br>Включите <b style="color:#e8b84b;">VPN</b> и нажмите «Повторить».</div>' +
+        '<button id="rgp-conn-retry" style="background:#e8b84b;color:#000;border:none;padding:13px 26px;border-radius:10px;font-weight:800;font-size:15px;cursor:pointer;font-family:Inter,sans-serif;width:100%;">Повторить</button>' +
+      '</div>';
+    document.body.appendChild(o);
+    document.getElementById('rgp-conn-retry').onclick = function(){ this.textContent='Проверяю…'; this.disabled=true; rgpCheckServer(true); };
+  }
+  function rgpHideConnError(){ const o=document.getElementById('rgp-conn-error'); if (o) o.remove(); }
+  async function rgpCheckServer(isRetry){
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 7000);
+      // no-cors: запрос проходит = сервер достижим; падает = домен заблокирован/нет сети
+      await fetch(SUPABASE_URL + '/rest/v1/', { mode:'no-cors', cache:'no-store', signal: ctrl.signal });
+      clearTimeout(t);
+      if (isRetry) { location.reload(); return; }
+      rgpHideConnError();
+    } catch(e){
+      rgpShowConnError();
+      const btn = document.getElementById('rgp-conn-retry');
+      if (isRetry && btn){ btn.textContent='Повторить'; btn.disabled=false; }
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => rgpCheckServer(false));
+  else rgpCheckServer(false);
+
   // ============ OFFLINE-ОЧЕРЕДЬ ЗАПИСИ (P4) ============
   // IndexedDB для хранения отложенных операций
   const OFFLINE_DB_NAME = 'rgh-offline-v1';
