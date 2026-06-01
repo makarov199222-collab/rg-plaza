@@ -4281,8 +4281,11 @@
     const detail = pick(d.detail_1c, d.detail_day);
     // физлица: 1С-retail = физик; ручное поле — phys_day (или retail_day как запас)
     const phys   = pick(d.retail_1c, ((+d.phys_day||0) > 0 ? d.phys_day : d.retail_day));
-    // розница = физик + корпоратив + детейл (всё кроме страховых) — единая логика со всеми порталами
-    const retail = phys + corp + detail;
+    // Розница регион-зависима (решение 01.06.2026): Ижевск = retail+detail (corp
+    // живёт отдельной плашкой, им занимается отдельный человек); Москва = retail+corp
+    // (детейл там всегда 0). total берётся из total_1c напрямую, задвоения нет.
+    const isIzh = currentPoint && (currentPoint.id === 'sovhoz' || currentPoint.id === 'poyma');
+    const retail = isIzh ? (phys + detail) : (phys + corp);
     return { total, ins, corp, detail, phys, retail };
   }
 
