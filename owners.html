@@ -336,10 +336,11 @@
   const rDetail = r => r1c(r) ? (+r.detail_1c|| 0) : (+r.detail_day|| 0);
   // Физлица = физик + детейл (один менеджер). Из 1С физик = retail_1c.
   const rPhys   = r => r1c(r) ? (+r.retail_1c||0)+(+r.detail_1c||0) : (+r.phys_day||0)+(+r.detail_day||0);
-  // Розница = физик + корп + детейл (всё кроме страховых).
+  // Розница регион-зависима (решение 01.06.2026): Ижевск = физик+детейл (corp отдельно),
+  // Москва = физик+корп (детейл там 0).
   const rRetail = r => r1c(r)
-    ? (+r.retail_1c||0)+(+r.corp_1c||0)+(+r.detail_1c||0)
-    : (+r.retail_day||0)+(+r.corp_day||0)+(+r.detail_day||0);
+    ? (+r.retail_1c||0) + (isIzhevskId(r.point_id) ? (+r.detail_1c||0) : (+r.corp_1c||0))
+    : (+r.retail_day||0) + (isIzhevskId(r.point_id) ? (+r.detail_day||0) : (+r.corp_day||0));
 
   let allCharts = [];
   let cachedData = null;
@@ -517,9 +518,11 @@
     const useTotal  = r => (+r.total_1c  || 0) > 0 ? (+r.total_1c  || 0) : (+r.total_day  || 0);
     const useIns    = r => (+r.total_1c  || 0) > 0 ? (+r.ins_1c    || 0) : (+r.ins_day    || 0);
     const useRetail = r => {
-      // «Розница» = физик + корпоратив + детейлинг (всё кроме страховых).
-      if ((+r.total_1c || 0) > 0) return (+r.retail_1c || 0) + (+r.corp_1c || 0) + (+r.detail_1c || 0);
-      return (+r.retail_day || 0) + (+r.corp_day || 0) + (+r.detail_day || 0);
+      // Розница регион-зависима (01.06.2026): Ижевск = физик+детейл (corp отдельной
+      // плашкой), Москва = физик+корп (детейл там 0).
+      const izh = isIzhevskId(r.point_id);
+      if ((+r.total_1c || 0) > 0) return (+r.retail_1c || 0) + (izh ? (+r.detail_1c || 0) : (+r.corp_1c || 0));
+      return (+r.retail_day || 0) + (izh ? (+r.detail_day || 0) : (+r.corp_day || 0));
     };
     const usePhys = r => {
       // Физлица включают детейл (один менеджер продаёт)
