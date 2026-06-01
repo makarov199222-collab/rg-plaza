@@ -2987,10 +2987,35 @@ if ("serviceWorker" in navigator) {
 }
 function showPwaUpdateBanner() {
   if (document.getElementById("pwa-update")) return;
+  if (!document.getElementById("pwa-update-style")) {
+    const st = document.createElement("style");
+    st.id = "pwa-update-style";
+    st.textContent = `
+      @keyframes pwaDrop { from { transform:translate(-50%,-26px); opacity:0; } to { transform:translate(-50%,0); opacity:1; } }
+      @keyframes pwaPulse { 0%,100% { box-shadow:0 0 0 0 rgba(232,184,75,.55); } 50% { box-shadow:0 0 0 8px rgba(232,184,75,0); } }
+      #pwa-update { animation: pwaDrop .35s ease; }
+      #pwa-update button { animation: pwaPulse 1.6s ease-in-out infinite; }
+    `;
+    document.head.appendChild(st);
+  }
   const b = document.createElement("div");
   b.id = "pwa-update";
-  b.style.cssText = "position:fixed;bottom:14px;left:14px;right:14px;background:#222;border:1px solid #e8b84b;border-radius:10px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;z-index:9999;font-family:Inter,sans-serif;color:#fff;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.5);";
-  b.innerHTML = '<span>🔄 Доступно обновление приложения</span><button style="background:#e8b84b;color:#000;border:none;padding:7px 14px;border-radius:6px;font-weight:700;cursor:pointer;font-family:Inter,sans-serif;font-size:12px;" onclick="pwaApplyUpdate()">Обновить</button>';
+  b.style.cssText = "position:fixed;top:16px;left:50%;transform:translateX(-50%);" +
+    "width:calc(100% - 28px);max-width:440px;background:linear-gradient(135deg,#f0c456,#e8b84b);" +
+    "border:2px solid #fff3d6;border-radius:14px;padding:14px 16px;display:flex;" +
+    "justify-content:space-between;align-items:center;gap:12px;z-index:100000;" +
+    "font-family:Inter,sans-serif;color:#1a1407;box-shadow:0 14px 40px rgba(0,0,0,.55);";
+  b.innerHTML =
+    '<div style="display:flex;align-items:center;gap:10px;min-width:0;">' +
+      '<span style="font-size:22px;line-height:1;">🔄</span>' +
+      '<div style="min-width:0;">' +
+        '<div style="font-weight:800;font-size:15px;letter-spacing:.2px;">Доступно обновление</div>' +
+        '<div style="font-size:12px;opacity:.8;">Нажми «Обновить», чтобы загрузить новую версию</div>' +
+      '</div>' +
+    '</div>' +
+    '<button style="flex:none;background:#1a1407;color:#f0c456;border:none;padding:11px 20px;' +
+      'border-radius:9px;font-weight:800;cursor:pointer;font-family:Inter,sans-serif;font-size:14px;" ' +
+      'onclick="pwaApplyUpdate()">Обновить</button>';
   document.body.appendChild(b);
 }
 function pwaApplyUpdate() {
