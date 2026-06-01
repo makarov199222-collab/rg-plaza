@@ -3949,7 +3949,10 @@
       // Собираем plate уже существующих car-row, чтобы не дублировать
       const existingPlates = new Set();
       document.querySelectorAll('.car-row').forEach(row => {
-        const text = row.querySelector('.car-text')?.value || '';
+        // ВАЖНО: класс инпута — .car-inp (не .car-text — такого элемента нет).
+        // Старый селектор всегда давал null → дедуп не работал → машины из 1С
+        // задваивались поверх ручных (и числа вслед за ними). Фикс 01.06.2026.
+        const text = row.querySelector('.car-inp')?.value || '';
         // Plate обычно первое слово в строке
         const plate = text.trim().split(/\s+/)[0];
         if (plate) existingPlates.add(plate.toUpperCase());
