@@ -1260,6 +1260,8 @@
     'сбербанкстрахование':'sber','зетта':'zetta','тинькофф':'t_strah',
     'абсолютстрахование':'absolut','ренессанс':'renessans','гелиос':'helios',
     'скинтери':'interi','совкомбанк':'sovkombank','энергогарант':'energo','энергогарантмск':'energo_msk',
+    // Короткие формы из «Вид Заказ-наряда» (выгрузка направлений Ижевска):
+    'ресо':'reso','интери':'interi','энгмосква':'energo_msk','скгранта':'granta','гранта':'granta',
   };
   // Сопоставление территории → point_id ПО КОРНЮ (вхождение), а не точным
   // совпадением: в файле бывает «Б. Серпуховская», «Калужская ул.» и т.п.
@@ -1296,6 +1298,7 @@
       vin:     find('VIN'),
       terr:    find('Территория'),
       zn:      find('Заказ наряд','Заказ-наряд'),
+      kontr:   find('Контрагент'),  // резерв СК для прямых направлений (когда «Вид Заказ-наряда» пуст)
       company: find('Вид Заказ-наряда','Вид Заказ наряда'),
     };
   }
@@ -1313,6 +1316,14 @@
     const m = String(s).trim().match(/^(\d+)\s+от\s+(.+)/);
     if (m) return [m[1], m[2].trim()];
     return [String(s).trim().split(/\s+/)[0], null];
+  }
+  // Номер ЗН → 10 знаков с ведущими нулями (формат orders_history_1c.zn_number).
+  // В выгрузке направлений ЗН без ведущих нулей («000012489»), в отгрузках — «0000012489».
+  // Без нормализации связка отгрузка↔направление по zn_number не сходится.
+  function padZn(zn){
+    if (zn == null) return null;
+    const s = String(zn).trim();
+    return /^\d+$/.test(s) ? s.padStart(10, '0') : s;
   }
   // Парсинг суммы: SheetJS с raw:false отдаёт "5,000.00" (запятая=тысячи, точка=дроби).
   // Поддерживаем также русский "5 000,00" и чистое число.
@@ -1375,17 +1386,21 @@
         const r = rows[i];
         if (!r || !r[C.num]) { skipped++; continue; }
         const [zn, zndate] = recParseZn(r[C.zn]);
+        // СК берём из «Вид Заказ-наряда» (реальный страховщик для РАВТ-потока).
+        // Если пусто (прямые направления) — резерв из «Контрагент» (= плательщик-СК).
+        const skVid = r[C.company] && String(r[C.company]).trim();
+        const skRaw = skVid || (C.kontr >= 0 ? r[C.kontr] : null);
         parsed.push({
           rec_number: String(r[C.num]).trim(),
           rec_date:   recParseDate(r[C.date]),
           rec_type:   r[C.type] || null,
           stage:      recStage(r[C.type]),
           amount:     recParseAmount(r[C.sum]),
-          company_id: REC_COMPANY_MAP[recNorm(r[C.company])] || null,
-          company_raw: r[C.company] || null,
+          company_id: REC_COMPANY_MAP[recNorm(skRaw)] || null,
+          company_raw: skRaw || null,
           point_id:   recMatchPoint(r[C.terr]),
           point_raw:  r[C.terr] || null,
-          zn_number:  zn,
+          zn_number:  padZn(zn),
           zn_date:    zndate,
           client:     r[C.client] || null,
           car_model:  r[C.model] || null,
@@ -2180,14 +2195,38 @@
   // Сводим equityRows в кэш: по точкам и бакетам (ravt / company_id / unmatched).
   function buildEquityCache() {
     const cache = {
-      ravt: {},        // pointId|'all' → {count, sum}
-      byCompany: {},   // `${pointId}|${companyId}` и `all|${companyId}` → {count, sum}
+      ravt: {},        // pointId|'all' → {count, sum} — весь РАВТ-поток (итог карточки)
+      ravtByCo: {},    // `${pointId}|${companyId}` и `all|${companyId}` → {count,sum} — РАВТ в разрезе реальной СК
+      ravtNoSk: {},    // pointId|'all' → {count, sum} — РАВТ-ЗН без распознанной СК
+      ravtSeen: {},    // pointId|'all' → Set(companyId) — какие СК были в РАВТ-потоке
+      byCompany: {},   // `${pointId}|${companyId}` и `all|${companyId}` → {count, sum} — прямые от СК (Локальные)
       unmatched: {},   // pointId|'all' → [{payer, count, sum}] (агрегируем по payer)
-      companiesSeen: {}, // pointId|'all' → Set(companyId) — какие СК встречались
+      companiesSeen: {}, // pointId|'all' → Set(companyId) — какие СК встречались (Локальные)
     };
+    // Карта: ЗН (точка+номер, 10 знаков) → реальная СК из направления.
+    // Для РАВТ-потока 1С хранит плательщиком РАВТ, а страховщик — в направлении
+    // (поле «Вид Заказ-наряда»). Поэтому СК тянем из insurance_recommendations по ЗН.
+    const recCoByZn = new Map();
+    recsData.forEach(r => {
+      if (r.company_id && r.zn_number != null) recCoByZn.set(znKey(r.point_id, padZn(r.zn_number)), r.company_id);
+    });
+
     const addRavt = (pid, amt) => {
       [pid, 'all'].forEach(k => {
         const e = cache.ravt[k] || (cache.ravt[k] = { count: 0, sum: 0 });
+        e.count++; e.sum += amt;
+      });
+    };
+    const addRavtCo = (pid, cid, amt) => {
+      [`${pid}|${cid}`, `all|${cid}`].forEach(k => {
+        const e = cache.ravtByCo[k] || (cache.ravtByCo[k] = { count: 0, sum: 0 });
+        e.count++; e.sum += amt;
+      });
+      [pid, 'all'].forEach(k => { (cache.ravtSeen[k] || (cache.ravtSeen[k] = new Set())).add(cid); });
+    };
+    const addRavtNoSk = (pid, amt) => {
+      [pid, 'all'].forEach(k => {
+        const e = cache.ravtNoSk[k] || (cache.ravtNoSk[k] = { count: 0, sum: 0 });
         e.count++; e.sum += amt;
       });
     };
@@ -2214,7 +2253,12 @@
       const pid = o.point_id;
       if (!pid) return;
       const amt = +o.amount || 0;
-      if (payerIsRavt(o.payer)) { addRavt(pid, amt); return; }
+      if (payerIsRavt(o.payer)) {
+        addRavt(pid, amt);
+        const cid = recCoByZn.get(znKey(pid, padZn(o.zn_number)));
+        if (cid) addRavtCo(pid, cid, amt); else addRavtNoSk(pid, amt);
+        return;
+      }
       const cid = payerToCompanyId(o.payer);
       if (cid) addCompany(pid, cid, amt);
       else addUnmatched(pid, o.payer, amt);
@@ -2226,6 +2270,11 @@
   // pointId === null → агрегат по всему городу (ключ 'all').
   function eqKey(pointId) { return pointId == null ? 'all' : pointId; }
   function equityRavt(pointId) { return equityCache().ravt[eqKey(pointId)] || { count: 0, sum: 0 }; }
+  function equityRavtByCompany(companyId, pointId) {
+    return equityCache().ravtByCo[`${eqKey(pointId)}|${companyId}`] || { count: 0, sum: 0 };
+  }
+  function equityRavtSeen(pointId) { return equityCache().ravtSeen[eqKey(pointId)] || new Set(); }
+  function equityRavtNoSk(pointId) { return equityCache().ravtNoSk[eqKey(pointId)] || { count: 0, sum: 0 }; }
   function equityCompany(companyId, pointId) {
     return equityCache().byCompany[`${eqKey(pointId)}|${companyId}`] || { count: 0, sum: 0 };
   }
@@ -2255,18 +2304,47 @@
     let totalCount = 0, totalSum = 0, listHtml = '';
 
     if (kind === 'ravt') {
-      // РАВТ-карточка: один поток — отгрузки с плательщиком РАВТ (взаимозачёт).
+      // РАВТ-карточка: поток через РАВТ (взаимозачёт). Плательщик — РАВТ, но реальный
+      // страховщик берётся из направления (поле «Вид Заказ-наряда») по номеру ЗН.
       const e = equityRavt(point?.id);
       totalCount = e.count; totalSum = e.sum;
-      listHtml = e.count > 0
-        ? `<div class="cx-row">
-            <div class="cx-num">${e.count}</div>
+      if (e.count === 0) {
+        listHtml = `<div class="cx-empty">Нет отгрузок за ${formatMonth()}</div>`;
+      } else {
+        const byCo = companies.map(c => {
+          const x = equityRavtByCompany(c.id, point?.id);
+          return { c, count: x.count, sum: x.sum };
+        }).filter(x => x.count > 0).sort((a, b) => b.count - a.count || b.sum - a.sum);
+        const noSk = equityRavtNoSk(point?.id);
+        const rows = byCo.map(x => `<div class="cx-row">
+            <div class="cx-num">${x.count}</div>
             <div class="cx-mid">
-              <div class="cx-name">РАВТ (взаимозачёт)</div>
-              <div class="cx-meta"><span class="cx-sum">${fmt(e.sum)} ₽</span></div>
+              <div class="cx-name">${escapeHtml(x.c.name)}</div>
+              <div class="cx-meta"><span class="cx-sum">${fmt(x.sum)} ₽</span></div>
             </div>
-          </div>`
-        : `<div class="cx-empty">Нет отгрузок за ${formatMonth()}</div>`;
+          </div>`).join('');
+        // ЗН без распознанной СК (направление не импортировано/нет «Вид Заказ-наряда»).
+        const noSkRow = noSk.count > 0
+          ? `<div class="cx-row">
+              <div class="cx-num">${noSk.count}</div>
+              <div class="cx-mid">
+                <div class="cx-name" style="color:var(--muted);">СК не указана</div>
+                <div class="cx-meta"><span class="cx-sum">${fmt(noSk.sum)} ₽</span> · нет направления в 1С</div>
+              </div>
+            </div>`
+          : '';
+        // Если ни одной СK не распозналось (направления Ижевска ещё не импортированы) —
+        // показываем единой строкой, чтобы карточка не выглядела пустой.
+        listHtml = (byCo.length || noSk.count)
+          ? `${rows}${noSkRow}`
+          : `<div class="cx-row">
+              <div class="cx-num">${e.count}</div>
+              <div class="cx-mid">
+                <div class="cx-name">РАВТ (взаимозачёт)</div>
+                <div class="cx-meta"><span class="cx-sum">${fmt(e.sum)} ₽</span> · импортируй направления для разбивки по СК</div>
+              </div>
+            </div>`;
+      }
     } else if (kind === 'local') {
       // Локальные: разбивка по конкретным СК (прямые плательщики-страховые).
       const seen = equitySeen(point?.id);
