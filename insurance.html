@@ -603,6 +603,33 @@
     font-weight:600; letter-spacing:.8px; text-transform:uppercase;
   }
 
+  /* Подпись секции каналов */
+  .ch-section-lbl{
+    font-size:12px; color:var(--text-dim); font-weight:600;
+    letter-spacing:.4px; margin:6px 2px 10px;
+  }
+
+  /* Плашка «Проверь оформление» (непривязанные плательщики) */
+  .unm-block{
+    background:var(--surface);
+    border:1px solid var(--crit);
+    border-radius:12px; padding:16px; margin:14px 0;
+  }
+  .unm-title{
+    font-family:var(--font-display); font-size:16px;
+    color:var(--crit); letter-spacing:.5px; margin-bottom:6px;
+  }
+  .unm-sub{ font-size:12px; color:var(--text-dim); margin-bottom:12px; line-height:1.4; }
+  .unm-list{ display:flex; flex-direction:column; gap:2px; }
+  .unm-row{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:7px 0; border-bottom:1px solid var(--border); font-size:13px;
+  }
+  .unm-row:last-child{ border-bottom:none; }
+  .unm-payer{ color:var(--text); font-weight:500; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .unm-meta{ color:var(--text-dim); font-size:11.5px; white-space:nowrap; }
+  .unm-more{ font-size:11.5px; color:var(--muted); padding-top:8px; }
+
   /* Сворачиваемая сверка с РАВТ */
   .ck-ravt-details{
     background:var(--surface-2);
@@ -1124,6 +1151,10 @@
   let companies = [], channels = [], points = [];
   let directionsData = [], ravtData = [];
   let prevMonthData = [];
+  // Отгруженный страховой вал (equity) из orders_history_1c за выбранный месяц —
+  // ЕДИНЫЙ источник для разнесения каналов РАВТ/Локальные/ошибки (оба региона).
+  let equityRows = [];
+  let _equityCache = null;
 
   const saveQueue = new Map();
   let pendingSaves = 0;
@@ -1486,7 +1517,8 @@
       directionsData = dR.data || [];
       ravtData = rR.data || [];
       prevMonthData = prevR.data || [];
-      await loadFunnelData();   // воронка: рекомендации + проверка отгрузки по ЗН
+      await loadFunnelData();      // воронка: рекомендации + проверка отгрузки по ЗН
+      await loadEquityChannels();  // каналы: отгруженный equity-вал по плательщику
       render();
       if (currentMode === 'year') loadYearData();
     } catch (e) {
@@ -1984,7 +2016,10 @@
     const city = getCity();
     if (!channels.length) { document.getElementById('content').innerHTML = '<div class="empty">Нет активных каналов для этого города</div>'; return; }
     _recCountCache = null;       // сбрасываем кэш сверки — месяц/город могли смениться
-    let html = renderFunnel();   // виджет воронки наверху #content
+    _equityCache = null;         // кэш каналов по payer — месяц/город могли смениться
+    _companyRoots = null;        // справочник мог обновиться
+    let html = renderFunnel();   // виджет воронки (направления) наверху #content
+    html += `<div class="ch-section-lbl">Каналы · отгруженный страховой вал за ${escapeHtml(formatMonth())} (по плательщику)</div>`;
     html += '<div class="channels-grid">';
     if (city === 'moscow') {
       points.forEach(p => { channels.forEach(ch => { html += renderChannelCard(ch, p); }); });
@@ -1992,8 +2027,9 @@
       channels.forEach(ch => { html += renderChannelCard(ch, null); });
     }
     html += '</div>';
+    html += renderUnmatched();    // плашка «⚠ Проверь оформление»
     html += renderSummary();
-    html += renderPointCompare(); // график-сравнение СК по точкам — внизу
+    html += renderPointCompare(); // график-сравнение СК по направлениям — внизу
     document.getElementById('content').innerHTML = html;
     drawPointCompareChart();      // рисуем график после вставки в DOM
   }
@@ -2017,7 +2053,7 @@
     if (!hasData) return '';
     const periodLbl = recFunnelMode === 'month' ? `за ${formatMonth()}` : 'всего';
     return `<div class="pc-block">
-      <div class="pc-title">Сравнение СК по точкам <span class="pc-sub">${escapeHtml(periodLbl)}</span></div>
+      <div class="pc-title">Сравнение СК по направлениям <span class="pc-sub">(воронка, ${escapeHtml(periodLbl)})</span></div>
       <div class="pc-chart-wrap"><canvas id="pc-chart"></canvas></div>
     </div>`;
   }
@@ -2061,82 +2097,229 @@
     });
   }
 
+  // ====================================================================
+  // КАНАЛЫ ПО ПЛАТЕЛЬЩИКУ (единый закон для Москвы и Ижевска)
+  // ====================================================================
+  // Источник: orders_history_1c (equity, status_1c='Отгружен') за выбранный
+  // месяц по date_shipped. Разнесение по payer:
+  //   • payer содержит «равт»               → бакет РАВТ
+  //   • payer матчится со справочником СК    → бакет Локальные (по конкретной СК)
+  //   • иначе (физлицо / не-СК / пусто)      → «⚠ Проверь оформление» (ошибка в 1С)
+  // Почему по payer, а не по направлениям: по Ижевску направлений в
+  // insurance_recommendations нет (0), а equity-отгрузок 4301 — payer чистый.
+  // Метрика «отгруженный вал», привязка к date_shipped — как весь вал Ижевска.
+
+  // Границы выбранного месяца для фильтра date_shipped: [start, nextStart).
+  function periodBounds() {
+    const [y, m] = getPeriod().split('-').map(Number);
+    const start = `${y}-${String(m).padStart(2,'0')}-01`;
+    const ny = m === 12 ? y + 1 : y;
+    const nm = m === 12 ? 1 : m + 1;
+    const next = `${ny}-${String(nm).padStart(2,'0')}-01`;
+    return { start, next };
+  }
+
+  async function loadEquityChannels() {
+    equityRows = [];
+    _equityCache = null;
+    try {
+      const ids = points.map(p => p.id);
+      if (!ids.length) return;
+      const { start, next } = periodBounds();
+      const PAGE = 1000;
+      let from = 0, rows = [];
+      for (;;) {
+        const { data, error } = await sb
+          .from('orders_history_1c')
+          .select('zn_number, point_id, payer, amount, date_shipped')
+          .eq('category', 'equity')
+          .eq('status_1c', 'Отгружен')
+          .in('point_id', ids)
+          .gte('date_shipped', start)
+          .lt('date_shipped', next)
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        const batch = data || [];
+        rows = rows.concat(batch);
+        if (batch.length < PAGE) break;
+        from += PAGE;
+        if (from > 50000) break; // предохранитель
+      }
+      equityRows = rows;
+    } catch (e) {
+      console.warn('loadEquityChannels:', e);
+      equityRows = [];
+    }
+  }
+
+  // payer → нормализованная строка (нижний регистр, только буквы) для матчинга.
+  function payerNorm(s) { return recNorm(s); }
+  function payerIsRavt(payer) { return payerNorm(payer).includes('равт'); }
+
+  // Корни СК из справочника (активные), по убыванию длины — чтобы «Энергогарант МСК»
+  // проверялся раньше «Энергогарант». Матчинг по вхождению: полное юр-имя в payer
+  // («…ИНГОССТРАХ ПАО») содержит корень имени СК («ингосстрах»).
+  let _companyRoots = null;
+  function companyRoots() {
+    if (_companyRoots) return _companyRoots;
+    _companyRoots = companies
+      .map(c => ({ id: c.id, name: c.name, root: payerNorm(c.name) }))
+      .filter(c => c.root.length >= 2)
+      .sort((a, b) => b.root.length - a.root.length);
+    return _companyRoots;
+  }
+  // payer → company_id (только Локальные). РАВТ и непривязанные → null.
+  function payerToCompanyId(payer) {
+    if (payerIsRavt(payer)) return null;
+    const n = payerNorm(payer);
+    if (!n) return null;
+    for (const c of companyRoots()) { if (n.includes(c.root)) return c.id; }
+    return null;
+  }
+
+  // Сводим equityRows в кэш: по точкам и бакетам (ravt / company_id / unmatched).
+  function buildEquityCache() {
+    const cache = {
+      ravt: {},        // pointId|'all' → {count, sum}
+      byCompany: {},   // `${pointId}|${companyId}` и `all|${companyId}` → {count, sum}
+      unmatched: {},   // pointId|'all' → [{payer, count, sum}] (агрегируем по payer)
+      companiesSeen: {}, // pointId|'all' → Set(companyId) — какие СК встречались
+    };
+    const addRavt = (pid, amt) => {
+      [pid, 'all'].forEach(k => {
+        const e = cache.ravt[k] || (cache.ravt[k] = { count: 0, sum: 0 });
+        e.count++; e.sum += amt;
+      });
+    };
+    const addCompany = (pid, cid, amt) => {
+      [`${pid}|${cid}`, `all|${cid}`].forEach(k => {
+        const e = cache.byCompany[k] || (cache.byCompany[k] = { count: 0, sum: 0 });
+        e.count++; e.sum += amt;
+      });
+      [pid, 'all'].forEach(k => {
+        const s = cache.companiesSeen[k] || (cache.companiesSeen[k] = new Set());
+        s.add(cid);
+      });
+    };
+    const addUnmatched = (pid, payer, amt) => {
+      [pid, 'all'].forEach(k => {
+        const list = cache.unmatched[k] || (cache.unmatched[k] = []);
+        const label = (payer && String(payer).trim()) || '(пусто)';
+        let row = list.find(r => r.payer === label);
+        if (!row) { row = { payer: label, count: 0, sum: 0 }; list.push(row); }
+        row.count++; row.sum += amt;
+      });
+    };
+    equityRows.forEach(o => {
+      const pid = o.point_id;
+      if (!pid) return;
+      const amt = +o.amount || 0;
+      if (payerIsRavt(o.payer)) { addRavt(pid, amt); return; }
+      const cid = payerToCompanyId(o.payer);
+      if (cid) addCompany(pid, cid, amt);
+      else addUnmatched(pid, o.payer, amt);
+    });
+    _equityCache = cache;
+  }
+  function equityCache() { if (!_equityCache) buildEquityCache(); return _equityCache; }
+
+  // pointId === null → агрегат по всему городу (ключ 'all').
+  function eqKey(pointId) { return pointId == null ? 'all' : pointId; }
+  function equityRavt(pointId) { return equityCache().ravt[eqKey(pointId)] || { count: 0, sum: 0 }; }
+  function equityCompany(companyId, pointId) {
+    return equityCache().byCompany[`${eqKey(pointId)}|${companyId}`] || { count: 0, sum: 0 };
+  }
+  function equitySeen(pointId) { return equityCache().companiesSeen[eqKey(pointId)] || new Set(); }
+  function equityUnmatched(pointId) {
+    return (equityCache().unmatched[eqKey(pointId)] || []).slice().sort((a, b) => b.count - a.count);
+  }
+
+  // Тип канала по id/имени: РАВТ или Локальные (прямые СК).
+  function channelKind(channel) {
+    const id = String(channel.id || '').toLowerCase();
+    const nm = payerNorm(channel.name);
+    if (id.endsWith('_ravt') || nm === 'равт') return 'ravt';
+    if (id.endsWith('_local') || nm.includes('локальн')) return 'local';
+    return 'other';
+  }
+
   function renderChannelCard(channel, point) {
     const cardKey = `${channel.id}__${point ? point.id : 'null'}`;
     const cityLabel = channel.city === 'moscow' ? 'Москва' : 'Ижевск';
     const subtitle = point ? point.name : cityLabel;
-    let totalIncoming = 0, totalWithdrawn = 0, totalSum = 0;
-    companies.forEach(c => {
-      // И «Поступило», и «Отзыв» берём ИЗ 1С (рекомендации за месяц).
-      const rc = recCountByCompany(c.id, point?.id);
-      totalIncoming += rc.count;
-      totalWithdrawn += rc.cancelled;
-      totalSum += rc.sum || 0;
-    });
     const fmt = n => Math.round(n).toLocaleString('ru-RU');
-    // Бейдж в шапке: объём по точке — направления и деньги (главное по иерархии).
-    const fillClass = totalIncoming > 0 ? 'fill-full' : 'fill-empty';
-    const headSum = totalSum >= 1000000
-      ? `${(totalSum/1000000).toFixed(1).replace('.',',')} млн ₽`
-      : `${fmt(totalSum)} ₽`;
-    const fillBadge = totalIncoming > 0 ? `${totalIncoming} напр. · ${headSum}` : 'Нет направлений';
-    const ravtRec = getRavtRecord(channel.id, point?.id);
-    const ravtTotal = ravtRec ? +ravtRec.ravt_total || 0 : 0;
-    const diffHtml = renderRavtDiff(ravtTotal, totalIncoming);
-    // Собираем данные по всем СК, делим на активные (есть направления/отзыв) и спящие.
-    const all = companies.map(c => {
-      const rc = recCountByCompany(c.id, point?.id);
-      return { c, inc: rc.count, wd: rc.cancelled, sum: rc.sum || 0, prev: rc.prevCount || 0 };
-    });
-    const active = all.filter(x => x.inc > 0 || x.wd > 0)
-                      .sort((a, b) => b.inc - a.inc || b.sum - a.sum); // по кол-ву, затем деньги
-    const sleeping = all.filter(x => x.inc === 0 && x.wd === 0);
+    const headSumFmt = s => s >= 1000000
+      ? `${(s/1000000).toFixed(1).replace('.',',')} млн ₽` : `${fmt(s)} ₽`;
+    const kind = channelKind(channel);
 
-    const rows = active.map(x => {
-      const { c, inc, wd, sum, prev } = x;
-      // Тренд в штуках к прошлому месяцу (оба из 1С). Только в режиме «За месяц».
-      let trend = '';
-      if (recFunnelMode === 'month' && prev > 0) {
-        const diff = inc - prev;
-        if (diff !== 0) {
-          const cls = diff > 0 ? 'up' : 'down';
-          const arr = diff > 0 ? '↑' : '↓';
-          trend = `<span class="cx-trend ${cls}">${arr} ${Math.abs(diff)}</span>`;
-        }
-      }
-      const wdBadge = wd > 0 ? `<span class="cx-wd">↩ ${wd} отзыв</span>` : '';
-      return `<div class="cx-row">
-        <div class="cx-num">${inc}</div>
-        <div class="cx-mid">
-          <div class="cx-name">${escapeHtml(c.name)}</div>
-          <div class="cx-meta">
-            <span class="cx-sum">${fmt(sum)} ₽</span>${wdBadge}${trend}
+    let totalCount = 0, totalSum = 0, listHtml = '';
+
+    if (kind === 'ravt') {
+      // РАВТ-карточка: один поток — отгрузки с плательщиком РАВТ (взаимозачёт).
+      const e = equityRavt(point?.id);
+      totalCount = e.count; totalSum = e.sum;
+      listHtml = e.count > 0
+        ? `<div class="cx-row">
+            <div class="cx-num">${e.count}</div>
+            <div class="cx-mid">
+              <div class="cx-name">РАВТ (взаимозачёт)</div>
+              <div class="cx-meta"><span class="cx-sum">${fmt(e.sum)} ₽</span></div>
+            </div>
+          </div>`
+        : `<div class="cx-empty">Нет отгрузок за ${formatMonth()}</div>`;
+    } else if (kind === 'local') {
+      // Локальные: разбивка по конкретным СК (прямые плательщики-страховые).
+      const seen = equitySeen(point?.id);
+      const all = companies.map(c => {
+        const e = equityCompany(c.id, point?.id);
+        return { c, count: e.count, sum: e.sum };
+      });
+      const active = all.filter(x => x.count > 0).sort((a, b) => b.count - a.count || b.sum - a.sum);
+      const sleeping = all.filter(x => x.count === 0);
+      active.forEach(x => { totalCount += x.count; totalSum += x.sum; });
+      const rows = active.map(x => `<div class="cx-row">
+          <div class="cx-num">${x.count}</div>
+          <div class="cx-mid">
+            <div class="cx-name">${escapeHtml(x.c.name)}</div>
+            <div class="cx-meta"><span class="cx-sum">${fmt(x.sum)} ₽</span></div>
           </div>
+        </div>`).join('');
+      const sleepingRow = (active.length && sleeping.length)
+        ? `<div class="cx-sleeping"><span class="cx-sleeping-lbl">Без отгрузок:</span> ${sleeping.map(x => escapeHtml(x.c.name)).join(', ')}</div>`
+        : '';
+      const emptyRow = active.length === 0
+        ? `<div class="cx-empty">Нет отгрузок за ${formatMonth()}</div>` : '';
+      listHtml = `${emptyRow}${rows}${sleepingRow}`;
+    } else {
+      // Прочие каналы (МОБИСКАР/АГ ЭКСПЕРТ и т.п.) — пока без источника, пусто.
+      listHtml = `<div class="cx-empty">Канал без данных</div>`;
+    }
+
+    const fillClass = totalCount > 0 ? 'fill-full' : 'fill-empty';
+    const fillBadge = totalCount > 0 ? `${totalCount} ЗН · ${headSumFmt(totalSum)}` : 'Нет отгрузок';
+
+    // Сверка с РАВТ (ручной ввод) — только на РАВТ-карточке: сравниваем отгруженные
+    // нами ЗН с числом, которое РАВТ показывает у себя.
+    let ravtDetails = '';
+    if (kind === 'ravt') {
+      const ravtRec = getRavtRecord(channel.id, point?.id);
+      const ravtTotal = ravtRec ? +ravtRec.ravt_total || 0 : 0;
+      const diffHtml = renderRavtDiff(ravtTotal, totalCount);
+      const ravtBody = `<div class="ck-ravt-row">
+          <div class="ck-ravt-lbl">РАВТ показывает у себя:</div>
+          <div class="ck-ravt-stepper ${ravtTotal > 0 ? 'has-value' : ''}" data-channel="${channel.id}" data-point="${point?.id || ''}" data-card="${cardKey}">
+            <button class="stepper-btn" onpointerdown="ravtStepperDown(event,this,-1)" onpointerup="stepperUp(this)" onpointerleave="stepperUp(this)" onpointercancel="stepperUp(this)">−</button>
+            <input class="stepper-val" type="text" inputmode="numeric" pattern="[0-9]*" value="${ravtTotal}" data-channel="${channel.id}" data-point="${point?.id || ''}" data-card="${cardKey}" onfocus="this.select()" oninput="onRavtDirectInput(this)" onblur="this.value = (+this.value || 0).toString()">
+            <button class="stepper-btn" onpointerdown="ravtStepperDown(event,this,1)" onpointerup="stepperUp(this)" onpointerleave="stepperUp(this)" onpointercancel="stepperUp(this)">+</button>
+          </div>
+          <div class="ck-ravt-lbl">ЗН</div>
         </div>
-      </div>`;
-    }).join('');
-
-    // Спящие СК — одна компактная серая строка внизу (триггер «давно нет направлений»).
-    const sleepingRow = sleeping.length
-      ? `<div class="cx-sleeping"><span class="cx-sleeping-lbl">Спящие (нет направлений):</span> ${sleeping.map(x => escapeHtml(x.c.name)).join(', ')}</div>`
-      : '';
-
-    const emptyRow = active.length === 0
-      ? `<div class="cx-empty">Нет направлений за ${recFunnelMode === 'month' ? 'этот месяц' : 'период'}</div>`
-      : '';
-
-    // Сверка с РАВТ — свёрнута по умолчанию, разворачивается по клику.
-    const ravtState = ravtTotal > 0 ? `РАВТ: ${ravtTotal}` : 'свернуть';
-    const ravtBody = `<div class="ck-ravt-row">
-        <div class="ck-ravt-lbl">РАВТ показывает у себя:</div>
-        <div class="ck-ravt-stepper ${ravtTotal > 0 ? 'has-value' : ''}" data-channel="${channel.id}" data-point="${point?.id || ''}" data-card="${cardKey}">
-          <button class="stepper-btn" onpointerdown="ravtStepperDown(event,this,-1)" onpointerup="stepperUp(this)" onpointerleave="stepperUp(this)" onpointercancel="stepperUp(this)">−</button>
-          <input class="stepper-val" type="text" inputmode="numeric" pattern="[0-9]*" value="${ravtTotal}" data-channel="${channel.id}" data-point="${point?.id || ''}" data-card="${cardKey}" onfocus="this.select()" oninput="onRavtDirectInput(this)" onblur="this.value = (+this.value || 0).toString()">
-          <button class="stepper-btn" onpointerdown="ravtStepperDown(event,this,1)" onpointerup="stepperUp(this)" onpointerleave="stepperUp(this)" onpointercancel="stepperUp(this)">+</button>
-        </div>
-        <div class="ck-ravt-lbl">направлений</div>
-      </div>
-      <div onclick="showRavtExplainer('${cardKey}')">${diffHtml}</div>`;
+        <div onclick="showRavtExplainer('${cardKey}')">${diffHtml}</div>`;
+      ravtDetails = `<details class="ck-ravt-details" ${ravtTotal > 0 ? 'open' : ''}>
+        <summary class="ck-ravt-summary">Сверка с данными РАВТ${ravtTotal > 0 ? ` · ${ravtTotal}` : ''}</summary>
+        <div class="ck-ravt-inner">${ravtBody}</div>
+      </details>`;
+    }
 
     return `<div class="channel-card ${fillClass}" id="card-${cardKey}">
       <div class="channel-head">
@@ -2147,90 +2330,85 @@
           <span>${fillBadge}</span>
         </div>
       </div>
-      <div class="cx-list">${emptyRow}${rows}${sleepingRow}</div>
+      <div class="cx-list">${listHtml}</div>
       <div class="cx-totals">
-        <div class="cx-totals-num">${totalIncoming}</div>
-        <div class="cx-totals-lbl">всего поступило${totalWithdrawn > 0 ? ` · ↩ ${totalWithdrawn} отзыв` : ''}</div>
+        <div class="cx-totals-num">${totalCount}</div>
+        <div class="cx-totals-lbl">отгружено ЗН · ${headSumFmt(totalSum)}</div>
       </div>
-      <details class="ck-ravt-details" ${ravtTotal > 0 ? 'open' : ''}>
-        <summary class="ck-ravt-summary">Сверка с данными РАВТ${ravtTotal > 0 ? ` · ${ravtTotal}` : ''}</summary>
-        <div class="ck-ravt-inner">${ravtBody}</div>
-      </details>
+      ${ravtDetails}
     </div>`;
   }
 
-  function renderRavtDiff(ravtTotal, totalIncoming) {
+  function renderRavtDiff(ravtTotal, ourCount) {
     if (ravtTotal === 0) return `<span class="ck-diff empty">Введи число РАВТ для запуска сверки</span>`;
-    const diff = ravtTotal - totalIncoming;
-    if (diff === 0) return `<span class="ck-diff ok">Сходится: ${totalIncoming} = ${ravtTotal}</span>`;
+    const diff = ravtTotal - ourCount;
+    if (diff === 0) return `<span class="ck-diff ok">Сходится: ${ourCount} = ${ravtTotal}</span>`;
     if (diff > 0) return `<span class="ck-diff warn">РАВТ показывает +${diff} (вероятно ещё в работе) · нажми для пояснения</span>`;
     return `<span class="ck-diff warn">У нас +${-diff} (возможно отзывы) · нажми для пояснения</span>`;
   }
 
+  // Плашка «⚠ Проверь оформление»: equity-ЗН, где плательщик не РАВТ и не СК
+  // (физлицо / не-СК / пусто) — ошибка оформления в 1С, менеджер чинит тип ЗН/плательщика.
+  function renderUnmatched() {
+    const list = equityUnmatched(null); // по всему городу
+    if (!list.length) return '';
+    const fmt = n => Math.round(n).toLocaleString('ru-RU');
+    const totalCount = list.reduce((s, r) => s + r.count, 0);
+    const rows = list.slice(0, 30).map(r => `<div class="unm-row">
+        <span class="unm-payer">${escapeHtml(r.payer)}</span>
+        <span class="unm-meta">${r.count} ЗН · ${fmt(r.sum)} ₽</span>
+      </div>`).join('');
+    const more = list.length > 30 ? `<div class="unm-more">…и ещё ${list.length - 30}</div>` : '';
+    return `<div class="unm-block">
+      <div class="unm-title">⚠ Проверь оформление · ${totalCount} ЗН</div>
+      <div class="unm-sub">Страховые ЗН, где плательщик — физлицо или не страховая. Скорее всего неверный тип ЗН или плательщик в 1С — поправь, и они уйдут в нужный канал.</div>
+      <div class="unm-list">${rows}${more}</div>
+    </div>`;
+  }
+
   function renderSummary() {
-    // Всего поступило и Отозвано — из 1С (рекомендации за месяц), как в карточках.
-    let totalInc = 0, totalWd = 0;
-    companies.forEach(c => {
-      const rc = recCountByCompany(c.id, null); // null = все точки текущего города
-      totalInc += rc.count;
-      totalWd += rc.cancelled;
-    });
+    // Сводка по ОТГРУЖЕННОМУ equity-валу за месяц (тот же источник, что карточки).
+    const fmt = n => Math.round(n).toLocaleString('ru-RU');
+    const rav = equityRavt(null);
+    // Локальные: сумма по всем СК города.
+    let localCount = 0, localSum = 0;
+    companies.forEach(c => { const e = equityCompany(c.id, null); localCount += e.count; localSum += e.sum; });
+    const unm = equityUnmatched(null);
+    const unmCount = unm.reduce((s, r) => s + r.count, 0);
+    const totalCount = rav.count + localCount + unmCount;
+    const totalSum = rav.sum + localSum + unm.reduce((s, r) => s + r.sum, 0);
+
+    // Ручная сверка с РАВТ (если введена) — сравниваем с отгруженным РАВТ-валом.
     let totalRavt = 0;
     ravtData.forEach(r => { totalRavt += +r.ravt_total || 0; });
-    // Прошлый месяц — тоже из 1С (recCountByCompany.prevCount), а не из старых
-    // ручных данных. Иначе сравнивали 1С (текущий) с ручным вводом (прошлый) — несопоставимо.
-    let prevTotal = 0;
-    companies.forEach(c => { prevTotal += recCountByCompany(c.id, null).prevCount; });
-    let monthDelta = '';
-    if (prevTotal > 0) {
-      const delta = totalInc - prevTotal;
-      const pct = Math.round((delta / prevTotal) * 100);
-      const cls = delta >= 0 ? 'up' : 'down';
-      const arr = delta >= 0 ? '↑' : '↓';
-      monthDelta = `<div class="summary-item-sub ${cls}">${arr} ${Math.abs(pct)}% к прошлому · было ${prevTotal}</div>`;
-    }
-    let lostDiff = 0;
-    channels.forEach(ch => {
-      if (getCity() === 'moscow') {
-        points.forEach(p => {
-          const ravt = getRavtRecord(ch.id, p.id);
-          if (ravt && ravt.ravt_total) {
-            let local = 0;
-            companies.forEach(c => { const r = getRecord(ch.id, c.id, p.id); if (r) local += +r.incoming_count || 0; });
-            const d = ravt.ravt_total - local;
-            if (d > 0) lostDiff += d;
-          }
-        });
-      } else {
-        const ravt = getRavtRecord(ch.id, null);
-        if (ravt && ravt.ravt_total) {
-          let local = 0;
-          companies.forEach(c => { const r = getRecord(ch.id, c.id, null); if (r) local += +r.incoming_count || 0; });
-          const d = ravt.ravt_total - local;
-          if (d > 0) lostDiff += d;
-        }
-      }
-    });
+
     return `<div class="summary-block">
-      <div class="summary-title">Сводка за ${formatMonth()}</div>
+      <div class="summary-title">Отгружено за ${formatMonth()}</div>
       <div class="summary-grid">
         <div class="summary-item">
-          <div class="summary-item-lbl">Всего поступило</div>
-          <div class="summary-item-val g">${totalInc}</div>
-          ${monthDelta}
+          <div class="summary-item-lbl">Всего ЗН</div>
+          <div class="summary-item-val">${totalCount}</div>
+          <div class="summary-item-sub">${fmt(totalSum)} ₽</div>
         </div>
         <div class="summary-item">
-          <div class="summary-item-lbl">Отозвано</div>
-          <div class="summary-item-val r">${totalWd}</div>
+          <div class="summary-item-lbl">РАВТ</div>
+          <div class="summary-item-val b">${rav.count}</div>
+          <div class="summary-item-sub">${fmt(rav.sum)} ₽</div>
         </div>
         <div class="summary-item">
-          <div class="summary-item-lbl">Чистый итог</div>
-          <div class="summary-item-val">${totalInc - totalWd}</div>
+          <div class="summary-item-lbl">Локальные (СК)</div>
+          <div class="summary-item-val g">${localCount}</div>
+          <div class="summary-item-sub">${fmt(localSum)} ₽</div>
         </div>
+        ${unmCount ? `<div class="summary-item">
+          <div class="summary-item-lbl">Проверь оформление</div>
+          <div class="summary-item-val r">${unmCount}</div>
+          <div class="summary-item-sub down">ошибки в 1С</div>
+        </div>` : ''}
         ${totalRavt ? `<div class="summary-item">
-          <div class="summary-item-lbl">По данным РАВТ</div>
+          <div class="summary-item-lbl">РАВТ показывает</div>
           <div class="summary-item-val b">${totalRavt}</div>
-          ${lostDiff > 0 ? `<div class="summary-item-sub down">Потери: ${lostDiff}</div>` : ''}
+          ${totalRavt - rav.count > 0 ? `<div class="summary-item-sub down">+${totalRavt - rav.count} у РАВТ</div>` : ''}
         </div>` : ''}
       </div>
     </div>`;
@@ -2357,60 +2535,22 @@
   }
 
   function refreshCardTotals(cardKey, channelId, pointId) {
+    // После ручного ввода числа РАВТ обновляем ТОЛЬКО строку сверки на РАВТ-карточке.
+    // Бейдж и итоги карточки — отгруженный вал (date_shipped), от ручного РАВТ
+    // не зависят, поэтому их не трогаем (раньше тут пересчитывались направления).
     const card = document.getElementById('card-' + cardKey);
     if (!card) return;
-    let totalInc = 0, totalWd = 0, companiesWithData = 0;
-    companies.forEach(c => {
-      const r = getRecord(channelId, c.id, pointId);
-      if (r) {
-        totalInc += +r.incoming_count || 0;
-        totalWd += +r.withdrawn_count || 0;
-        if (+r.incoming_count > 0 || +r.withdrawn_count > 0) companiesWithData++;
-      }
-    });
-    const totalCells = card.querySelectorAll('.ck-totals-val');
-    if (totalCells[0]) totalCells[0].textContent = totalInc;
-    if (totalCells[1]) totalCells[1].textContent = totalWd;
-    const fillPct = companies.length ? companiesWithData / companies.length : 0;
-    let fillClass, fillBadge;
-    if (fillPct === 0) { fillClass = 'fill-empty'; fillBadge = 'Нет данных'; }
-    else if (fillPct < 0.5) { fillClass = 'fill-partial'; fillBadge = `Заполнено ${Math.round(fillPct*100)}%`; }
-    else { fillClass = 'fill-full'; fillBadge = totalInc > 0 ? `Всего ${totalInc}` : 'Готово'; }
-    card.className = card.className.replace(/fill-\w+/g, '').trim() + ' ' + fillClass;
-    const badge = card.querySelector('.channel-status-badge');
-    if (badge) {
-      badge.className = 'channel-status-badge ' + fillClass;
-      const span = badge.querySelector('span');
-      if (span) span.textContent = fillBadge;
-    }
-    const ravtRec = getRavtRecord(channelId, pointId);
+    const pid = pointId || null;
+    const ravtRec = getRavtRecord(channelId, pid);
     const ravtTotal = ravtRec ? +ravtRec.ravt_total || 0 : 0;
+    const ourCount = equityRavt(pid).count; // отгружено нами по РАВТ за месяц
     const diffEl = card.querySelector('.ck-diff');
     if (diffEl) {
-      const newHtml = renderRavtDiff(ravtTotal, totalInc);
       const tmp = document.createElement('div');
-      tmp.innerHTML = newHtml;
+      tmp.innerHTML = renderRavtDiff(ravtTotal, ourCount);
       const newEl = tmp.firstElementChild;
-      diffEl.className = newEl.className;
-      diffEl.textContent = newEl.textContent;
+      if (newEl) { diffEl.className = newEl.className; diffEl.textContent = newEl.textContent; }
     }
-    const rows = card.querySelectorAll('.ck-row:not(.head)');
-    rows.forEach((row, idx) => {
-      const c = companies[idx];
-      if (!c) return;
-      const r = getRecord(channelId, c.id, pointId);
-      const inc = r?.incoming_count || 0;
-      const pr = getPrevRecord(channelId, c.id, pointId);
-      const prevInc = pr?.incoming_count || 0;
-      const prevEl = row.querySelector('.ck-prev');
-      if (prevInc > 0 && prevEl) {
-        let cls = 'same';
-        if (inc > prevInc) cls = 'up';
-        else if (inc < prevInc) cls = 'down';
-        prevEl.className = 'ck-prev ' + cls;
-        prevEl.innerHTML = `<span class="arr"></span> прошл. месяц: ${prevInc}`;
-      }
-    });
   }
 
   function refreshSummary() {
