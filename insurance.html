@@ -1411,6 +1411,9 @@
           amount:     recParseAmount(r[C.sum]),
           company_id: recResolveCompany(skRaw),
           company_raw: skRaw || null,
+          // Контрагент-плательщик ([Контрагент]): «РАВТ ООО» → канал РАВТ, прямая СК → Локальные.
+          // Нужен для разнесения входящих направлений по каналам (особенно Ижевск).
+          payer_raw:  (C.kontr >= 0 ? (r[C.kontr] || null) : null),
           point_id:   recMatchPoint(r[C.terr]),
           point_raw:  r[C.terr] || null,
           zn_number:  padZn(zn),
@@ -1596,7 +1599,7 @@
       for (;;) {
         const { data, error } = await sb
           .from('insurance_recommendations')
-          .select('rec_number, rec_date, rec_type, stage, amount, company_id, company_raw, point_id, point_raw, zn_number, zn_date, client, car_model, plate, service_confirmed_at')
+          .select('rec_number, rec_date, rec_type, stage, amount, company_id, company_raw, point_id, point_raw, zn_number, zn_date, client, car_model, plate, service_confirmed_at, payer_raw')
           .range(from, from + PAGE - 1);
         if (error) throw error;
         const batch = data || [];
@@ -2060,6 +2063,89 @@
     }
   }
 
+  // Канал входящего направления: 'ravt' | 'local' | null (не определён).
+  // Москва — всегда РАВТ (бизнес-правило). Ижевск — по сохранённому контрагенту (payer_raw):
+  // «РАВТ ООО» → РАВТ, прямая СК → Локальные. До переимпорта payer_raw пуст → null.
+  function recChannel(r) {
+    if (r.payer_raw) return payerIsRavt(r.payer_raw) ? 'ravt' : 'local';
+    if (getCity() === 'moscow') return 'ravt';
+    return null;
+  }
+
+  // Блок «Входящие направления за месяц» — отдельная колонка на каждую точку города.
+  // Метрика: поступление направлений по rec_date (НЕ отгрузки). Внутри точки —
+  // разбивка по каналу (РАВТ/Локальные) и по СК.
+  function renderIncomingByPoint() {
+    const period = getPeriod();
+    const fmt = n => Math.round(n).toLocaleString('ru-RU');
+    const headSumFmt = s => s >= 1000000 ? `${(s/1000000).toFixed(1).replace('.',',')} млн ₽` : `${fmt(s)} ₽`;
+    const cityIds = new Set(points.map(p => p.id));
+    const recs = recsData.filter(r =>
+      r.point_id && cityIds.has(r.point_id) &&
+      r.rec_date && String(r.rec_date).substring(0, 7) === period &&
+      !znIsForeign(r.zn_number, r.point_id));
+
+    const CH_LABEL = { ravt: 'РАВТ', local: 'Локальные (прямые от СК)', none: 'Канал уточняется (нет контрагента)' };
+    const coName = id => (id && id !== '__none') ? (companies.find(c => c.id === id)?.name || id) : 'СК не указана';
+
+    let cards = '';
+    points.forEach(p => {
+      const pr = recs.filter(r => r.point_id === p.id);
+      let total = 0, totalSum = 0;
+      const byCh = { ravt: {}, local: {}, none: {} };
+      pr.forEach(r => {
+        const amt = +r.amount || 0;
+        total++; totalSum += amt;
+        const ch = recChannel(r) || 'none';
+        const cid = r.company_id || '__none';
+        const co = byCh[ch][cid] || (byCh[ch][cid] = { count: 0, sum: 0 });
+        co.count++; co.sum += amt;
+      });
+
+      const fillClass = total > 0 ? 'fill-full' : 'fill-empty';
+      const badge = total > 0 ? `${total} напр · ${headSumFmt(totalSum)}` : 'Нет направлений';
+      const channelsShown = ['ravt', 'local', 'none'].filter(k => Object.values(byCh[k]).some(v => v.count > 0)).length;
+
+      let body = '';
+      if (total === 0) {
+        body = `<div class="cx-empty">Нет направлений за ${escapeHtml(formatMonth())}</div>`;
+      } else {
+        ['ravt', 'local', 'none'].forEach(ch => {
+          const entries = Object.entries(byCh[ch])
+            .map(([cid, v]) => ({ cid, name: coName(cid), count: v.count, sum: v.sum }))
+            .filter(x => x.count > 0)
+            .sort((a, b) => b.count - a.count || b.sum - a.sum);
+          if (!entries.length) return;
+          if (channelsShown > 1) {
+            body += `<div class="ch-section-lbl" style="margin:7px 0 3px;font-size:11px;">${escapeHtml(CH_LABEL[ch])}</div>`;
+          }
+          body += entries.map(x => `<div class="cx-row">
+              <div class="cx-num">${x.count}</div>
+              <div class="cx-mid">
+                <div class="cx-name"${x.cid === '__none' ? ' style="color:var(--muted);"' : ''}>${escapeHtml(x.name)}</div>
+                <div class="cx-meta"><span class="cx-sum">${fmt(x.sum)} ₽</span>${x.cid === '__none' ? ' · нет распознанной СК' : ''}</div>
+              </div>
+            </div>`).join('');
+        });
+      }
+
+      cards += `<div class="channel-card ${fillClass}">
+        <div class="channel-head">
+          <div class="channel-name">${escapeHtml(p.name)}</div>
+          <div class="channel-pin">${getCity() === 'moscow' ? 'Москва' : 'Ижевск'}</div>
+          <div class="channel-status-badge ${fillClass}">
+            <div class="channel-led"></div>
+            <span>${badge}</span>
+          </div>
+        </div>
+        <div class="cx-list">${body}</div>
+      </div>`;
+    });
+
+    return `<div class="ch-section-lbl">Входящие направления за ${escapeHtml(formatMonth())} · по точкам (поступление по дате рекомендации)</div>`
+      + `<div class="channels-grid">${cards}</div>`;
+  }
+
   function render() {
     const city = getCity();
     if (!channels.length) { document.getElementById('content').innerHTML = '<div class="empty">Нет активных каналов для этого города</div>'; return; }
@@ -2067,16 +2153,8 @@
     _equityCache = null;         // кэш каналов по payer — месяц/город могли смениться
     _companyRoots = null;        // справочник мог обновиться
     let html = renderFunnel();   // виджет воронки (направления) наверху #content
-    html += `<div class="ch-section-lbl">Каналы · отгруженный страховой вал за ${escapeHtml(formatMonth())} (по плательщику)</div>`;
-    html += '<div class="channels-grid">';
-    if (city === 'moscow') {
-      points.forEach(p => { channels.forEach(ch => { html += renderChannelCard(ch, p); }); });
-    } else {
-      channels.forEach(ch => { html += renderChannelCard(ch, null); });
-    }
-    html += '</div>';
-    html += renderUnmatched();    // плашка «⚠ Проверь оформление»
-    html += renderSummary();
+    html += renderIncomingByPoint(); // входящие направления за месяц — по колонке на точку
+    html += renderUnmatched();    // плашка «⚠ Проверь оформление» (ошибки оформления ЗН)
     html += renderPointCompare(); // график-сравнение СК по направлениям — внизу
     document.getElementById('content').innerHTML = html;
     drawPointCompareChart();      // рисуем график после вставки в DOM
