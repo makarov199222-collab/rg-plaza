@@ -3955,6 +3955,9 @@
       await updateOweRegionHint();
       // Подгружаем суммы заказов покупателя за день (для строки в отчёте)
       await loadZpForDay(date);
+      // Прямые продажи подгрузились — пересчитываем сверку, чтобы плашка учла их
+      // (updateCarsSummary выше отработал до loadZpForDay, с пустым zpDay).
+      updateCarsSummary();
       // Пересчитываем прогресс по плану по только что подставленным значениям (из БД или из 1С)
       updatePlanProgress();
       setSync('ok');
@@ -4828,10 +4831,16 @@
     const dayTotal = +document.getElementById('dtotal').value || 0;
     const diffEl = document.getElementById('cs-diff');
     if (dayTotal === 0) { diffEl.textContent = 'Введи "Всего за день" для сверки'; diffEl.className = 'cs-diff'; return; }
-    const diff = total - dayTotal;
-    if (Math.abs(diff) < 1) { diffEl.textContent = `✅ Сходится с "Всего за день" (${fm(dayTotal)} ₽)`; diffEl.className = 'cs-diff ok'; }
-    else if (diff > 0) { diffEl.textContent = `⚠️ Сумма машин больше "Всего за день" на ${fm(diff)} ₽`; diffEl.className = 'cs-diff bad'; }
-    else { diffEl.textContent = `⚠️ Не хватает ${fm(-diff)} ₽ до "Всего за день" (${fm(dayTotal)} ₽)`; diffEl.className = 'cs-diff bad'; }
+    // «Всего за день» включает И машины с ЗН, И прямые продажи (заказы покупателя, zpDay).
+    // Поэтому в сверку добавляем прямые продажи, иначе плашка ложно показывает «не хватает»
+    // ровно на их сумму (см. случай Совхозной: 9 ЗН + 1 прямая продажа = total_day).
+    const directSales = (zpDay.corp || 0) + (zpDay.retail || 0);
+    const entered = total + directSales;        // всё введённое по точке за день
+    const dsNote = directSales > 0 ? ` (машины ${fm(total)} + прямые ${fm(directSales)})` : '';
+    const diff = entered - dayTotal;
+    if (Math.abs(diff) < 1) { diffEl.textContent = `✅ Сходится с "Всего за день" (${fm(dayTotal)} ₽)${dsNote}`; diffEl.className = 'cs-diff ok'; }
+    else if (diff > 0) { diffEl.textContent = `⚠️ Введено больше "Всего за день" на ${fm(diff)} ₽${dsNote}`; diffEl.className = 'cs-diff bad'; }
+    else { diffEl.textContent = `⚠️ Не хватает ${fm(-diff)} ₽ до "Всего за день" (${fm(dayTotal)} ₽)${dsNote}`; diffEl.className = 'cs-diff bad'; }
   }
 
   // Автозаполнение счётчиков и дневного вала из карточек машин + выданных машин cars_in_work.
