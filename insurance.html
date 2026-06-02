@@ -1261,8 +1261,21 @@
     'абсолютстрахование':'absolut','ренессанс':'renessans','гелиос':'helios',
     'скинтери':'interi','совкомбанк':'sovkombank','энергогарант':'energo','энергогарантмск':'energo_msk',
     // Короткие формы из «Вид Заказ-наряда» (выгрузка направлений Ижевска):
-    'ресо':'reso','интери':'interi','энгмосква':'energo_msk','скгранта':'granta','гранта':'granta',
+    'ресо':'reso','интери':'interi','энгмосква':'energo_msk','энгмск':'energo_msk','скгранта':'granta','гранта':'granta',
   };
+  // Резолв СК из произвольного текста: сперва точный алиас, иначе матч ПО ВХОЖДЕНИЮ
+  // против справочника (как в каналах) — чтобы полные юр-имена «САО РЕСО-ГАРАНТИЯ»,
+  // «…ИНГОССТРАХ ПАО», «АЛЬФАСТРАХОВАНИЕ НАО», «ВСК САО» распознавались сами.
+  // companyRoots() объявлена ниже (function declaration, поднимается) и использует
+  // загруженный справочник companies; при импорте он уже загружен.
+  function recResolveCompany(raw){
+    if (!raw) return null;
+    const n = recNorm(raw);
+    if (!n) return null;
+    if (REC_COMPANY_MAP[n]) return REC_COMPANY_MAP[n];
+    try { for (const c of companyRoots()) { if (n.includes(c.root)) return c.id; } } catch(e){}
+    return null;
+  }
   // Сопоставление территории → point_id ПО КОРНЮ (вхождение), а не точным
   // совпадением: в файле бывает «Б. Серпуховская», «Калужская ул.» и т.п.
   // МГТ исключён намеренно — это скрытый проект/контрагент, а НЕ точка.
@@ -1396,7 +1409,7 @@
           rec_type:   r[C.type] || null,
           stage:      recStage(r[C.type]),
           amount:     recParseAmount(r[C.sum]),
-          company_id: REC_COMPANY_MAP[recNorm(skRaw)] || null,
+          company_id: recResolveCompany(skRaw),
           company_raw: skRaw || null,
           point_id:   recMatchPoint(r[C.terr]),
           point_raw:  r[C.terr] || null,
