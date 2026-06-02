@@ -1574,7 +1574,7 @@
   let znMaxDebt = new Map();    // ключ → макс. долг по строкам заказа (для проверки оплаты)
   let znCategory = new Map();   // ключ → категория заказа (equity/corp/retail/detail)
   let znHasRegistry = new Map(); // ключ → реестр отправлен (есть label или date)
-  let recFunnelMode = 'snapshot'; // 'snapshot' | 'month'
+  let recFunnelMode = 'month'; // 'snapshot' | 'month' — дефолт: поступления выбранного месяца
   let recFunnelAllPoints = false; // false = только город из шапки, true = все точки
 
   const FUNNEL_STAGES = [
@@ -1721,8 +1721,10 @@
   // point_id текущего города (points уже отфильтрован по format в loadAll).
   function funnelCityPointIds() { return points.map(p => p.id); }
 
-  // Рекомендации под текущие фильтры (город + режим месяца).
-  function funnelFilteredRecs() {
+  // Рекомендации текущего города БЕЗ фильтра по месяцу — основа для задач-сторожей
+  // (toService/needDocs/mismatch...): они должны видеть висяки всех периодов,
+  // иначе незакрытое из прошлого месяца перестанет гореть.
+  function funnelCityRecs() {
     let list = recsData.slice();
     if (!recFunnelAllPoints) {
       const ids = new Set(funnelCityPointIds());
@@ -1730,6 +1732,13 @@
       // чтобы не приписать нераспознанную точку чужому городу.
       list = list.filter(r => r.point_id && ids.has(r.point_id));
     }
+    return list;
+  }
+
+  // Рекомендации под текущие фильтры (город + режим месяца). Основа СТАДИЙ воронки
+  // («поступления»): в режиме 'month' — только пришедшие в выбранном месяце по rec_date.
+  function funnelFilteredRecs() {
+    let list = funnelCityRecs();
     if (recFunnelMode === 'month') {
       const period = getPeriod();
       list = list.filter(r => r.rec_date && String(r.rec_date).substring(0, 7) === period);
@@ -1745,40 +1754,46 @@
   }
 
   function funnelCompute() {
-    const recs = funnelFilteredRecs();
+    const recs = funnelFilteredRecs();   // поступления выбранного периода → стадии воронки
+    const snap = funnelCityRecs();       // снимок всех периодов → задачи-сторожа (висяки не теряются)
     const byStage = {};
     FUNNEL_STAGES.forEach(s => { byStage[s.key] = { count: 0, amount: 0 }; });
     const other = { count: 0, amount: 0 };
-    const toService = [];      // отгружен И оплачен (долг СК погашен), но Сервисная не подтверждена
-    const awaitingPay = [];    // отгружен, но СК ещё должна (debt > 0) — переводить рано
-    const mismatch = [];       // отгружен, страховой (equity), но company_id пустой
-    const confirmed = [];      // подтверждены вручную (service_confirmed_at стоит)
-    const foreign = [];        // ЗН отгружён, но категория не страховая (corp/retail/detail) — чужие
-    const needDocs = [];       // отгружен страховой, но реестр не отправлен (документы не сданы в СК)
+    const confirmed = [];      // подтверждены вручную — в разрезе периода (согласовано со стадией «Отгружено»)
 
+    // --- СТАДИИ: поступления выбранного периода (по rec_date) ---
+    let stageCount = 0, stageAmount = 0;
     recs.forEach(r => {
-      // «Чужих» (не-страховые отгруженные ЗН) полностью исключаем из воронки и задач.
-      if (znIsForeign(r.zn_number, r.point_id)) { foreign.push(r); return; }
-
+      // «Чужих» (не-страховые отгруженные ЗН) полностью исключаем из воронки.
+      if (znIsForeign(r.zn_number, r.point_id)) return;
       const amt = +r.amount || 0;
       const st = effStage(r);
       if (byStage[st]) { byStage[st].count++; byStage[st].amount += amt; }
       else { other.count++; other.amount += amt; }
+      if (r.service_confirmed_at) confirmed.push(r);
+      stageCount++; stageAmount += amt;
+    });
+
+    // --- ЗАДАЧИ-СТОРОЖА: снимок «что висит сейчас», по всем периодам ---
+    // (намеренно НЕ ограничиваем месяцем — иначе незакрытый висяк из прошлого месяца пропадёт)
+    const toService = [];      // отгружен И оплачен (долг СК погашен), но Сервисная не подтверждена
+    const awaitingPay = [];    // отгружен, но СК ещё должна (debt > 0) — переводить рано
+    const mismatch = [];       // отгружен, страховой (equity), но company_id пустой
+    const foreign = [];        // ЗН отгружён, но категория не страховая — чужие
+    const needDocs = [];       // отгружен страховой, но реестр не отправлен
+    snap.forEach(r => {
+      if (znIsForeign(r.zn_number, r.point_id)) { foreign.push(r); return; }
       const shipped = r.zn_number && shippedZnSet.has(znKey(r.point_id, r.zn_number));
       const paid = znPaid(r.zn_number, r.point_id);
       const active = !r.service_confirmed_at && (r.stage === 'work' || r.stage === 'priem');
-      // Готов к Сервисной: отгружен, долг СК погашен, ещё не подтверждён.
       if (shipped && paid && active) toService.push(r);
-      // Отгружен, но СК ещё не доплатила — ждём оплаты, не переводим.
       if (shipped && !paid && active) awaitingPay.push(r);
       if (shipped && !r.company_id) mismatch.push(r);
-      if (r.service_confirmed_at) confirmed.push(r);
-      // Документы: отгружен, но реестр (дата+номер) ещё не проставлен → надо отправить.
       if (shipped && !znRegistrySent(r.zn_number, r.point_id)) needDocs.push(r);
     });
 
-    const totalCount = recs.length - foreign.length; // чужих не считаем в итог
-    const totalAmount = recs.reduce((s, r) => znIsForeign(r.zn_number, r.point_id) ? s : s + (+r.amount || 0), 0);
+    const totalCount = stageCount;        // итог воронки = поступления периода
+    const totalAmount = stageAmount;
     const inWorkCount = byStage.priem.count + byStage.work.count;
     return { byStage, other, totalCount, totalAmount, inWorkCount, toService, awaitingPay, mismatch, confirmed, foreign, needDocs };
   }
@@ -1863,6 +1878,11 @@
     if (f.foreign.length) {
       // Плашку «Не наши» намеренно не показываем: исключение чужих ЗН
       // (корпоратив/розница) работает молча, постоянная техническая плашка не нужна.
+    }
+    // Воронка показывает поступления выбранного месяца, а задачи — снимок всех периодов.
+    // Подписываем, чтобы не путать (иначе «отгружено за июнь = мало», а «перевести = много»).
+    if (tasksHtml && recFunnelMode === 'month') {
+      tasksHtml = `<div style="font-size:11px;color:var(--muted);margin:2px 2px 7px;letter-spacing:.3px;">⚙ Задачи ниже — по всем периодам, не только за ${escapeHtml(formatMonth())}</div>` + tasksHtml;
     }
     if (!tasksHtml) {
       tasksHtml = `<div class="fn-task ok">
