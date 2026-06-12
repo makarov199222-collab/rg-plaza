@@ -394,6 +394,22 @@
   }
   @media (max-width:900px){.channels-grid{grid-template-columns:1fr;}}
 
+  /* Две колонки внутри карточки точки: РАВТ | Локальные */
+  .cx-cols{ display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:start; }
+  .cx-col{ min-width:0; }
+  .cx-col + .cx-col{ border-left:1px solid var(--border); padding-left:12px; }
+  .cx-col-head{ display:flex; align-items:baseline; justify-content:space-between; gap:6px;
+    margin:2px 0 4px; padding-bottom:4px; border-bottom:1px solid var(--border); }
+  .cx-col-title{ font-size:11px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; color:var(--text-dim); }
+  .cx-col-sub{ font-size:10px; color:var(--muted); white-space:nowrap; }
+  .cx-col-empty{ padding:12px 4px; text-align:center; color:var(--muted); font-size:12px; }
+  .cx-none-block{ margin-top:10px; padding-top:8px; border-top:1px dashed var(--border); }
+  /* На узком экране колонки в столбик, без вертикального разделителя */
+  @media (max-width:680px){
+    .cx-cols{ grid-template-columns:1fr; }
+    .cx-col + .cx-col{ border-left:none; padding-left:0; border-top:1px solid var(--border); padding-top:8px; }
+  }
+
   /* ============== CHANNEL CARD ============== */
   .channel-card{
     background:var(--surface);
@@ -2104,29 +2120,53 @@
 
       const fillClass = total > 0 ? 'fill-full' : 'fill-empty';
       const badge = total > 0 ? `${total} напр · ${headSumFmt(totalSum)}` : 'Нет направлений';
-      const channelsShown = ['ravt', 'local', 'none'].filter(k => Object.values(byCh[k]).some(v => v.count > 0)).length;
 
-      let body = '';
+      // Строки СК внутри одного канала (отсортированы по кол-ву).
+      const chRows = ch => Object.entries(byCh[ch])
+        .map(([cid, v]) => ({ cid, name: coName(cid), count: v.count, sum: v.sum }))
+        .filter(x => x.count > 0)
+        .sort((a, b) => b.count - a.count || b.sum - a.sum)
+        .map(x => `<div class="cx-row">
+            <div class="cx-num">${x.count}</div>
+            <div class="cx-mid">
+              <div class="cx-name"${x.cid === '__none' ? ' style="color:var(--muted);"' : ''}>${escapeHtml(x.name)}</div>
+              <div class="cx-meta"><span class="cx-sum">${fmt(x.sum)} ₽</span>${x.cid === '__none' ? ' · нет распознанной СК' : ''}</div>
+            </div>
+          </div>`).join('');
+
+      // Итог по каналу для подзаголовка колонки.
+      const chTotal = ch => Object.values(byCh[ch]).reduce((a, v) => ({ count: a.count + v.count, sum: a.sum + v.sum }), { count: 0, sum: 0 });
+
+      // Одна колонка канала. Если данных нет — мягкая заглушка (важно для Москвы:
+      // колонка «Локальные» всегда на месте, готова к появлению прямых направлений).
+      const colHtml = ch => {
+        const t = chTotal(ch);
+        const rows = chRows(ch);
+        const sub = t.count > 0 ? `${t.count} напр · ${fmt(t.sum)} ₽` : '';
+        return `<div class="cx-col">
+          <div class="cx-col-head">
+            <span class="cx-col-title">${escapeHtml(CH_LABEL[ch])}</span>
+            ${sub ? `<span class="cx-col-sub">${sub}</span>` : ''}
+          </div>
+          ${rows || `<div class="cx-col-empty">${ch === 'local' ? 'Нет прямых направлений' : 'Нет направлений'}</div>`}
+        </div>`;
+      };
+
+      let body;
       if (total === 0) {
         body = `<div class="cx-empty">Нет направлений за ${escapeHtml(formatMonth())}</div>`;
       } else {
-        ['ravt', 'local', 'none'].forEach(ch => {
-          const entries = Object.entries(byCh[ch])
-            .map(([cid, v]) => ({ cid, name: coName(cid), count: v.count, sum: v.sum }))
-            .filter(x => x.count > 0)
-            .sort((a, b) => b.count - a.count || b.sum - a.sum);
-          if (!entries.length) return;
-          if (channelsShown > 1) {
-            body += `<div class="ch-section-lbl" style="margin:7px 0 3px;font-size:11px;">${escapeHtml(CH_LABEL[ch])}</div>`;
-          }
-          body += entries.map(x => `<div class="cx-row">
-              <div class="cx-num">${x.count}</div>
-              <div class="cx-mid">
-                <div class="cx-name"${x.cid === '__none' ? ' style="color:var(--muted);"' : ''}>${escapeHtml(x.name)}</div>
-                <div class="cx-meta"><span class="cx-sum">${fmt(x.sum)} ₽</span>${x.cid === '__none' ? ' · нет распознанной СК' : ''}</div>
-              </div>
-            </div>`).join('');
-        });
+        // Две колонки рядом: РАВТ | Локальные.
+        let cols = `<div class="cx-cols">${colHtml('ravt')}${colHtml('local')}</div>`;
+        // «Канал уточняется» (нет контрагента) — не колонка, а предупреждение под ними:
+        // это сигнал «разобрать оформление в 1С», показываем только если есть.
+        if (chTotal('none').count > 0) {
+          cols += `<div class="cx-none-block">
+            <div class="cx-col-head"><span class="cx-col-title" style="color:var(--warn,#e0a23a);">${escapeHtml(CH_LABEL.none)}</span></div>
+            ${chRows('none')}
+          </div>`;
+        }
+        body = cols;
       }
 
       cards += `<div class="channel-card ${fillClass}">
